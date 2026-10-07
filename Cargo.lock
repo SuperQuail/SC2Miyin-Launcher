@@ -1860,7 +1860,7 @@ dependencies = [
 
 [[package]]
 name = "miyin-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "dirs 7.0.0",
  "encoding_rs",
@@ -1876,7 +1876,7 @@ dependencies = [
 
 [[package]]
 name = "miyin-launcher"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "miyin-core",
  "rfd",

@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main, release]
+  pull_request:
+    branches: [dev, main, release]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 领域核心：最快的一组，两个平台都跑，确保没有平台相关的问题
+  core:
+    name: 核心测试 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: 格式检查
+        run: cargo fmt --all -- --check
+
+      - name: Clippy（核心库）
+        run: cargo clippy -p miyin-core --all-targets --all-features -- -D warnings
+
+      - name: 测试（核心库）
+        run: cargo test -p miyin-core
+
+  # 前端：类型检查 + 打包
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+      - name: 安装依赖
+        run: pnpm -C ui install --frozen-lockfile
+      - name: 类型检查 + 打包
+        run: pnpm -C ui build
+
+  # 桌面端：整工作区的 clippy / 测试 / release 构建，只在 Windows 跑
+  # （Tauri 在 Linux 上要装 webkit2gtk，而星际争霸 II 本来也只有 Windows 客户端）
+  desktop:
+    name: 桌面端 (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: 前端产物（Tauri 构建需要 ui/dist 存在）
+        run: |
+          pnpm -C ui install --frozen-lockfile
+          pnpm -C ui build
+
+      - name: Clippy（整个工作区）
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: 测试（整个工作区）
+        run: cargo test --workspace
+
+      - name: release 构建
+        # 少了 custom-protocol 就不会内嵌前端，启动后一片 ERR_CONNECTION_REFUSED
+        run: cargo build --release -p miyin-launcher --features custom-protocol
+
+      - name: 确认前端真的被内嵌了
+        shell: pwsh
+        run: |
+          # 普通 cargo build 产出的名字取自 [package] name；
+          # tauri.conf.json 的 productName 只影响 tauri build 的打包阶段
+          $exe = 'target/release/miyin-launcher.exe'
+          if (-not (Test-Path $exe)) { throw "没找到 $exe" }
+          $size = (Get-Item $exe).Length / 1MB
+          Write-Host "产物大小: $[math]::Round($size, 2) MB"
+          # 只嵌了壳的话只有 7 MB 出头；带上前端会明显更大
+          if ($size -lt 8) { throw 'exe 太小了，前端多半没内嵌进去' }

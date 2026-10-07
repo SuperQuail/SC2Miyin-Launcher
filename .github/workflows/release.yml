@@ -1,0 +1,73 @@
+name: Release
+
+# 打 tag 触发：git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+# 也可以手动跑（workflow_dispatch），用来补发或试跑
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write      # 创建 Release 需要
+
+jobs:
+  windows:
+    name: 打包 Windows 绿色版
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - name: 前端产物
+        run: |
+          pnpm -C ui install --frozen-lockfile
+          pnpm -C ui build
+
+      - name: 构建 release
+        # release 必须带 custom-protocol，否则不会把 ui/dist 内嵌进二进制
+        run: cargo build --release -p miyin-launcher --features custom-protocol
+
+      - name: 打包绿色版
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          if (-not $version) { $version = '0.0.0-dev' }
+          $stage = "SC2Miyin-Launcher-$version-win64"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字
+          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin Launcher.exe"
+          Copy-Item 'docs/使用说明.txt' "$stage/"
+          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
+          $mb = [math]::Round((Get-Item "$stage.zip").Length / 1MB, 2)
+          Write-Host "打包完成: $stage.zip ($mb MB)"
+          "ASSET=$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 附到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          # 自动按 PR / commit 归类生成说明，再拼上人工写的发行说明
+          generate_release_notes: true
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          # 版本号里带 - 的（如 0.1.0-alpha.1）自动标成预发行
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          draft: false
+
+      - name: 归档构建产物（方便排查）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SC2Miyin-Launcher-win64
+          path: SC2Miyin-Launcher-*-win64.zip
+          if-no-files-found: warn

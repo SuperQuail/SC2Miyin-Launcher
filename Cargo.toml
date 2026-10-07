@@ -3,12 +3,13 @@ resolver = "3"
 members = ["crates/*", "src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["TangTian <3331347593@qq.com>"]
-description = "弥音启动器 —— 星际争霸 II 战役与 Mod 管理器"
-# license / repository 待定，见 AGENTS.md §12.2
+description = "SC2Miyin Launcher（弥音启动器）—— 星际争霸 II 战役与补丁管理器"
+license = "MIT"
+repository = "https://github.com/SuperQuail/SC2Miyin-Launcher"
 
 [workspace.dependencies]
 

@@ -9,8 +9,13 @@
 
 | 项 | 值 |
 | --- | --- |
+| 项目名 | **SC2Miyin Launcher**（仓库 / 发行物名） |
 | 中文名 | 弥音启动器 |
 | 英文名 | MiYin Launcher |
+| 组织 | [SuperQuail](https://github.com/SuperQuail) |
+| 仓库 | https://github.com/SuperQuail/SC2Miyin-Launcher |
+| 当前版本 | `0.1.0-alpha.1`（在 `Cargo.toml` 的 `[workspace.package] version`） |
+| 许可证 | MIT |
 | 曾用名 | HSCL / Hello StarCraft Launcher（历史名称，仅本地目录仍在用） |
 | 本地目录 | `D:\Code\Rust\HSCL`（目录名暂未随改名调整，避免破坏现有工作流） |
 | 语言 | **Rust**（核心）+ 前端技术栈（见 §3） |
@@ -174,13 +179,17 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 
 ### 7.1 分支模型
 
-| 分支 | 用途 |
-| --- | --- |
-| `main` | 稳定分支，随时可发布；**禁止**直接推送，走 PR |
-| `dev` | 集成分支（可选，视协作规模启用） |
-| `feat/<简短描述>` | 新功能 |
-| `fix/<简短描述>` | 缺陷修复 |
-| `chore/<简短描述>` | 构建、依赖、文档等杂项 |
+| 分支 | 用途 | CI |
+| --- | --- | --- |
+| `dev` | **日常开发**：所有特性与修复先合到这里 | 必跑 |
+| `main` | **稳定分支**：只接受从 `dev` 合并的提交，随时可发布 | 必跑 |
+| `release` | **发版分支**：只接受从 `main` 合并的提交，tag 从这里打 | 必跑 |
+| `feat/<简短描述>` | 新功能，合回 `dev` | 跑 |
+| `fix/<简短描述>` | 缺陷修复，合回 `dev` | 跑 |
+| `chore/<简短描述>` | 构建、依赖、文档等杂项 | 跑 |
+
+流向固定：`feat/*` → `dev` → `main` → `release` → tag。
+**不要跳级合并，也不要直接往 `main` / `release` 推。**
 
 ### 7.2 提交信息 — Conventional Commits
 
@@ -197,9 +206,29 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 
 ### 7.3 发布
 
-- 版本号遵循 **SemVer**，打成 `vX.Y.Z` tag。
-- 发布由 tag 触发 CI 构建 Windows 安装包（Tauri 的 NSIS/MSI 目标）并附到 GitHub Release。
-- 首个公开版本前需补齐：`LICENSE`、`README.md`、`CONTRIBUTING.md`、Issue 模板、CI 工作流。
+版本号遵循 **SemVer**；预发行用 `-alpha.N` / `-beta.N` 后缀，当前 `0.1.0-alpha.1`。
+
+发版流程：
+
+1. 改版本号，**三处必须一致**：
+   `Cargo.toml` 的 `[workspace.package] version`、`ui/package.json`、
+   `src-tauri/tauri.conf.json`。
+2. 写发行说明 `docs/release-notes/v<版本>.md` —— CI 会把它作为 Release 正文，
+   **文件名必须与 tag 完全对应**（`v0.1.0-alpha.1` 对 `v0.1.0-alpha.1.md`）。
+3. 更新 `CHANGELOG.md`。
+4. 从 `main` 合到 `release`，打 tag 并推送：
+
+   ```bash
+   git checkout release && git merge main && git push origin release
+   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+   ```
+
+5. `.github/workflows/release.yml` 自动构建 Windows 绿色版并附到 Release。
+   版本号里带 `-` 的会**自动标成预发行**。
+
+⚠️ **改完版本号务必确认文件仍是 UTF-8**：PowerShell 的 `Set-Content` 默认按 ANSI 写盘，
+会把中文写成非法字节 —— `cargo` 会直接报 `path was not valid utf-8`。
+用编辑器以 UTF-8 保存，或用 Python 脚本改（踩过一次）。
 
 ### 7.4 仓库卫生
 
@@ -367,15 +396,19 @@ StarCraft II/
 
 ### 12.2 待确认（TODO）
 
-- [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
-- [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
+- [x] **许可证**：定为 **MIT**（宽松、便于被广泛集成）。HMCL 是 GPL-3.0、
+      scnexus 是 BSD-3-Clause，本项目**没有**复用它们的代码。
+- [x] **仓库命名**：`SuperQuail/SC2Miyin-Launcher`。
+      本地目录 `HSCL` 暂不改名，避免破坏现有工作流。
+- [x] **CI**：`.github/workflows/ci.yml`（核心测试双平台 / 前端构建 / 桌面端整工作区）。
 - [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.10）。
 - [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
 - [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
       （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
 - [x] **包格式规范**：已写成 `docs/package-format.md`（兼容 CCM 与枢纽标准 + 弥音扩展）。
 - [ ] 包格式的**可视化说明**：给包作者一份带示例的打包指南（放 `docs/`）。
-- [ ] `README.md` / `LICENSE` / `CONTRIBUTING.md` / Issue 模板 / CI 工作流（公开发布前必备，见 §7.3）。
+- [x] `README.md` / `LICENSE` / `CHANGELOG.md` / CI 工作流。
+- [ ] `CONTRIBUTING.md` 与 Issue / PR 模板（欢迎外部贡献前补齐）。
 
 ---
 
