@@ -331,7 +331,11 @@ mod tests {
         let archive = build_zip(
             dir.path(),
             "evil2.zip",
-            &[("metadata.txt", b"title=..\ncampaign=WOL\n")],
+            &[
+                ("metadata.txt", b"title=..\ncampaign=WOL\n"),
+                // 包里得有点内容，否则会被判成"空包、不可安装"
+                ("maps/01.SC2Map", b"stub"),
+            ],
         );
 
         let campaign = install(&installation, &archive).expect("应退回使用压缩包名完成安装");

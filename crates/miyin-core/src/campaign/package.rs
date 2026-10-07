@@ -676,6 +676,22 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     // ---- 载荷：地图与模组（文件或解开的目录树） ----
     let payloads = collect_payloads(&entries, &content_root);
 
+    // 启发式：**只有模组、一张地图都没有** 且元数据没表态 -> 判定为补丁。
+    // 现实里的补丁（幼儿园补丁、优化覆盖补丁……）正是这个样子：一堆 .SC2Mod，没有 metadata。
+    //
+    // **必须排在归属判定之前**：补丁本来就没有"归属"这回事（目标由挂到谁身上决定），
+    // 先判补丁就不会去猜它是哪部战役的，也不会刷无意义的 CAMPAIGN_UNKNOWN。
+    if declared_kind == PackageKind::Campaign
+        && !payloads.is_empty()
+        && payloads.iter().all(|payload| payload.is_mod)
+    {
+        declared_kind = PackageKind::Patch;
+        issues.push(HealthIssue::warning(
+            "PATCH_INFERRED",
+            "包内只有模组、没有地图，已按补丁处理",
+        ));
+    }
+
     // ---- 归属判定：按可靠度从高到低 ----
     //
     // 1. 元数据里的 campaign 字段（读到就不进这里）
@@ -685,7 +701,11 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     //
     // 补丁不参与：它的目标战役由"挂到谁身上"决定，不由包里声明。
     let mut identification: Option<Identification> = None;
-    if declared_kind == PackageKind::Campaign && !campaign_type.is_actionable() {
+    // 包是空的就没什么可判的 —— 已经报过 NO_CONTENT，不必再刷一条
+    if declared_kind == PackageKind::Campaign
+        && !campaign_type.is_actionable()
+        && !payloads.is_empty()
+    {
         let mirror_paths: Vec<String> = payloads
             .iter()
             .map(|payload| payload.target_path())
@@ -727,35 +747,18 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let map_count = payloads.iter().filter(|payload| !payload.is_mod).count();
     let mod_count = payloads.iter().filter(|payload| payload.is_mod).count();
 
+    // 空包直接判为不可安装，而不是"可安装但没有内容" ——
+    // 现实里这多半意味着包是坏的或下载不完整
     if payloads.is_empty() {
         issues.push(
-            HealthIssue::warning("NO_CONTENT", "包内没有找到 .SC2Map 地图或 .SC2Mod 模组")
-                .with_hint("这可能不是战役包，或使用了未支持的打包方式"),
+            HealthIssue::broken("NO_CONTENT", "包内没有找到 .SC2Map 地图或 .SC2Mod 模组")
+                .with_hint("包可能是坏的、下载不完整，或者根本不是战役包"),
         );
     }
 
     // 最小地图包：没有任何元数据时，名字取压缩包名、作者记为未知
     if format == CampaignFormat::Plain && author.is_none() {
         author = Some(UNKNOWN_AUTHOR.to_string());
-    }
-
-    // 启发式：**只有模组、一张地图都没有** 且元数据没表态 -> 判定为补丁。
-    // 现实里的补丁（幼儿园补丁、优化覆盖补丁……）正是这个样子：一堆 .SC2Mod，没有 metadata。
-    if declared_kind == PackageKind::Campaign
-        && !payloads.is_empty()
-        && payloads.iter().all(|payload| payload.is_mod)
-        && !matches!(campaign_type, CampaignType::Other(_))
-    {
-        declared_kind = PackageKind::Patch;
-    } else if declared_kind == PackageKind::Campaign
-        && !payloads.is_empty()
-        && payloads.iter().all(|payload| payload.is_mod)
-    {
-        declared_kind = PackageKind::Patch;
-        issues.push(HealthIssue::warning(
-            "PATCH_INFERRED",
-            "包内只有模组、没有地图，已按补丁处理",
-        ));
     }
 
     if declared_kind == PackageKind::Patch && declared_requires.is_empty() {
