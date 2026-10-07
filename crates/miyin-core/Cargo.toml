@@ -1,0 +1,22 @@
+[package]
+name = "miyin-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "弥音启动器核心库：星际争霸 II 安装发现、战役扫描与安装"
+
+[dependencies]
+dirs = "7.0.0"
+encoding_rs = "0.8.35"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"
+walkdir = "2.5.0"
+zip = "7.2.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[target."cfg(windows)".dependencies]
+winreg = "0.56.0"

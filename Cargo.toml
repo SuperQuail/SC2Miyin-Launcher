@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["TangTian <3331347593@qq.com>"]
+description = "弥音启动器 —— 星际争霸 II 战役与 Mod 管理器"
+# license / repository 待定，见 AGENTS.md §12.2
+
+[workspace.dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
