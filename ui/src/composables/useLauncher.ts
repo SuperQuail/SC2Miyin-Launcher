@@ -21,6 +21,9 @@ const libraryRoot = ref("");
 const loading = ref(false);
 const busy = ref(false);
 const ready = ref(false);
+/** 被拖进窗口的压缩包路径；战役页取走后会清空。 */
+const droppedPackage = ref<string | null>(null);
+
 const toast = ref<Toast | null>(null);
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -157,6 +160,7 @@ async function reveal(path: string): Promise<void> {
 
 export function useLauncher() {
   return {
+    droppedPackage,
     isDesktop,
     installation: computed(() => installation.value),
     slots: computed(() => slots.value),

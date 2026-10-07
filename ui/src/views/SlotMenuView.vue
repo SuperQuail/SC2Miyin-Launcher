@@ -112,6 +112,65 @@ async function importPatch(): Promise<void> {
   }
 }
 
+/* ---------------- 补丁的编辑与导出 ---------------- */
+
+const editingPatch = ref<BoundPatch | null>(null);
+const patchForm = ref({
+  name: "",
+  author: "",
+  registrationId: "",
+  description: "",
+  priority: 100,
+});
+
+function openPatchEdit(item: BoundPatch): void {
+  editingPatch.value = item;
+  patchForm.value = {
+    name: item.name,
+    author: item.author ?? "",
+    registrationId: item.registration_id ?? "",
+    description: item.description ?? "",
+    priority: item.priority,
+  };
+}
+
+async function savePatchEdit(): Promise<void> {
+  const target = editingPatch.value;
+  if (!target) return;
+
+  try {
+    await api.updatePatch(target.id, {
+      name: patchForm.value.name,
+      author: patchForm.value.author,
+      registrationId: patchForm.value.registrationId,
+      description: patchForm.value.description,
+      priority: patchForm.value.priority,
+    });
+    editingPatch.value = null;
+    await loadPatches();
+    notify("success", "已保存");
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
+
+/** 单独导出一个补丁包。 */
+async function exportPatchItem(item: BoundPatch): Promise<void> {
+  try {
+    const destination = await api.pickExportPath(item.name);
+    if (!destination) return;
+
+    exporting.value = true;
+    const report = await api.exportPatch(item.id, destination);
+    const parts = [report.maps + " 张地图", report.mods + " 个模组"];
+    notify("success", "补丁已导出：" + parts.join(" · "));
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    exporting.value = false;
+  }
+}
+
 /* ---------------- 编辑元数据 ---------------- */
 
 const editing = ref<Variant | null>(null);
@@ -276,6 +335,10 @@ async function doExport(mergePatches: boolean): Promise<void> {
               @change="setPriority(item, ($event.target as HTMLInputElement).value)"
             />
           </label>
+          <button class="btn btn-text" type="button" @click="openPatchEdit(item)">编辑</button>
+          <button class="btn btn-text" type="button" :disabled="exporting" @click="exportPatchItem(item)">
+            导出
+          </button>
           <button class="btn btn-text" type="button" @click="unbindPatch(item)">移出</button>
         </li>
       </ul>
@@ -334,6 +397,42 @@ async function doExport(mergePatches: boolean): Promise<void> {
         {{ dirty ? "启用这个版本" : "已是当前版本" }}
       </button>
     </footer>
+    <!-- 编辑补丁 -->
+    <div v-if="editingPatch" class="sheet">
+      <div class="sheet__card">
+        <h3 class="sheet__title">编辑补丁「{{ editingPatch.name }}」</h3>
+        <p class="sheet__note">
+          同样只改启动器记录的元数据，不动包内容，也不影响它已经挂在哪些战役上。
+        </p>
+
+        <label class="field">
+          <span class="field__label">补丁名</span>
+          <input v-model="patchForm.name" class="field__input" type="text" />
+        </label>
+        <label class="field">
+          <span class="field__label">作者</span>
+          <input v-model="patchForm.author" class="field__input" type="text" placeholder="未知作者" />
+        </label>
+        <label class="field">
+          <span class="field__label">注册 ID</span>
+          <input v-model="patchForm.registrationId" class="field__input" type="text" />
+        </label>
+        <label class="field">
+          <span class="field__label">默认优先级</span>
+          <input v-model.number="patchForm.priority" class="field__input" type="number" />
+        </label>
+        <label class="field">
+          <span class="field__label">描述</span>
+          <textarea v-model="patchForm.description" class="field__input" rows="3"></textarea>
+        </label>
+
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="editingPatch = null">取消</button>
+          <button class="btn btn-primary" type="button" @click="savePatchEdit">保存</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 编辑元数据 -->
     <div v-if="editing" class="sheet">
       <div class="sheet__card">

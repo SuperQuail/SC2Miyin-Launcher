@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import { api } from "../api/bridge";
 import { MIYIN, formatBytes } from "../api/art";
@@ -20,6 +20,7 @@ const {
   chooseGameDirectory,
   bootstrap,
   notify,
+  droppedPackage,
 } = useLauncher();
 
 /** 当前打开的战役槽位。 */
@@ -101,8 +102,16 @@ async function startImport(): Promise<void> {
   try {
     const path = await api.pickPackage();
     if (!path) return;
+    await prepare(path);
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
 
-    importing.value = true;
+/** 预检一个包 —— 选文件和拖进来走的是同一条路。 */
+async function prepare(path: string): Promise<void> {
+  importing.value = true;
+  try {
     const result = await api.prepareImport(path);
     pending.value = { preview: result, slot: result.slot ?? "", mode: "rename" };
   } catch (error) {
@@ -111,6 +120,13 @@ async function startImport(): Promise<void> {
     importing.value = false;
   }
 }
+
+// 拖进来的包：交给同一套预检流程
+watch(droppedPackage, (path) => {
+  if (!path) return;
+  droppedPackage.value = null;
+  void prepare(path);
+});
 
 /** 补丁包不进战役：导入补丁库，之后到对应战役里挂载。 */
 async function confirmPatchImport(): Promise<void> {

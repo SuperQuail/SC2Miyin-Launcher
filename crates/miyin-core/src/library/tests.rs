@@ -917,3 +917,126 @@ fn exporting_with_merged_patches_puts_them_on_top() {
     let back = package::inspect(&merged).expect("inspect");
     assert_eq!(back.mod_count, 1);
 }
+
+#[test]
+fn exported_patch_round_trips_as_a_patch() {
+    let fixture = fixture();
+
+    let patch_zip = build_zip(
+        fixture.work.path(),
+        "kindergarten.zip",
+        &[
+            (
+                "patch.txt",
+                "name=幼儿园补丁\nauthor=小白\nversion=3.0\nrequires=KerriganRogue\npriority=150\n",
+            ),
+            ("Mods/KerriganRogue.SC2Mod", "补丁内容"),
+        ],
+    );
+    let patch = patch::import_patch(&fixture.library, &patch_zip).expect("import patch");
+    assert_eq!(patch.priority, 150);
+
+    let destination = fixture.work.path().join("补丁导出.zip");
+    let report = crate::library::export::export_patch(&fixture.library, &patch, &destination)
+        .expect("export patch");
+    assert_eq!(report.mods, 1);
+    assert_eq!(report.maps, 0);
+
+    // 重新导入：必须还是补丁，元数据与依赖不能丢
+    let back = package::inspect(&destination).expect("inspect export");
+    assert_eq!(
+        back.kind,
+        crate::campaign::metadata::PackageKind::Patch,
+        "导出物必须仍被认成补丁"
+    );
+    assert_eq!(back.name.as_deref(), Some("幼儿园补丁"));
+    assert_eq!(back.author.as_deref(), Some("小白"));
+    assert_eq!(back.version.as_deref(), Some("3.0"));
+    assert_eq!(back.priority, Some(150));
+    assert_eq!(back.requires, vec!["KerriganRogue".to_string()]);
+
+    // 内容是**平铺**的：裸的 .SC2Mod 重新导入时会落到 Mods/ 下，
+    // 因此补丁能挂到任意战役上，而不是写死某个目录
+    let file = std::fs::File::open(&destination).expect("open");
+    let mut zip = zip::ZipArchive::new(file).expect("zip");
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|index| {
+            zip.by_index(index)
+                .ok()
+                .map(|entry| entry.name().to_string())
+        })
+        .collect();
+    assert!(names.contains(&"patch.txt".to_string()));
+    assert!(
+        names.contains(&"KerriganRogue.SC2Mod".to_string()),
+        "补丁内容要平铺在根"
+    );
+    assert!(names.contains(&"Miyin/metadata.json".to_string()));
+    assert!(
+        !names.iter().any(|name| name.starts_with("Mods/")),
+        "不该写成镜像路径，否则绑到别的战役会摆错位置"
+    );
+
+    // 真的再导一次
+    let again = patch::import_patch(&fixture.library, &destination).expect("re-import");
+    assert_eq!(again.name, "幼儿园补丁");
+    assert_eq!(again.priority, 150);
+}
+
+#[test]
+fn patch_metadata_can_be_edited() {
+    let fixture = fixture();
+
+    let patch_zip = build_zip(fixture.work.path(), "p.zip", &[("Mods/X.SC2Mod", "内容")]);
+    let patch = patch::import_patch(&fixture.library, &patch_zip).expect("import");
+
+    let updated = patch::update_patch(
+        &fixture.library,
+        &patch.id,
+        patch::PatchChanges {
+            name: Some("改过的补丁名".to_string()),
+            author: Some("某位作者".to_string()),
+            registration_id: Some("someone.patch".to_string()),
+            description: Some("新描述".to_string()),
+            priority: Some(500),
+        },
+    )
+    .expect("update");
+
+    assert_eq!(updated.name, "改过的补丁名");
+    assert_eq!(updated.author.as_deref(), Some("某位作者"));
+    assert_eq!(updated.registration_id.as_deref(), Some("someone.patch"));
+    assert_eq!(updated.priority, 500);
+
+    // 改动要落盘
+    let reloaded = fixture
+        .library
+        .index()
+        .patches
+        .get(&patch.id)
+        .cloned()
+        .expect("reload");
+    assert_eq!(reloaded.name, "改过的补丁名");
+
+    // 包内容不该被动过
+    assert!(
+        fixture
+            .library
+            .patch_dir(&patch.id)
+            .join("Mods/X.SC2Mod")
+            .is_file()
+    );
+
+    // 空名字要被拒绝
+    assert!(
+        patch::update_patch(
+            &fixture.library,
+            &patch.id,
+            patch::PatchChanges {
+                name: Some("   ".to_string()),
+                ..patch::PatchChanges::default()
+            },
+        )
+        .is_err()
+    );
+}

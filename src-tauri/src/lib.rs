@@ -406,6 +406,35 @@ fn configure_patch(
         .map_err(|error| error.to_string())
 }
 
+/// 改一个已导入补丁的元数据。
+#[tauri::command]
+fn update_patch(
+    patch_id: String,
+    changes: library::patch::PatchChanges,
+    state: State<'_, AppState>,
+) -> Result<Patch, String> {
+    library::patch::update_patch(&state.library, &patch_id, changes).map_err(|e| e.to_string())
+}
+
+/// 单独导出一个补丁包。
+#[tauri::command]
+fn export_patch(
+    patch_id: String,
+    destination: String,
+    state: State<'_, AppState>,
+) -> Result<library::export::ExportReport, String> {
+    let patch = state
+        .library
+        .index()
+        .patches
+        .get(&patch_id)
+        .cloned()
+        .ok_or_else(|| "找不到这个补丁".to_string())?;
+
+    library::export::export_patch(&state.library, &patch, std::path::Path::new(&destination))
+        .map_err(|error| error.to_string())
+}
+
 /// 从库里彻底删掉一个补丁。
 #[tauri::command]
 fn delete_patch(patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
@@ -499,8 +528,13 @@ fn reveal_in_file_manager(_target: &Path) -> Result<(), String> {
 #[tauri::command]
 fn pick_package() -> Option<String> {
     rfd::FileDialog::new()
-        .set_title("选择战役包")
-        .add_filter("星际争霸 II 战役包", &["zip"])
+        .set_title("选择战役包 / 补丁包")
+        // 后端借助系统自带的 tar（bsdtar/libarchive）能读一大片格式，
+        // 所以对话框里就该把它们都列出来，而不是只给个 zip 让人以为不支持。
+        .add_filter(
+            "压缩包",
+            &["zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz", "zst", "cab", "iso"],
+        )
         .add_filter("所有文件", &["*"])
         .pick_file()
         .map(|path| path.to_string_lossy().into_owned())
@@ -633,6 +667,8 @@ pub fn run() {
             bind_patch,
             unbind_patch,
             configure_patch,
+            update_patch,
+            export_patch,
             delete_patch,
             preview_composition,
             inspect_package,

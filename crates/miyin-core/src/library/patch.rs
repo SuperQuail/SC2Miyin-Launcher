@@ -5,6 +5,8 @@
 
 use std::path::Path;
 
+use serde::Deserialize;
+
 use crate::campaign::metadata::PackageKind;
 use crate::campaign::package;
 use crate::error::{Error, Result};
@@ -216,6 +218,58 @@ pub fn configure_binding(
     }
 
     let updated = binding.clone();
+    library.save_index(&index)?;
+    Ok(updated)
+}
+
+/// 允许修改的补丁字段；`None` 表示不动。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchChanges {
+    pub name: Option<String>,
+    pub author: Option<String>,
+    pub registration_id: Option<String>,
+    pub description: Option<String>,
+    /// 包内声明的默认优先级。只影响**以后**的挂载，
+    /// 已经挂到战役上的用挂载记录里的值（那是用户调过的）。
+    pub priority: Option<i64>,
+}
+
+/// 改一个已导入补丁的元数据。
+///
+/// 和版本一样：**只改启动器自己记录的元数据，不动包里的原始文件**，
+/// 也不动它在各战役上的挂载关系 —— 改名字不会让绑定失效。
+pub fn update_patch(library: &Library, patch_id: &str, changes: PatchChanges) -> Result<Patch> {
+    let mut index = library.index();
+    let patch = index
+        .patches
+        .get_mut(patch_id)
+        .ok_or_else(|| Error::CampaignNotFound(patch_id.to_string()))?;
+
+    if let Some(name) = changes.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(Error::PackageRejected("补丁名不能为空".to_string()));
+        }
+        patch.name = trimmed.to_string();
+    }
+    if let Some(author) = changes.author {
+        let trimmed = author.trim();
+        patch.author = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(id) = changes.registration_id {
+        let trimmed = id.trim();
+        patch.registration_id = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(description) = changes.description {
+        let trimmed = description.trim();
+        patch.description = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(priority) = changes.priority {
+        patch.priority = priority;
+    }
+
+    let updated = patch.clone();
     library.save_index(&index)?;
     Ok(updated)
 }

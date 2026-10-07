@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
 import CampaignsView from "./views/CampaignsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
-const { installation, toast, bootstrap, isDesktop } = useLauncher();
+const { installation, toast, bootstrap, isDesktop, droppedPackage } = useLauncher();
 
 type ViewId = "campaigns" | "settings";
 
@@ -26,9 +27,39 @@ const tabs: { id: ViewId; label: string }[] = [
 
 const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
 
-onMounted(() => {
+/** 有文件被拖到窗口上方。 */
+const dragging = ref(false);
+let stopWatching: (() => void) | null = null;
+
+onMounted(async () => {
   void bootstrap();
+
+  // 浏览器演示模式没有这个 API，静默跳过
+  if (!isDesktop) return;
+
+  try {
+    stopWatching = await getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload;
+
+      if (payload.type === "over") {
+        dragging.value = true;
+      } else if (payload.type === "leave") {
+        dragging.value = false;
+      } else if (payload.type === "drop") {
+        dragging.value = false;
+        const path = payload.paths[0];
+        if (!path) return;
+        // 拖到哪个页面都行：切回战役页，交给它去预检
+        view.value = "campaigns";
+        droppedPackage.value = path;
+      }
+    });
+  } catch {
+    stopWatching = null;
+  }
 });
+
+onUnmounted(() => stopWatching?.());
 </script>
 
 <template>
@@ -66,6 +97,17 @@ onMounted(() => {
       </div>
     </header>
 
+    <!-- 拖拽导入 -->
+    <div v-if="dragging" class="dropzone">
+      <div class="dropzone__card">
+        <div class="dropzone__title">松手即可导入</div>
+        <div class="dropzone__text">
+          支持 zip / 7z / rar / tar —— 启动器会自动判断它属于哪部战役，
+          认不出来会让你选，不会瞎猜。
+        </div>
+      </div>
+    </div>
+
     <main class="content">
       <CampaignsView v-if="view === 'campaigns'" @open-settings="view = 'settings'" />
       <SettingsView v-else />
@@ -80,6 +122,42 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 拖进来的遮罩：覆盖整个窗口，告诉用户松手就能导入 */
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 18, 32, 0.55);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.dropzone__card {
+  padding: 26px 34px;
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--accent);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  text-align: center;
+}
+
+.dropzone__title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.dropzone__text {
+  margin-top: 8px;
+  max-width: 420px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
 .app {
   position: relative;
   display: flex;

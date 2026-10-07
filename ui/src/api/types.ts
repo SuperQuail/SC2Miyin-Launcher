@@ -295,6 +295,19 @@ export interface LauncherApi {
     priority: number | null,
   ): Promise<unknown>;
   deletePatch(patchId: string): Promise<void>;
+  /** 改一个已导入补丁的元数据。 */
+  updatePatch(
+    patchId: string,
+    changes: {
+      name?: string;
+      author?: string;
+      registrationId?: string;
+      description?: string;
+      priority?: number;
+    },
+  ): Promise<Patch>;
+  /** 单独导出一个补丁包。 */
+  exportPatch(patchId: string, destination: string): Promise<ExportReport>;
   previewComposition(slot: string, variantId: string): Promise<Composition>;
 
   exportVariant(

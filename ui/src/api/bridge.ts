@@ -57,6 +57,9 @@ const desktop: LauncherApi = {
   configurePatch: (slot, patchId, enabled, priority) =>
     invoke<unknown>("configure_patch", { slot, patchId, enabled, priority }),
   deletePatch: (patchId) => invoke<void>("delete_patch", { patchId }),
+  updatePatch: (patchId, changes) => invoke<Patch>("update_patch", { patchId, changes }),
+  exportPatch: (patchId, destination) =>
+    invoke<ExportReport>("export_patch", { patchId, destination }),
   previewComposition: (slot, variantId) =>
     invoke<Composition>("preview_composition", { slot, variantId }),
 
@@ -444,6 +447,26 @@ const demo: LauncherApi = {
         return found;
       })(demopatches.find((item) => item.id === patchId)),
     ),
+  updatePatch: (patchId, changes) =>
+    delay(
+      ((found) => {
+        if (!found) throw new Error("找不到这个补丁");
+        if (changes.name !== undefined) found.name = changes.name;
+        if (changes.author !== undefined) found.author = changes.author;
+        if (changes.description !== undefined) found.description = changes.description;
+        if (changes.priority !== undefined) found.priority = changes.priority;
+        return found;
+      })(demopatches.find((item) => item.id === patchId)),
+    ),
+  exportPatch: (patchId, destination) =>
+    delay({
+      path: destination,
+      files: 3,
+      maps: 0,
+      mods: 1,
+      expanded: [],
+      patches: [demopatches.find((item) => item.id === patchId)?.name ?? "补丁"],
+    }),
   deletePatch: (patchId) =>
     delay(
       (() => {

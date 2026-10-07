@@ -24,7 +24,7 @@ use serde::Serialize;
 use crate::campaign::package::PayloadTarget;
 use crate::error::{Error, Result};
 use crate::library::compose::{self, Layer};
-use crate::library::{Library, Variant, now_seconds};
+use crate::library::{Library, Patch, Variant, now_seconds};
 
 /// 我们自己的数据放这个目录，避免和 CCM 抢位置。
 pub const MIYIN_DIR: &str = "Miyin";
@@ -394,6 +394,116 @@ fn add_tree<W: Write + std::io::Seek>(
     }
 
     Ok(())
+}
+
+/// 单独导出一个补丁。
+///
+/// 形态贴着现实里的补丁包来：**内容平铺在根目录**（`X.SC2Mod` / `x.SC2Map`），
+/// 加一个 `patch.txt` 声明自己是谁、依赖什么，我们的数据照旧放 `Miyin/`。
+///
+/// 平铺是有讲究的：重新导入时裸的 `.SC2Mod` 会被识别成"落到 `Mods/` 下"，
+/// 裸的 `.SC2Map` 会被识别成"落到绑定战役的目录下" —— 这样补丁才能挂到任意战役上。
+/// 如果写成 `Mods/X.SC2Mod` 就会被当成镜像路径写死，绑到别的战役就摆错了。
+pub fn export_patch(library: &Library, patch: &Patch, destination: &Path) -> Result<ExportReport> {
+    let root = library.patch_dir(&patch.id);
+    if !root.is_dir() {
+        return Err(Error::CampaignNotFound(patch.id.clone()));
+    }
+
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = std::fs::File::create(destination)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let zip_options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    let mut report = ExportReport {
+        path: destination.to_path_buf(),
+        files: 0,
+        maps: 0,
+        mods: 0,
+        expanded: Vec::new(),
+        patches: vec![patch.name.clone()],
+    };
+
+    write_text(&mut zip, "patch.txt", &patch_metadata(patch), zip_options)?;
+
+    let mut used: Vec<String> = vec!["patch.txt".to_string()];
+    for payload in &patch.payloads {
+        let raw = payload.source.rsplit('/').next().unwrap_or(&payload.source);
+        let name = crate::campaign::sanitize::sanitize_dir_name(raw)
+            .ok_or_else(|| Error::PackageRejected(format!("文件名不可用：{}", payload.source)))?;
+        let name = unique_name(&mut used, &name);
+
+        let source = root.join(payload.source.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if !source.exists() {
+            continue;
+        }
+        if payload.is_mod {
+            report.mods += 1;
+        } else {
+            report.maps += 1;
+        }
+        if payload.expanded {
+            report.expanded.push(name.clone());
+        }
+
+        add_path(&mut zip, &source, &name, zip_options, &mut report.files)?;
+    }
+
+    let document = serde_json::json!({
+        "name": patch.name,
+        "description": patch.description,
+        "author": patch.author,
+        "version": patch.version,
+        "kind": "patch",
+        "requires": patch.requires,
+        "priority": patch.priority,
+        "exported_at": now_seconds(),
+        "exported_by": "MiYin Launcher",
+        "miyin": {
+            "format": crate::campaign::package::MIYIN_FORMAT_VERSION,
+            "id": patch.registration_id,
+            "kind": "patch",
+        },
+        "note": "本目录是弥音启动器的附加数据。CCM 及其他工具可以完全忽略它。",
+    });
+    write_text(
+        &mut zip,
+        &format!("{MIYIN_DIR}/metadata.json"),
+        &serde_json::to_string_pretty(&document).unwrap_or_else(|_| "{}".to_string()),
+        zip_options,
+    )?;
+    report.files += 1;
+
+    zip.finish()
+        .map_err(|error| Error::Io(std::io::Error::other(error.to_string())))?;
+
+    Ok(report)
+}
+
+/// 补丁的 `patch.txt`（CCM 风格键=值）。
+fn patch_metadata(patch: &Patch) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("name={}\n", patch.name));
+    if let Some(description) = &patch.description {
+        out.push_str(&format!("desc={}\n", one_line(description)));
+    }
+    if let Some(author) = &patch.author {
+        out.push_str(&format!("author={author}\n"));
+    }
+    if let Some(version) = &patch.version {
+        out.push_str(&format!("version={version}\n"));
+    }
+    if let Some(id) = &patch.registration_id {
+        out.push_str(&format!("id={id}\n"));
+    }
+    if !patch.requires.is_empty() {
+        out.push_str(&format!("requires={}\n", patch.requires.join(", ")));
+    }
+    out.push_str(&format!("priority={}\n", patch.priority));
+    out
 }
 
 #[cfg(test)]
