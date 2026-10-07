@@ -77,6 +77,9 @@ const usingOwnCover = computed(() => customCover.value !== null);
     <div class="variant__body">
       <h4 class="variant__name" :title="title">{{ title }}</h4>
       <p class="variant__meta">{{ meta }}</p>
+      <p v-if="variant && variant.tags.length" class="variant__tags">
+        <span v-for="tag in variant.tags" :key="tag" class="variant__tag">{{ tag }}</span>
+      </p>
       <p v-if="usingOwnCover" class="variant__own">使用包内封面</p>
     </div>
 
@@ -196,6 +199,21 @@ const usingOwnCover = computed(() => customCover.value !== null);
   margin: 0;
   font-size: 12px;
   color: var(--on-surface-variant);
+}
+
+.variant__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0 0;
+}
+
+.variant__tag {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--on-surface-variant);
+  font-size: 11px;
 }
 
 .variant__own {

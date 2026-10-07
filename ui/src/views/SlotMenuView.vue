@@ -1,21 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-import { api } from "../api/bridge";
-import { formatBytes, slotArt } from "../api/art";
-import type { PackageInspection, SlotView, Variant } from "../api/types";
-import { errorText, useLauncher } from "../composables/useLauncher";
+import { slotArt } from "../api/art";
+import type { SlotView, Variant } from "../api/types";
+import { useLauncher } from "../composables/useLauncher";
 import VariantCard from "../components/VariantCard.vue";
 
 const props = defineProps<{ slot: SlotView }>();
 const emit = defineEmits<{ back: [] }>();
 
-const { activate, removeVariant, importInto, launch, busy, notify } = useLauncher();
+const { activate, removeVariant, launch, busy } = useLauncher();
 
 /** 当前选中的版本；null 表示原版战役。 */
 const selected = ref<string | null>(props.slot.active);
-const pending = ref<{ path: string; inspection: PackageInspection } | null>(null);
-const inspecting = ref(false);
 
 const bannerStyle = computed(() => {
   const art = slotArt(props.slot.slug);
@@ -23,31 +20,6 @@ const bannerStyle = computed(() => {
 });
 
 const dirty = computed(() => selected.value !== props.slot.active);
-const pendingTitle = computed(() => pending.value?.inspection.name ?? "未命名战役");
-
-/** 选择压缩包并预检（这一步不写盘）。 */
-async function browse(): Promise<void> {
-  try {
-    const path = await api.pickPackage();
-    if (!path) return;
-
-    inspecting.value = true;
-    const inspection = await api.inspectPackage(path);
-    pending.value = { path, inspection };
-  } catch (error) {
-    notify("error", errorText(error));
-  } finally {
-    inspecting.value = false;
-  }
-}
-
-/** 确认导入到当前战役。 */
-async function confirmImport(): Promise<void> {
-  if (!pending.value) return;
-  const created = await importInto(props.slot.slug, pending.value.path);
-  pending.value = null;
-  if (created) selected.value = created.id;
-}
 
 /** 启用当前选中的版本。 */
 async function apply(): Promise<void> {
@@ -92,9 +64,7 @@ async function drop(variant: Variant): Promise<void> {
         可选版本
         <span class="section-head__count">{{ slot.variants.length + 1 }}</span>
       </h3>
-      <button class="btn btn-tonal" type="button" :disabled="inspecting" @click="browse">
-        {{ inspecting ? "核对中…" : "＋ 导入新版本" }}
-      </button>
+      <span class="section-head__hint">导入新版本请回到战役列表页</span>
     </div>
 
     <div class="grid">
@@ -117,48 +87,12 @@ async function drop(variant: Variant): Promise<void> {
       />
     </div>
 
-    <p v-if="!slot.variants.length && !pending" class="hint">
-      还没有导入任何玩家版本。点「导入新版本」选择战役包 ——
-      同一个战役可以导入多个版本，随时切换，互不覆盖。
+    <p v-if="!slot.variants.length" class="hint">
+      还没有导入任何玩家版本。回到战役列表页点「导入战役包」，
+      启动器会自动判断它属于哪部战役。
     </p>
 
     <p v-if="slot.notice" class="hint">{{ slot.notice }}</p>
-
-    <!-- 导入预览 -->
-    <section v-if="pending" class="pending">
-      <div class="pending__title">
-        将导入：{{ pendingTitle }}
-        <span v-if="pending.inspection.version" class="tag">v{{ pending.inspection.version }}</span>
-      </div>
-      <div class="pending__meta">
-        {{ pending.inspection.map_count }} 张地图 ·
-        {{ formatBytes(pending.inspection.unpacked_bytes) }} ·
-        目录名 {{ pending.inspection.suggested_dir_name }}
-      </div>
-
-      <ul v-if="pending.inspection.issues.length" class="issues">
-        <li
-          v-for="issue in pending.inspection.issues"
-          :key="issue.code"
-          class="issue"
-          :class="'issue--' + issue.level"
-        >
-          {{ issue.message }}
-        </li>
-      </ul>
-
-      <div class="pending__actions">
-        <button class="btn btn-text" type="button" @click="pending = null">取消</button>
-        <button
-          class="btn btn-primary"
-          type="button"
-          :disabled="busy || !pending.inspection.installable"
-          @click="confirmImport"
-        >
-          {{ busy ? "导入中…" : "确认导入" }}
-        </button>
-      </div>
-    </section>
 
     <!-- 底部操作条 -->
     <footer class="actions">
@@ -296,61 +230,10 @@ async function drop(variant: Variant): Promise<void> {
   text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
 }
 
-/* ---------- 导入预览 ---------- */
-
-.pending {
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  box-shadow: var(--shadow-1);
-}
-
-.pending__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.pending__meta {
-  margin-top: 5px;
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-
-.issues {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.issue {
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
+.section-head__hint {
   font-size: 12.5px;
-  line-height: 1.5;
-}
-
-.issue--warning {
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
-.issue--broken {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.pending__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
 }
 
 .tag {

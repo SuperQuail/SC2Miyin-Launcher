@@ -71,6 +71,8 @@ export interface Variant {
   target_sub: string | null;
   /** 包内自带的封面图（相对版本目录）；null 表示没有，界面用官方美术。 */
   cover: string | null;
+  /** 包自报的标签。 */
+  tags: string[];
 }
 
 /** 一个官方资料片槽位。 */
@@ -96,6 +98,10 @@ export interface PackageInspection {
   version: string | null;
   description: string | null;
   campaign_type: CampaignType;
+  /** 包自报的标签。 */
+  tags: string[];
+  /** 按包内声明推断出的目标战役；null 表示认不出来，需要用户指定。 */
+  suggested_slot: string | null;
   content_root: string;
   suggested_dir_name: string | null;
   map_count: number;

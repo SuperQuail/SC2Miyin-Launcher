@@ -83,6 +83,7 @@ function variant(
     size_bytes: size,
     target_sub: null,
     cover: null,
+    tags: [],
   };
 }
 
@@ -159,6 +160,8 @@ const demo: LauncherApi = {
       version: "1.0",
       description: null,
       campaign_type: "wol",
+      tags: ["演示"],
+      suggested_slot: "wol",
       content_root: "Demo",
       suggested_dir_name: "演示战役包",
       map_count: 12,
