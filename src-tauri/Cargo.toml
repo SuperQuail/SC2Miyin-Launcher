@@ -10,6 +10,13 @@ description = "弥音启动器 —— 星际争霸 II 战役与 Mod 管理器"
 name = "miyin_launcher"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# 生产构建**必须**开这个：开了才会把 ui/dist 内嵌进二进制。
+#
+# 不开的话 release 版也会去连 devUrl（开发服务器），在没有 dev server 的机器上
+# 就是一片 ERR_CONNECTION_REFUSED。这个坑踩过一次，别再删。
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = "2.6.3"
 

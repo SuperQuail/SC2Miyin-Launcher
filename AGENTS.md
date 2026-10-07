@@ -129,8 +129,17 @@ pnpm -C ui dev                      # 浏览器演示模式：无需桌面壳，
 pnpm -C ui build                    # vue-tsc 类型检查 + 打包到 ui/dist
 
 # 桌面版
-pnpm -C ui build && cargo run --release -p miyin-launcher   # release 使用内嵌前端
-cargo build -p miyin-launcher --release                     # 产物 target/release/miyin-launcher.exe
+#
+# ⚠️ release 构建**必须**带 --features custom-protocol**，否则不会把 ui/dist 内嵌进二进制，
+#   程序启动后会去连 devUrl（http://localhost:5183），在没有 dev server 的机器上
+#   就是一片 ERR_CONNECTION_REFUSED。这个坑踩过一次。
+pnpm -C ui build
+cargo build --release -p miyin-launcher --features custom-protocol
+# 产物：target/release/miyin-launcher.exe（绿色版，数据写 exe 同级的 data/）
+
+# 调试运行（debug）才需要 dev server：
+pnpm -C ui dev            # 另开一个终端
+cargo run -p miyin-launcher
 
 # 素材再生成（需要 Pillow）
 python scripts/prepare-assets.py     # 原始素材 -> ui/public/
@@ -360,7 +369,7 @@ StarCraft II/
 
 - [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
 - [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
-- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.9）。
+- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.10）。
 - [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
 - [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
       （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
@@ -514,7 +523,15 @@ StarCraft II/
   界面上始终要有"导入到哪部战役"的选择，默认填自动识别的结果。
 - 界面按 `ImportPreview.source` 措辞，**不许把"自动识别"说成确定的**。
 
-### 14.9 切换的安全底线
+### 14.9 打包发布
+
+- **release 必须带 `--features custom-protocol`**（已写进 `src-tauri/Cargo.toml` 的
+  `[features]`）。不带的话 Tauri 不会内嵌 `ui/dist`，程序会去连 devUrl，
+  用户机器上没有 dev server -> 白屏 + ERR_CONNECTION_REFUSED。
+- 绿色版：exe 与 `data/` 同级，整个文件夹拷走即可。
+- 出包前先 `pnpm -C ui build`，否则内嵌的是旧前端。
+
+### 14.10 切换的安全底线
 
 启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
 
