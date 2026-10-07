@@ -140,12 +140,29 @@ fn inspect_package(path: String) -> Result<PackageInspection, String> {
     package::inspect(Path::new(&path)).map_err(|error| error.to_string())
 }
 
+/// 这条导入信息是从哪来的。界面据此决定怎么措辞。
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ImportSource {
+    /// 读到了 CCM 或弥音约定的元数据 —— **以数据为准**。
+    Metadata,
+    /// 没有元数据，靠证据链自动识别 —— **尽力而为**。
+    Inferred,
+    /// 什么线索都没有，需要用户手动指定。
+    Manual,
+}
+
 /// 导入预览：预检结果 + 目标战役 + 与已有版本的冲突。
 #[derive(Debug, serde::Serialize)]
 struct ImportPreview {
     path: String,
     inspection: PackageInspection,
+    /// 这条信息是从哪来的。
+    source: ImportSource,
     /// 自动判断出的目标战役；None 表示需要用户指定。
+    ///
+    /// **界面必须始终允许用户改成别的战役** —— 自动识别只是尽力而为，
+    /// 用户说了算（import_package 传了 slot 就按传的来）。
     slot: Option<String>,
     /// 与库里已有版本的冲突；None 表示没有冲突。
     conflict: Option<Conflict>,
@@ -172,9 +189,26 @@ fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPrev
         )
     });
 
+    // 有元数据且元数据说得清归属 -> 以数据为准；否则看证据链；都没有就得问用户
+    let source = if inspection.identification.is_none()
+        && matches!(
+            inspection.format,
+            miyin_core::campaign::CampaignFormat::Ccm
+                | miyin_core::campaign::CampaignFormat::Standard
+        )
+        && inspection.suggested_slot.as_deref().is_some()
+    {
+        ImportSource::Metadata
+    } else if slot.is_some() {
+        ImportSource::Inferred
+    } else {
+        ImportSource::Manual
+    };
+
     Ok(ImportPreview {
         path,
         inspection,
+        source,
         slot,
         conflict,
     })
