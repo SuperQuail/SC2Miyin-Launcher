@@ -283,6 +283,11 @@ fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
         let Some(relative) = strip_prefix(&entry.relative, content_root) else {
             continue;
         };
+        // `Miyin/` 是我们自己的附加数据目录（导出时会写上）——
+        // 它不是战役内容，重新导入时不能被当成载荷。
+        if is_our_metadata_dir(&relative) {
+            continue;
+        }
         let Some(root) = payload_root(&relative) else {
             continue;
         };
@@ -307,6 +312,20 @@ fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
             }
         })
         .collect()
+}
+
+/// 这条路径是不是落在我们自己的附加数据目录里。
+pub fn is_our_metadata_dir(relative: &Path) -> bool {
+    relative
+        .components()
+        .next()
+        .map(|first| {
+            first
+                .as_os_str()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(crate::library::export::MIYIN_DIR)
+        })
+        .unwrap_or(false)
 }
 
 /// 取相对路径里的载荷根：第一个以 `.SC2Map` / `.SC2Mod` 结尾的组件（含它自己）。

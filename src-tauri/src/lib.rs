@@ -268,6 +268,44 @@ fn update_variant(
         .map_err(|error| error.to_string())
 }
 
+/// 把某个版本导出成 CCM 也能读的战役包。
+#[tauri::command]
+fn export_variant(
+    slot: String,
+    variant_id: String,
+    destination: String,
+    merge_patches: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<library::export::ExportReport, String> {
+    let index = state.library.index();
+    let variant = index
+        .slots
+        .get(&slot)
+        .and_then(|entry| entry.variants.iter().find(|v| v.id == variant_id).cloned())
+        .ok_or_else(|| "找不到这个版本".to_string())?;
+
+    library::export::export(
+        &state.library,
+        &slot,
+        &variant,
+        &library::export::ExportOptions {
+            destination: std::path::PathBuf::from(destination),
+            merge_patches: merge_patches.unwrap_or(false),
+        },
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 弹出"另存为"对话框选导出位置。
+#[tauri::command]
+fn pick_export_path(default_name: String) -> Option<String> {
+    rfd::FileDialog::new()
+        .set_file_name(format!("{default_name}.zip"))
+        .add_filter("战役包", &["zip"])
+        .save_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
 /// 库里全部补丁。
 #[tauri::command]
 fn list_patches(state: State<'_, AppState>) -> Vec<Patch> {
@@ -585,6 +623,8 @@ pub fn run() {
             set_installation,
             library_root,
             list_slots,
+            export_variant,
+            pick_export_path,
             list_patches,
             list_bindings,
             list_available_patches,

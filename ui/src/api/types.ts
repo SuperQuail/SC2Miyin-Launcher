@@ -73,6 +73,8 @@ export interface Variant {
   cover: string | null;
   /** 包自报的标签。 */
   tags: string[];
+  /** 包声明的注册 ID：补丁靠它引用战役，更新靠它认出同一个战役。 */
+  registration_id: string | null;
 }
 
 /** 一个官方资料片槽位。 */
@@ -98,6 +100,20 @@ export interface PackageInspection {
   version: string | null;
   description: string | null;
   campaign_type: CampaignType;
+  /** 包类型：战役本体还是覆盖层补丁。 */
+  kind: PackageKind;
+  /** 注册 ID（补丁靠它引用战役）。 */
+  id: string | null;
+  /** 补丁依赖的战役；为空表示只能手动指定。 */
+  requires: string[];
+  /** 补丁默认优先级。 */
+  priority: number | null;
+  /** 载荷清单（地图/模组及其落点）。 */
+  payloads: Payload[];
+  /** 归属判定的结论与依据；包内已声明时为 null。 */
+  identification: Identification | null;
+  /** 包自带的封面图（相对内容根）；null 表示没有，界面用官方美术。 */
+  cover: string | null;
   /** 包自报的标签。 */
   tags: string[];
   /** 按包内声明推断出的目标战役；null 表示认不出来，需要用户指定。 */
@@ -112,6 +128,120 @@ export interface PackageInspection {
 }
 
 /** 启动器后端能力。 */
+/** 包类型。 */
+export type PackageKind = "campaign" | "patch";
+
+/** 判定归属所依据的证据，按可靠度从高到低。 */
+export type CampaignEvidence =
+  | "metadata"
+  | "mirror_path"
+  | "map_dependency"
+  | "map_name_prefix";
+
+/** 一次归属判定。 */
+export interface Identification {
+  campaign_type: CampaignType;
+  evidence: CampaignEvidence;
+  /** 依据的具体内容，例如 "Void Story"。 */
+  detail: string;
+}
+
+/** 载荷的落点。 */
+export type PayloadTarget =
+  | { kind: "mirror"; path: string }
+  | { kind: "mod"; name: string }
+  | { kind: "map"; name: string };
+
+/** 包内一个载荷。 */
+export interface Payload {
+  source: string;
+  target: PayloadTarget;
+  /** 是否是解开的目录树（false = 单文件 MPQ）。 */
+  expanded: boolean;
+  is_mod: boolean;
+}
+
+/** 这条导入信息是从哪来的。 */
+export type ImportSource = "metadata" | "inferred" | "manual";
+
+/** 新旧版本对比结论。 */
+export type VersionRelation = "newer" | "same" | "older" | "unknown";
+
+/** 与库里已有版本的冲突。 */
+export interface Conflict {
+  existing_id: string;
+  existing_name: string;
+  existing_version: string | null;
+  incoming_version: string | null;
+  /** 是否命中同一个注册 ID（比同名更强的信号）。 */
+  same_id: boolean;
+  relation: VersionRelation;
+}
+
+/** 导入预览。 */
+export interface ImportPreview {
+  path: string;
+  inspection: PackageInspection;
+  source: ImportSource;
+  /** 自动判断出的目标战役；null 表示需要用户指定。 */
+  slot: string | null;
+  conflict: Conflict | null;
+}
+
+/** 导入方式。 */
+export type ImportMode = "rename" | "overwrite";
+
+/** 库里的一个补丁。 */
+export interface Patch {
+  id: string;
+  name: string;
+  author: string | null;
+  version: string | null;
+  description: string | null;
+  registration_id: string | null;
+  priority: number;
+  /** 依赖的战役；为空表示只能手动指定。 */
+  requires: string[];
+  payloads: Payload[];
+  imported_at: number;
+  size_bytes: number;
+  mod_count: number;
+}
+
+/** 挂在某个战役上的补丁。 */
+export interface BoundPatch extends Patch {
+  /** 生效优先级（可能被挂载时改过）。 */
+  priority: number;
+  enabled: boolean;
+  /** 按 requires 是否匹配得上这个战役。 */
+  matched: boolean;
+}
+
+/** 合成清单里的一项。 */
+export interface ComposedFile {
+  target: string;
+  layer: { kind: "campaign" } | { kind: "patch"; id: string; name: string; priority: number };
+  expanded: boolean;
+}
+
+/** 一份合成清单。 */
+export interface Composition {
+  files: ComposedFile[];
+  overridden: ComposedFile[];
+}
+
+/** 导出结果。 */
+export interface ExportReport {
+  path: string;
+  files: number;
+  maps: number;
+  mods: number;
+  /** 目录树形态的载荷名 —— CCM 大概率读不了，界面要提示。 */
+  expanded: string[];
+  /** 一起带走的补丁名。 */
+  patches: string[];
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -130,4 +260,48 @@ export interface LauncherApi {
   pickGameDirectory(): Promise<string | null>;
   /** 读取某个版本自带的封面图（data URL）；没有则返回 null。 */
   variantCover(slot: string, variantId: string): Promise<string | null>;
+
+  /** 选完文件后的第一步：预检、判断归属、查冲突。不写任何文件。 */
+  prepareImport(path: string): Promise<ImportPreview>;
+  /** 按指定战役导入；传了 slot 就按传的来，覆盖自动判定。 */
+  importPackageWith(
+    path: string,
+    slot: string | null,
+    mode: ImportMode,
+  ): Promise<Variant>;
+  /** 改一个已导入版本的元数据。 */
+  updateVariant(
+    slot: string,
+    variantId: string,
+    changes: {
+      name?: string;
+      author?: string;
+      registrationId?: string;
+      description?: string;
+    },
+  ): Promise<Variant>;
+
+  listPatches(): Promise<Patch[]>;
+  listBindings(slot: string): Promise<BoundPatch[]>;
+  listAvailablePatches(slot: string): Promise<BoundPatch[]>;
+  importPatch(path: string): Promise<Patch>;
+  autoBindPatches(): Promise<string[]>;
+  bindPatch(slot: string, patchId: string): Promise<void>;
+  unbindPatch(slot: string, patchId: string): Promise<void>;
+  configurePatch(
+    slot: string,
+    patchId: string,
+    enabled: boolean | null,
+    priority: number | null,
+  ): Promise<unknown>;
+  deletePatch(patchId: string): Promise<void>;
+  previewComposition(slot: string, variantId: string): Promise<Composition>;
+
+  exportVariant(
+    slot: string,
+    variantId: string,
+    destination: string,
+    mergePatches: boolean,
+  ): Promise<ExportReport>;
+  pickExportPath(defaultName: string): Promise<string | null>;
 }

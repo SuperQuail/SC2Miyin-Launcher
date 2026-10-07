@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { api } from "../api/bridge";
 import { MIYIN, formatBytes } from "../api/art";
-import type { PackageInspection } from "../api/types";
+import type { ImportMode, ImportPreview } from "../api/types";
 import SlotCard from "../components/SlotCard.vue";
 import { errorText, useLauncher } from "../composables/useLauncher";
 import SlotMenuView from "./SlotMenuView.vue";
@@ -19,7 +19,6 @@ const {
   refresh,
   chooseGameDirectory,
   bootstrap,
-  importInto,
   notify,
 } = useLauncher();
 
@@ -35,7 +34,7 @@ onMounted(() => {
 });
 
 /** 正在处理的导入：选好文件、预检完、等用户确认。 */
-const pending = ref<{ path: string; inspection: PackageInspection; slot: string } | null>(null);
+const pending = ref<{ preview: ImportPreview; slot: string; mode: ImportMode } | null>(null);
 const importing = ref(false);
 
 const openSlot = computed(() => slots.value.find((slot) => slot.slug === opened.value) ?? null);
@@ -51,17 +50,50 @@ const modCount = computed(() =>
 );
 const activeCount = computed(() => slots.value.filter((slot) => slot.active !== null).length);
 
-/** 没有自动识别出归属时，让用户选。 */
-const needsTarget = computed(() => pending.value !== null && !pending.value.inspection.suggested_slot);
+const inspection = computed(() => pending.value?.preview.inspection ?? null);
+const preview = computed(() => pending.value?.preview ?? null);
+
+/** 没有自动认出归属时才需要用户选；但**永远允许**改。 */
+const needsTarget = computed(() => pending.value !== null && pending.value.preview.slot === null);
 
 const pendingName = computed(
-  () => pending.value?.inspection.name ?? pending.value?.inspection.suggested_dir_name ?? "未命名战役",
+  () => inspection.value?.name ?? inspection.value?.suggested_dir_name ?? "未命名战役",
 );
 
-/** 自动判断出的目标战役（展示用中文名，而不是槽位标识）。 */
-const suggestedName = computed(() => {
-  const slug = pending.value?.inspection.suggested_slot;
-  return slots.value.find((slot) => slot.slug === slug)?.display_name ?? null;
+/** 信息来源的措辞 —— 自动识别是**尽力而为**，不能说成确定的。 */
+const sourceLabel = computed(() => {
+  const source = preview.value?.source;
+  if (source === "metadata") return "包内声明的资料片";
+  if (source === "inferred") return "自动识别（尽力而为）";
+  return "无法识别";
+});
+
+/** 自动识别用到的依据。 */
+const evidenceText = computed(() => {
+  const found = inspection.value?.identification;
+  if (!found) return "";
+  const rough = found.evidence === "map_name_prefix" ? "（启发式）" : "";
+  return "依据" + rough + "：" + found.detail;
+});
+
+const isPatch = computed(() => inspection.value?.kind === "patch");
+
+/** 冲突时的新旧版本说法。 */
+const conflictText = computed(() => {
+  const conflict = preview.value?.conflict;
+  if (!conflict) return "";
+  const labels: Record<string, string> = {
+    newer: "更新的版本",
+    same: "相同的版本",
+    older: "更旧的版本",
+    unknown: "无法比较版本",
+  };
+  const incoming = conflict.incoming_version ?? "未标版本";
+  const existing = conflict.existing_version ?? "未标版本";
+  return (
+    "库里已有「" + conflict.existing_name + "」" + existing +
+    "，本次导入 " + incoming + " —— " + labels[conflict.relation]
+  );
 });
 
 /** 选择压缩包并预检；能自动判断归属时直接给出目标战役。 */
@@ -71,8 +103,25 @@ async function startImport(): Promise<void> {
     if (!path) return;
 
     importing.value = true;
-    const inspection = await api.inspectPackage(path);
-    pending.value = { path, inspection, slot: inspection.suggested_slot ?? "" };
+    const result = await api.prepareImport(path);
+    pending.value = { preview: result, slot: result.slot ?? "", mode: "rename" };
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    importing.value = false;
+  }
+}
+
+/** 补丁包不进战役：导入补丁库，之后到对应战役里挂载。 */
+async function confirmPatchImport(): Promise<void> {
+  const current = pending.value;
+  if (!current) return;
+
+  importing.value = true;
+  try {
+    const patch = await api.importPatch(current.preview.path);
+    pending.value = null;
+    notify("success", "补丁「" + patch.name + "」已进库，到对应战役里挂载即可");
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -85,9 +134,22 @@ async function confirmImport(): Promise<void> {
   const current = pending.value;
   if (!current || !current.slot) return;
 
-  const created = await importInto(current.slot, current.path);
-  pending.value = null;
-  if (created) opened.value = current.slot;
+  importing.value = true;
+  try {
+    const created = await api.importPackageWith(
+      current.preview.path,
+      current.slot,
+      current.mode,
+    );
+    pending.value = null;
+    await refresh();
+    opened.value = current.slot;
+    notify("success", "已导入「" + created.name + "」");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    importing.value = false;
+  }
 }
 </script>
 
@@ -177,44 +239,76 @@ async function confirmImport(): Promise<void> {
           <div>
             <div class="import__title">
               将导入：{{ pendingName }}
-              <span v-if="pending.inspection.version" class="tag">
-                v{{ pending.inspection.version }}
+              <span v-if="inspection?.version" class="tag">v{{ inspection.version }}</span>
+              <span class="tag" :class="{ 'tag--patch': isPatch }">
+                {{ isPatch ? "补丁包" : "战役包" }}
               </span>
             </div>
             <div class="import__meta">
-              {{ pending.inspection.map_count }} 张地图 ·
-              {{ formatBytes(pending.inspection.unpacked_bytes) }}
-              <span v-if="pending.inspection.author"> · {{ pending.inspection.author }}</span>
+              {{ inspection?.map_count ?? 0 }} 张地图 ·
+              {{ formatBytes(inspection?.unpacked_bytes ?? 0) }}
+              <span v-if="inspection?.author"> · {{ inspection.author }}</span>
             </div>
           </div>
 
           <div class="import__target">
-            <template v-if="suggestedName">
-              自动识别归属：<strong>{{ suggestedName }}</strong>
-            </template>
-            <template v-else>
-              <span class="import__ask">包内没有标明归属，请选择要导入到哪部战役：</span>
-            </template>
+            <div class="import__source">{{ sourceLabel }}</div>
+            <div v-if="evidenceText" class="import__evidence">{{ evidenceText }}</div>
           </div>
         </div>
 
-        <!-- 认不出来时的手动选择 -->
-        <div v-if="needsTarget" class="targets">
-          <button
-            v-for="item in slots"
-            :key="item.slug"
-            class="target"
-            :class="{ 'target--on': pending.slot === item.slug }"
-            type="button"
-            @click="pending.slot = item.slug"
-          >
-            {{ item.display_name }}
-          </button>
-        </div>
+        <!-- 补丁包走另一条路 -->
+        <p v-if="isPatch" class="import__note">
+          这是一个<strong>补丁包</strong>，它不归属任何战役。导入后到对应战役的菜单里挂载即可，
+          可以同时挂多个并调整优先级。
+        </p>
 
-        <ul v-if="pending.inspection.issues.length" class="issues">
+        <template v-else>
+          <!-- 目标战役：**始终可选**，默认填自动识别的结果 -->
+          <div class="import__field">
+            <span class="import__label">导入到：</span>
+            <div class="targets">
+              <button
+                v-for="item in slots"
+                :key="item.slug"
+                class="target"
+                :class="{ 'target--on': pending.slot === item.slug }"
+                type="button"
+                @click="pending.slot = item.slug"
+              >
+                {{ item.display_name }}
+              </button>
+            </div>
+            <span v-if="needsTarget" class="import__ask">自动识别没能判断出归属，请手动选择</span>
+          </div>
+
+          <!-- 冲突：覆盖更新 or 重命名后导入 -->
+          <div v-if="preview?.conflict" class="conflict">
+            <div class="conflict__text">{{ conflictText }}</div>
+            <div class="targets">
+              <button
+                class="target"
+                :class="{ 'target--on': pending.mode === 'overwrite' }"
+                type="button"
+                @click="pending.mode = 'overwrite'"
+              >
+                覆盖更新
+              </button>
+              <button
+                class="target"
+                :class="{ 'target--on': pending.mode === 'rename' }"
+                type="button"
+                @click="pending.mode = 'rename'"
+              >
+                重命名后导入（两者并存）
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <ul v-if="inspection?.issues.length" class="issues">
           <li
-            v-for="issue in pending.inspection.issues"
+            v-for="issue in inspection.issues"
             :key="issue.code"
             class="issue"
             :class="'issue--' + issue.level"
@@ -226,12 +320,22 @@ async function confirmImport(): Promise<void> {
         <div class="import__actions">
           <button class="btn btn-text" type="button" @click="pending = null">取消</button>
           <button
+            v-if="isPatch"
             class="btn btn-primary"
             type="button"
-            :disabled="!pending.slot || !pending.inspection.installable"
+            :disabled="importing || !inspection?.installable"
+            @click="confirmPatchImport"
+          >
+            {{ importing ? "导入中…" : "导入补丁库" }}
+          </button>
+          <button
+            v-else
+            class="btn btn-primary"
+            type="button"
+            :disabled="importing || !pending.slot || !inspection?.installable"
             @click="confirmImport"
           >
-            确认导入
+            {{ importing ? "导入中…" : "确认导入" }}
           </button>
         </div>
       </section>
@@ -493,6 +597,60 @@ async function confirmImport(): Promise<void> {
 .issue--broken {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.tag--patch {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.import__source {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.import__evidence {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.import__note {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.import__field {
+  margin-top: 14px;
+}
+
+.import__label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+}
+
+.import__field .targets {
+  margin-top: 8px;
+}
+
+.conflict {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.conflict__text {
+  font-size: 12.5px;
+  color: var(--on-surface);
+  line-height: 1.6;
 }
 
 .tag {

@@ -35,6 +35,7 @@ use crate::sc2::Installation;
 
 pub mod activation;
 pub mod compose;
+pub mod export;
 pub mod patch;
 pub mod store;
 
@@ -48,7 +49,7 @@ pub use store::{VariantChanges, import, remove_variant, update_variant};
 const INDEX_VERSION: u32 = 1;
 
 /// 库内的一个战役版本，即「某个玩家做的某一版」。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Variant {
     /// 槽位内唯一 id，同时是它在库中的目录名。
     pub id: String,

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 pub use metadata::CampaignType;
 
 /// 战役包的来源格式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CampaignFormat {
     /// CCM 自制战役包：包内任意层级有 `metadata.txt`。
@@ -35,6 +35,7 @@ pub enum CampaignFormat {
     #[serde(rename = "miyin")]
     Standard,
     /// 没有元数据文件，仅靠目录内容识别。
+    #[default]
     Plain,
     /// 无法识别。
     Unknown,

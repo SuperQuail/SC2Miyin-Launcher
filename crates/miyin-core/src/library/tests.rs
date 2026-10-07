@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::campaign::package;
 use crate::library::{
     ImportMode, Library, VariantChanges, VersionRelation, activate, compare_versions, compose,
     conflict_for, import, patch, remove_variant, update_variant,
@@ -770,4 +771,149 @@ fn patch_priority_decides_who_wins() {
         "高优先级",
         "优先级高的补丁应当胜出"
     );
+}
+
+#[test]
+fn exported_package_is_ccm_readable_and_round_trips() {
+    let fixture = fixture();
+
+    let campaign = build_zip(
+        fixture.work.path(),
+        "golden.zip",
+        &[
+            (
+                "metadata.txt",
+                "title=黄金之遗\ncampaign=LoTV\nid=HTXL.golden\nauthor=HTXL\nversion=1.32\n",
+            ),
+            ("paiur01.SC2Map", "第一张"),
+            ("paiur02.SC2Map", "第二张"),
+            ("HTXL.SC2Mod", "模组"),
+        ],
+    );
+    let variant = import(&fixture.library, &campaign, "lotv", ImportMode::Rename).expect("import");
+
+    // 再挂一个补丁，验证它能被一起带走
+    let patch_zip = build_zip(
+        fixture.work.path(),
+        "p.zip",
+        &[("Mods/Extra.SC2Mod", "补丁内容")],
+    );
+    let patch = patch::import_patch(&fixture.library, &patch_zip).expect("patch");
+    patch::bind(&fixture.library, "lotv", &patch.id).expect("bind");
+
+    let destination = fixture.work.path().join("导出.zip");
+    let report = crate::library::export::export(
+        &fixture.library,
+        "lotv",
+        &variant,
+        &crate::library::export::ExportOptions {
+            destination: destination.clone(),
+            merge_patches: false,
+        },
+    )
+    .expect("export");
+
+    assert_eq!(report.maps, 2);
+    assert_eq!(report.mods, 1);
+    assert_eq!(report.patches, vec!["p".to_string()], "补丁应当被一起带走");
+
+    // 用启动器自己的预检读回来：必须仍被认成 CCM 包、归属不变
+    let back = package::inspect(&destination).expect("inspect export");
+    assert_eq!(
+        back.format,
+        crate::campaign::CampaignFormat::Ccm,
+        "必须是 CCM 读得懂的形态"
+    );
+    assert_eq!(
+        back.campaign_type,
+        crate::campaign::metadata::CampaignType::Lotv
+    );
+    assert_eq!(back.name.as_deref(), Some("黄金之遗"));
+    assert_eq!(back.author.as_deref(), Some("HTXL"));
+    assert_eq!(back.id.as_deref(), Some("HTXL.golden"));
+    assert_eq!(back.version.as_deref(), Some("1.32"));
+    assert_eq!(back.map_count, 2);
+    assert_eq!(back.mod_count, 1);
+
+    // CCM 只认根目录平铺的 .SC2Map；我们的额外数据全在 Miyin/ 里
+    let file = std::fs::File::open(&destination).expect("open");
+    let mut zip = zip::ZipArchive::new(file).expect("zip");
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|index| {
+            zip.by_index(index)
+                .ok()
+                .map(|entry| entry.name().to_string())
+        })
+        .collect();
+    assert!(names.contains(&"metadata.txt".to_string()));
+    assert!(
+        names.contains(&"paiur01.SC2Map".to_string()),
+        "地图要平铺在根"
+    );
+    assert!(names.contains(&"Miyin/metadata.json".to_string()));
+    assert!(names.contains(&"Miyin/bindings.json".to_string()));
+    assert!(
+        names.iter().any(|name| name.starts_with("Miyin/patches/")),
+        "补丁原件要留在 Miyin/patches/ 下"
+    );
+    assert!(
+        !names
+            .iter()
+            .any(|name| name.starts_with("Maps/") || name.starts_with("Mods/")),
+        "导出物顶层不该出现游戏目录结构，否则 CCM 读不到"
+    );
+}
+
+#[test]
+fn exporting_with_merged_patches_puts_them_on_top() {
+    let fixture = fixture();
+
+    let campaign = build_zip(
+        fixture.work.path(),
+        "c.zip",
+        &[
+            ("metadata.txt", "title=本体\ncampaign=WOL\n"),
+            ("a.SC2Map", "本体"),
+        ],
+    );
+    let variant = import(&fixture.library, &campaign, "wol", ImportMode::Rename).expect("import");
+
+    let patch_zip = build_zip(
+        fixture.work.path(),
+        "p.zip",
+        &[("Mods/Only.SC2Mod", "补丁")],
+    );
+    let patch = patch::import_patch(&fixture.library, &patch_zip).expect("patch");
+    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
+
+    // 附加模式：顶层只有本体
+    let plain = fixture.work.path().join("plain.zip");
+    let report = crate::library::export::export(
+        &fixture.library,
+        "wol",
+        &variant,
+        &crate::library::export::ExportOptions {
+            destination: plain.clone(),
+            merge_patches: false,
+        },
+    )
+    .expect("export plain");
+    assert_eq!(report.mods, 0, "附加模式不该把补丁放进顶层");
+
+    // 合成模式：顶层是打完补丁的样子
+    let merged = fixture.work.path().join("merged.zip");
+    let report = crate::library::export::export(
+        &fixture.library,
+        "wol",
+        &variant,
+        &crate::library::export::ExportOptions {
+            destination: merged.clone(),
+            merge_patches: true,
+        },
+    )
+    .expect("export merged");
+    assert_eq!(report.mods, 1, "合成模式应当把补丁的模组并进顶层");
+
+    let back = package::inspect(&merged).expect("inspect");
+    assert_eq!(back.mod_count, 1);
 }
