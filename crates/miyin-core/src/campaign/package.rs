@@ -18,7 +18,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::campaign::identify::{self, Identification, MAX_SCANNED_MAPS};
 use crate::campaign::metadata::{
@@ -43,7 +43,7 @@ pub const MIYIN_FORMAT_VERSION: u32 = 1;
 ///
 /// 关键点：`.SC2Map` / `.SC2Mod` 在真实包里**既可能是单文件 MPQ，也可能是一棵解开的目录树**
 /// （`xxx.SC2Map/Base.SC2Data/...`），所以这里用 `expanded` 区分，落盘时保持原形态。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payload {
     /// 相对内容根的路径（文件或目录）。
     pub source: String,
@@ -81,7 +81,7 @@ impl Payload {
 }
 
 /// 载荷的落点。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PayloadTarget {
     /// 包内已经是游戏目录镜像：按这个相对路径落盘。
@@ -281,8 +281,9 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
             .components()
             .next()
             .map(|first| {
-                let name = first.as_os_str().to_string_lossy().to_ascii_lowercase();
-                name == "maps" || name == "mods"
+                // 与 `payload_target` 一致：只认规范拼写
+                let name = first.as_os_str().to_string_lossy();
+                name == "Maps" || name == "Mods"
             })
             .unwrap_or(false)
     })
@@ -354,10 +355,12 @@ fn is_under(candidate: &Path, root: &str) -> bool {
 
 /// 决定载荷落到游戏目录的哪里。
 fn payload_target(source: &str, is_mod: bool) -> PayloadTarget {
-    let lower = source.to_ascii_lowercase();
-
-    // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）
-    if lower.starts_with("maps/") || lower.starts_with("mods/") {
+    // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）。
+    //
+    // 只认**规范拼写** `Maps/` / `Mods/`：游戏目录就叫这两个名字，
+    // 而包作者拿小写 `maps/` 当普通内容目录用的情况很常见，
+    // 一律按镜像处理会把它们误送到游戏根下。
+    if source.starts_with("Maps/") || source.starts_with("Mods/") {
         return PayloadTarget::Mirror {
             path: source.replace('\\', "/"),
         };
@@ -502,13 +505,14 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             || entry.relative.as_os_str() == "Metadata.json"
     });
 
+    // metadata.txt 是 CCM 的；patch.txt 是我们给**没有战役元数据的补丁**准备的同格式文件
+    // （现实里的补丁往往只有一个说明.txt，作者想声明依赖就得有个地方写）。
     let ccm_entry = entries
         .iter()
         .filter(|entry| {
-            entry
-                .relative
-                .file_name()
-                .is_some_and(|name| name.eq_ignore_ascii_case("metadata.txt"))
+            entry.relative.file_name().is_some_and(|name| {
+                name.eq_ignore_ascii_case("metadata.txt") || name.eq_ignore_ascii_case("patch.txt")
+            })
         })
         .min_by_key(|entry| entry.relative.components().count());
 

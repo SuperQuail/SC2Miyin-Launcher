@@ -29,10 +29,13 @@ use serde::{Deserialize, Serialize};
 use crate::campaign::CampaignFormat;
 use crate::campaign::metadata::CampaignType;
 use crate::campaign::metadata::PackageKind;
+use crate::campaign::package::Payload;
 use crate::error::{Error, Result};
 use crate::sc2::Installation;
 
 pub mod activation;
+pub mod compose;
+pub mod patch;
 pub mod store;
 
 #[cfg(test)]
@@ -79,6 +82,12 @@ pub struct Variant {
     /// 包类型：战役本体还是补丁。
     #[serde(default)]
     pub kind: PackageKind,
+    /// 载荷清单：哪些地图/模组、各自落到游戏目录的哪里。
+    ///
+    /// **必须存下来**：镜像包里的地图可能分布在多个子目录（`void` 与 `voidprologue`），
+    /// 靠扫目录去猜落点会摆错位置。
+    #[serde(default)]
+    pub payloads: Vec<Payload>,
 }
 
 /// 一个官方资料片槽位。
@@ -92,12 +101,70 @@ pub struct CampaignSlot {
     pub active: Option<String>,
 }
 
+/// 库里的一条补丁记录。
+///
+/// 补丁是**覆盖层**：没有自己的地图目录，只往已有战役上叠文件。
+/// 叠加规则见 [`crate::library::compose`]。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Patch {
+    /// 库内目录名（补丁的本地唯一键）。
+    pub id: String,
+    /// 显示名。
+    pub name: String,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// 包声明的注册 ID。
+    #[serde(default)]
+    pub registration_id: Option<String>,
+    /// 包内声明的默认优先级；数值大的后覆盖。
+    #[serde(default = "default_priority")]
+    pub priority: i64,
+    /// 依赖的战役（注册 ID 或名字）；**为空表示只能手动指定**。
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// 载荷清单。
+    #[serde(default)]
+    pub payloads: Vec<Payload>,
+    #[serde(default)]
+    pub imported_at: u64,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub mod_count: usize,
+}
+
+/// 补丁的默认优先级。
+fn default_priority() -> i64 {
+    crate::library::patch::DEFAULT_PRIORITY
+}
+
+/// 某个战役挂的一个补丁。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Binding {
+    /// 挂的是哪个补丁。
+    pub patch_id: String,
+    /// 覆盖包内声明的优先级。
+    pub priority: i64,
+    /// 是否启用；关掉就不参与合成。
+    pub enabled: bool,
+}
+
 /// 库索引。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryIndex {
     pub version: u32,
     #[serde(default)]
     pub slots: BTreeMap<String, CampaignSlot>,
+    /// 库里的补丁。
+    #[serde(default)]
+    pub patches: BTreeMap<String, Patch>,
+    /// 战役槽位 -> 挂在它身上的补丁。
+    #[serde(default)]
+    pub bindings: BTreeMap<String, Vec<Binding>>,
 }
 
 impl Default for LibraryIndex {
@@ -105,6 +172,8 @@ impl Default for LibraryIndex {
         Self {
             version: INDEX_VERSION,
             slots: BTreeMap::new(),
+            patches: BTreeMap::new(),
+            bindings: BTreeMap::new(),
         }
     }
 }
@@ -155,6 +224,16 @@ impl Library {
     /// 各版本的实际存放目录。
     pub fn campaigns_dir(&self) -> PathBuf {
         self.root.join("campaigns")
+    }
+
+    /// 补丁目录：`<库根>/patches`。
+    pub fn patches_dir(&self) -> PathBuf {
+        self.root.join("patches")
+    }
+
+    /// 某个补丁的内容目录。
+    pub fn patch_dir(&self, id: &str) -> PathBuf {
+        self.patches_dir().join(id)
     }
 
     /// 被挪走的官方文件的暂存目录。

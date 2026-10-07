@@ -17,6 +17,7 @@ use crate::error::{Error, Result};
 use crate::safety;
 use crate::sc2::Installation;
 
+use super::compose::{self, Layer};
 use super::{Library, require_slot};
 
 /// 一个被我们放进游戏目录的文件。
@@ -100,7 +101,6 @@ pub fn deactivate(library: &Library, installation: &Installation) -> Result<Vec<
     Ok(warnings)
 }
 
-/// 启用某个版本；variant_id 传 None 表示切回**原版战役**。
 pub fn activate(
     library: &Library,
     installation: &Installation,
@@ -129,34 +129,23 @@ pub fn activate(
         .cloned()
         .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
 
-    let slot_dir = library.slot_dir(slot_slug);
-    let variant_dir = safety::ensure_within(&slot_dir, &slot_dir.join(&variant.id))?;
+    let variant_dir = library.slot_dir(slot_slug).join(&variant.id);
     if !variant_dir.is_dir() {
         return Err(Error::CampaignNotFound(variant.id.clone()));
     }
 
-    // 地图进 Maps/Campaign[/子目录]，模组进 Mods
-    // 目标子目录以**版本自己声明的**为准（进化包 -> swarm/evolution），
-    // 槽位只作为兜底。
+    // 地图进 Maps/Campaign[/子目录]，模组进 Mods。
+    // 目标子目录以**版本自己声明的**为准（进化包 -> swarm/evolution），槽位只作兜底。
     let sub = variant
         .target_sub
-        .as_deref()
-        .or_else(|| kind.sub_directory());
+        .clone()
+        .or_else(|| kind.sub_directory().map(str::to_string));
 
-    let maps_target = match sub {
-        Some(sub) => installation.campaign_maps_root.join(sub),
-        None => installation.campaign_maps_root.clone(),
-    };
-    let mods_target = installation.mods_root.clone();
-
-    // 参考实现就是漏了这一步：Maps/Campaign/swarm 这类目录在全新安装里并不存在
-    std::fs::create_dir_all(&maps_target)?;
-    std::fs::create_dir_all(&mods_target)?;
-
-    let payload = collect_payload(&variant_dir);
-    if payload.is_empty() {
+    // 分层合成：战役本体 + 这个战役上启用的补丁（按优先级叠加）
+    let composition = compose::compose(library, slot_slug, &variant, sub.as_deref());
+    if composition.files.is_empty() {
         return Err(Error::PackageRejected(
-            "该版本里没有可用的地图或模组文件".to_string(),
+            "该版本里没有可用的地图或模组".to_string(),
         ));
     }
 
@@ -166,36 +155,21 @@ pub fn activate(
         placed: Vec::new(),
         backups: Vec::new(),
     };
-    let mut seen: Vec<String> = Vec::new();
+    let backup_root = library.backup_dir().join(slot_slug);
 
-    for (source, is_map) in payload {
-        let Some(file_name) = source
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-        else {
-            continue;
-        };
+    for item in &composition.files {
+        let relative = item.target.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let target = allowed_target(installation, &installation.root.join(&relative))?;
 
-        // 不同子目录里的同名文件会互相覆盖：明确提示，而不是悄悄丢一个
-        let key = format!("{}:{}", is_map, file_name.to_lowercase());
-        if seen.contains(&key) {
-            warnings.push(format!("同名文件被跳过：{file_name}"));
-            continue;
-        }
-        seen.push(key);
-
-        let target = if is_map {
-            maps_target.join(&file_name)
-        } else {
-            mods_target.join(&file_name)
-        };
-        let target = allowed_target(installation, &target)?;
-
-        // 已存在（多半是官方文件）：先挪到备份区，切回原版时原样还原
+        // 已存在（多半是官方文件，也可能是被更高优先级的层盖住）：先挪进备份区
         if target.exists() {
-            let backup = library.backup_dir().join(slot_slug).join(&file_name);
+            let backup = backup_root.join(&relative);
             if let Some(parent) = backup.parent() {
                 std::fs::create_dir_all(parent)?;
+            }
+            if backup.exists() {
+                let _ = std::fs::remove_dir_all(&backup);
+                let _ = std::fs::remove_file(&backup);
             }
             std::fs::rename(&target, &backup)?;
             state.backups.push(BackupFile {
@@ -204,10 +178,23 @@ pub fn activate(
             });
         }
 
-        std::fs::copy(&source, &target)?;
-        state.placed.push(PlacedFile {
-            path: target.clone(),
-        });
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        copy_entry(&item.source, &target)?;
+        state.placed.push(PlacedFile { path: target });
+    }
+
+    // 让用户知道谁盖了谁
+    for item in &composition.overridden {
+        if matches!(item.layer, Layer::Campaign) {
+            continue;
+        }
+        warnings.push(format!(
+            "{} 覆盖了更低优先级的同名内容：{}",
+            item.layer.label(),
+            item.target
+        ));
     }
 
     save_state(library, &state)?;
@@ -220,35 +207,37 @@ pub fn activate(
     Ok(warnings)
 }
 
+/// 复制一个载荷：**解开的目录树整体复制**，单文件直接复制。
+///
+/// 真实包里 `.SC2Map` / `.SC2Mod` 两种形态都有，落盘时必须保持原形态。
+fn copy_entry(source: &Path, target: &Path) -> Result<()> {
+    if !source.is_dir() {
+        std::fs::copy(source, target)?;
+        return Ok(());
+    }
+
+    for entry in WalkDir::new(source)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        let relative = entry.path().strip_prefix(source).unwrap_or(entry.path());
+        let destination = target.join(relative);
+
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&destination)?;
+        } else {
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(entry.path(), &destination)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// 校验目标位于官方战役目录或模组目录之内。
 fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
     safety::ensure_within(&installation.campaign_maps_root, path)
         .or_else(|_| safety::ensure_within(&installation.mods_root, path))
-}
-
-/// 收集版本目录里需要铺进游戏的文件：.SC2Map 与 .SC2Mod。
-fn collect_payload(dir: &Path) -> Vec<(PathBuf, bool)> {
-    let mut payload: Vec<(PathBuf, bool)> = WalkDir::new(dir)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-        .filter_map(|entry| {
-            let path = entry.path().to_path_buf();
-            match extension_of(&path).as_str() {
-                "sc2map" => Some((path, true)),
-                "sc2mod" => Some((path, false)),
-                _ => None,
-            }
-        })
-        .collect();
-
-    payload.sort();
-    payload
-}
-
-/// 小写扩展名。
-fn extension_of(path: &Path) -> String {
-    path.extension()
-        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default()
 }
