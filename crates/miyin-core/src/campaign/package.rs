@@ -315,7 +315,7 @@ fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
                 strip_prefix(&entry.relative, content_root)
                     .is_some_and(|relative| is_under(&relative, &source))
             });
-            let target = payload_target(&source, is_mod);
+            let target = payload_target(&source, is_mod, content_root);
             Payload {
                 source,
                 target,
@@ -354,7 +354,7 @@ fn is_under(candidate: &Path, root: &str) -> bool {
 }
 
 /// 决定载荷落到游戏目录的哪里。
-fn payload_target(source: &str, is_mod: bool) -> PayloadTarget {
+fn payload_target(source: &str, is_mod: bool, content_root: &str) -> PayloadTarget {
     // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）。
     //
     // 只认**规范拼写** `Maps/` / `Mods/`：游戏目录就叫这两个名字，
@@ -366,12 +366,61 @@ fn payload_target(source: &str, is_mod: bool) -> PayloadTarget {
         };
     }
 
-    let name = source.rsplit('/').next().unwrap_or(source).to_string();
+    let path = source.replace('\\', "/");
+
     if is_mod {
-        PayloadTarget::Mod { name }
-    } else {
-        PayloadTarget::Map { name }
+        // 模组一律落到 Mods/ 下，取最后一段当名字
+        let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+        return PayloadTarget::Mod { name };
     }
+
+    // 地图该不该保留包内的相对目录，取决于**内容根站在哪里**：
+    //
+    // - 内容根已经落在官方战役目录里（`X/swarm/metadata.txt`）-> 包内相对路径是
+    //   该战役目录**之内**的结构，要原样保留（`evolution/…` -> swarm/evolution/…）
+    // - 否则相对路径是**并列**于战役目录的：顶层是官方目录名（`voidprologue/…`）
+    //   就说明作者按游戏结构摆好了；其余（`maps/…`）只是作者的分类习惯，只取文件名
+    let leading_is_campaign_dir = known_campaign_prefix(&path).is_some();
+    let root_is_campaign_dir = content_root
+        .rsplit('/')
+        .next()
+        .is_some_and(is_known_campaign_dir);
+
+    if path.contains('/') && (root_is_campaign_dir || leading_is_campaign_dir) {
+        return PayloadTarget::Map { name: path };
+    }
+
+    let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+    PayloadTarget::Map { name }
+}
+
+/// 这个名字是不是官方战役目录（`Maps/Campaign` 下那一层的名字）。
+fn is_known_campaign_dir(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "swarm" | "void" | "voidprologue" | "nova" | "campaign"
+    )
+}
+
+/// 包内相对路径的**顶层目录**是不是官方战役目录名。
+///
+/// 是的话说明作者已经按游戏的结构摆好了（`voidprologue/…`），落点直接用这条路径；
+/// 否则相对路径是相对"这个战役自己的目录"的（`evolution/…` -> swarm/evolution/）。
+pub fn known_campaign_prefix(source: &str) -> Option<&'static str> {
+    // 长的排前面，避免 `swarm/evolution` 被 `swarm` 抢先匹配
+    const KNOWN: [&str; 6] = [
+        "swarm/evolution",
+        "voidprologue",
+        "swarm",
+        "void",
+        "nova",
+        "customcampaigns",
+    ];
+
+    let lower = source.to_ascii_lowercase();
+    KNOWN
+        .into_iter()
+        .find(|prefix| lower.starts_with(&format!("{prefix}/")))
 }
 
 /// 校验 zip 条目名，并返回清理后的相对路径。
@@ -694,6 +743,8 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                 campaign_type = found.campaign_type.clone();
             }
             None => issues.push(
+                // 补丁本来就没有"归属"这回事 —— 它的目标由挂到谁身上决定，
+                // 所以这里只对战役包报错，免得刷无意义的告警。
                 HealthIssue::warning("CAMPAIGN_UNKNOWN", "无法判断这个包属于哪部战役")
                     .with_hint("导入时请手动选择目标战役"),
             ),
@@ -1222,5 +1273,85 @@ mod payload_tests {
         let zip = dir.path().join("x.zip");
         std::fs::write(&zip, b"PK\x03\x04rest").expect("write");
         assert_eq!(unsupported_archive(&zip), None);
+    }
+
+    #[test]
+    fn keeps_relative_directories_inside_the_campaign_folder() {
+        // 真实样本「酒馆合作虫心」：内容根就是 X/swarm，进化地图在 evolution/ 下。
+        // 这一层必须保留，否则进化地图会被摆到虫心主目录，游戏里找不到。
+        let entries = vec![
+            entry("酒馆合作虫心/swarm/metadata.txt", false),
+            entry("酒馆合作虫心/swarm/zchar01.SC2Map", false),
+            entry(
+                "酒馆合作虫心/swarm/evolution/zevolutionbaneling.SC2Map",
+                false,
+            ),
+        ];
+        let payloads = collect_payloads(&entries, "酒馆合作虫心/swarm");
+
+        let plain = payloads
+            .iter()
+            .find(|p| p.source == "zchar01.SC2Map")
+            .expect("普通地图");
+        assert_eq!(plain.target_name(), "zchar01.SC2Map");
+
+        let evolution = payloads
+            .iter()
+            .find(|p| p.source.contains("evolution"))
+            .expect("进化地图");
+        assert_eq!(
+            evolution.target_name(),
+            "evolution/zevolutionbaneling.SC2Map",
+            "战役目录之内的相对结构要原样保留"
+        );
+        assert_eq!(
+            crate::library::compose::payload_target_path(&evolution.target, Some("swarm")),
+            "Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map"
+        );
+    }
+
+    #[test]
+    fn recognises_official_campaign_directories_inside_the_package() {
+        // 真实样本「净化者纪元幼儿园」：内容根是包根，序章地图放在 voidprologue/。
+        // voidprologue 是官方目录名，说明作者按游戏结构摆好了，落点直接用。
+        let entries = vec![
+            entry("metadata.txt", false),
+            entry("paiur01.SC2Map", false),
+            entry("voidprologue/voidprologue01.SC2Map", false),
+        ];
+        let payloads = collect_payloads(&entries, "");
+
+        let main = payloads
+            .iter()
+            .find(|p| p.source == "paiur01.SC2Map")
+            .expect("主线地图");
+        assert_eq!(
+            crate::library::compose::payload_target_path(&main.target, Some("void")),
+            "Maps/Campaign/void/paiur01.SC2Map"
+        );
+
+        let prologue = payloads
+            .iter()
+            .find(|p| p.source.contains("voidprologue"))
+            .expect("序章地图");
+        assert_eq!(
+            crate::library::compose::payload_target_path(&prologue.target, Some("void")),
+            "Maps/Campaign/voidprologue/voidprologue01.SC2Map",
+            "官方目录名要当绝对路径用，而不是塞进 void/ 下面"
+        );
+    }
+
+    #[test]
+    fn arbitrary_container_folders_are_flattened() {
+        // 作者的分类习惯（maps/、files/…）没有游戏语义，只取文件名 ——
+        // 否则地图会落到游戏根本不扫描的目录里
+        let entries = vec![entry("metadata.txt", false), entry("maps/01.SC2Map", false)];
+        let payloads = collect_payloads(&entries, "");
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(payloads[0].target_name(), "01.SC2Map");
+        assert_eq!(
+            crate::library::compose::payload_target_path(&payloads[0].target, Some("void")),
+            "Maps/Campaign/void/01.SC2Map"
+        );
     }
 }

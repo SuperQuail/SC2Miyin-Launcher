@@ -37,7 +37,8 @@ fn main() {
                         found.evidence.is_exact(),
                         found.detail
                     ),
-                    None => println!("  判定依据: 包内已声明"),
+                    None if inspection.installable => println!("  判定依据: 包内已声明"),
+                    None => println!("  判定依据: 无法预检"),
                 }
                 println!("  建议槽位: {:?}", inspection.suggested_slot);
                 println!("  内容根  : {:?}", inspection.content_root);

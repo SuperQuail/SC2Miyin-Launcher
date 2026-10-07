@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::campaign::package::{Payload, PayloadTarget};
+use crate::campaign::package::{Payload, PayloadTarget, known_campaign_prefix};
 use crate::library::{Binding, Library, Patch, Variant};
 
 /// 一层内容的出处。
@@ -100,10 +100,16 @@ pub fn payload_target_path(target: &PayloadTarget, sub: Option<&str>) -> String 
     match target {
         PayloadTarget::Mirror { path } => path.replace('\\', "/"),
         PayloadTarget::Mod { name } => format!("Mods/{name}"),
-        PayloadTarget::Map { name } => match sub {
-            Some(sub) if !sub.is_empty() => format!("Maps/Campaign/{sub}/{name}"),
-            _ => format!("Maps/Campaign/{name}"),
-        },
+        PayloadTarget::Map { name } => {
+            // 包内已经按游戏结构摆了（voidprologue/…、swarm/evolution/…）-> 直接用
+            if known_campaign_prefix(name).is_some() {
+                return format!("Maps/Campaign/{name}");
+            }
+            match sub {
+                Some(sub) if !sub.is_empty() => format!("Maps/Campaign/{sub}/{name}"),
+                _ => format!("Maps/Campaign/{name}"),
+            }
+        }
     }
 }
 
