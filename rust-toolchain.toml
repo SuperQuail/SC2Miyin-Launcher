@@ -1,0 +1,9 @@
+# 固定工具链版本。
+#
+# 为什么不用 stable：clippy 每条新 lint 都会让 CI 红一次，而本地没升级时
+# 根本复现不了（踩过一次 —— CI 用 1.99 报了 unnecessary_sort_by，本地 1.94 一切正常）。
+# 升版本时改这里，本地和 CI 一起动。
+[toolchain]
+channel = "1.94.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

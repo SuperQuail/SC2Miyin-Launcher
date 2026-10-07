@@ -139,7 +139,7 @@ pub fn from_dependencies(declarations: &[String]) -> Option<Identification> {
         }
     }
 
-    counts.sort_by(|left, right| right.1.cmp(&left.1));
+    counts.sort_by_key(|left| std::cmp::Reverse(left.1));
     let (best, best_count, detail) = counts.first()?.clone();
 
     // 并列第一 = 分不清，交给下一层
@@ -174,7 +174,7 @@ pub fn from_mirror_paths(paths: &[String]) -> Option<Identification> {
         }
     }
 
-    counts.sort_by(|left, right| right.1.cmp(&left.1));
+    counts.sort_by_key(|left| std::cmp::Reverse(left.1));
     let (best, _, detail) = counts.first()?.clone();
     Some(Identification::new(
         best,
@@ -218,7 +218,7 @@ pub fn from_map_names(names: &[String]) -> Option<Identification> {
         .zip(samples)
         .map(|((count, kind), sample)| (count, kind, sample))
         .collect();
-    ranked.sort_by(|left, right| right.0.cmp(&left.0));
+    ranked.sort_by_key(|left| std::cmp::Reverse(left.0));
 
     let (best, kind, sample) = ranked.first()?.clone();
     if best == 0 {
