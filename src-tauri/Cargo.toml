@@ -1,0 +1,21 @@
+[package]
+name = "miyin-launcher"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "弥音启动器 —— 星际争霸 II 战役与 Mod 管理器"
+
+[lib]
+name = "miyin_launcher"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "2.6.3"
+
+[dependencies]
+miyin-core = { path = "../crates/miyin-core" }
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tauri = "2.11.6"
