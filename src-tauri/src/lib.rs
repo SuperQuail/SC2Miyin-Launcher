@@ -10,7 +10,7 @@ use std::sync::{Mutex, PoisonError};
 use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
-use miyin_core::library::{self, Conflict, ImportMode, Library, SlotView, Variant};
+use miyin_core::library::{self, Conflict, ImportMode, Library, SlotView, Variant, VariantChanges};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -217,6 +217,21 @@ fn activate_variant(
         .map_err(|error| error.to_string())
 }
 
+/// 修改一个已导入版本的元数据（名称 / 作者 / 注册 ID / 描述）。
+///
+/// 只改启动器自己记录的元数据，不动包内容；改名不会改版本目录，
+/// 因此挂在这个版本上的补丁绑定不受影响。
+#[tauri::command]
+fn update_variant(
+    slot: String,
+    variant_id: String,
+    changes: VariantChanges,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    library::update_variant(&state.library, &slot, &variant_id, changes)
+        .map_err(|error| error.to_string())
+}
+
 /// 删除库里的某个版本（若正在启用会先切回原版战役）。
 #[tauri::command]
 fn delete_variant(
@@ -404,6 +419,7 @@ pub fn run() {
             prepare_import,
             import_package,
             activate_variant,
+            update_variant,
             delete_variant,
             launch_game,
             reveal_path,

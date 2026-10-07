@@ -39,7 +39,7 @@ pub mod store;
 mod tests;
 
 pub use activation::{ActivationState, activate, deactivate};
-pub use store::{import, remove_variant};
+pub use store::{VariantChanges, import, remove_variant, update_variant};
 
 /// 索引文件的格式版本，便于以后迁移。
 const INDEX_VERSION: u32 = 1;

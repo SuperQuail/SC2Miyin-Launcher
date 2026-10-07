@@ -3,8 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::library::{
-    ImportMode, Library, VersionRelation, activate, compare_versions, conflict_for, import,
-    remove_variant,
+    ImportMode, Library, VariantChanges, VersionRelation, activate, compare_versions, conflict_for,
+    import, remove_variant, update_variant,
 };
 use crate::sc2::{DiscoverySource, Installation};
 
@@ -552,4 +552,68 @@ fn overwrite_mode_replaces_in_place_and_keeps_identity() {
         "旧版本内容应当被换掉"
     );
     assert!(installed.join("maps").join("new.SC2Map").is_file());
+}
+
+#[test]
+fn editing_metadata_keeps_content_and_directory() {
+    let fixture = fixture();
+    let variant = import(
+        &fixture.library,
+        &package(&fixture, "a.zip", "原名", &["01.SC2Map"]),
+        "wol",
+        ImportMode::Rename,
+    )
+    .expect("import");
+
+    let updated = update_variant(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        VariantChanges {
+            name: Some("改过的名字".to_string()),
+            author: Some("某位作者".to_string()),
+            registration_id: Some("someone.reborn".to_string()),
+            description: Some("新描述".to_string()),
+        },
+    )
+    .expect("update");
+
+    assert_eq!(updated.name, "改过的名字");
+    assert_eq!(updated.author.as_deref(), Some("某位作者"));
+    assert_eq!(updated.registration_id.as_deref(), Some("someone.reborn"));
+    assert_eq!(updated.description.as_deref(), Some("新描述"));
+
+    // 改名不动目录：补丁绑定的锚点必须稳定
+    assert_eq!(updated.id, variant.id);
+    let dir = fixture.library.slot_dir("wol").join(&updated.id);
+    assert!(dir.join("metadata.txt").is_file(), "包内容不应被动过");
+
+    // 改动要落盘
+    let reloaded = slot(&fixture, "wol");
+    assert_eq!(reloaded.variants[0].name, "改过的名字");
+
+    // 空名字要被拒绝，而不是写进去
+    let rejected = update_variant(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        VariantChanges {
+            name: Some("   ".to_string()),
+            ..VariantChanges::default()
+        },
+    );
+    assert!(rejected.is_err(), "空战役名应当被拒绝");
+
+    // 作者留空 = 清空，界面上会显示成未知作者
+    let cleared = update_variant(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        VariantChanges {
+            author: Some(String::new()),
+            ..VariantChanges::default()
+        },
+    )
+    .expect("clear author");
+    assert_eq!(cleared.author, None);
 }

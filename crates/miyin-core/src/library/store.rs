@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::campaign::package::{self, MAX_ENTRIES, MAX_UNPACKED_BYTES};
 use crate::campaign::sanitize::{sanitize_dir_name, with_suffix};
+use serde::Deserialize;
+
 use crate::error::{Error, Result};
 use crate::safety;
 use crate::sc2::Installation;
@@ -196,6 +198,79 @@ pub fn remove_variant(
     library.save_index(&index)?;
 
     Ok(())
+}
+
+/// 允许用户修改的元数据字段；`None` 表示这一项不动。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariantChanges {
+    pub name: Option<String>,
+    pub author: Option<String>,
+    pub registration_id: Option<String>,
+    pub description: Option<String>,
+}
+
+impl VariantChanges {
+    /// 是否什么都没改。
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none()
+            && self.author.is_none()
+            && self.registration_id.is_none()
+            && self.description.is_none()
+    }
+}
+
+/// 修改一个已导入版本的元数据。
+///
+/// **只改启动器自己记录的元数据，不动包里的原始文件** ——
+/// 这样编辑随时可以改回来，也不会破坏包内容，更不影响 CCM 读取。
+///
+/// 注意：改名**不会**改版本目录（目录名是补丁绑定的锚点），只改显示名。
+pub fn update_variant(
+    library: &Library,
+    slot_slug: &str,
+    variant_id: &str,
+    changes: VariantChanges,
+) -> Result<Variant> {
+    require_slot(slot_slug)?;
+
+    let mut index = library.index();
+    let slot = index
+        .slots
+        .get_mut(slot_slug)
+        .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+    let variant = slot
+        .variants
+        .iter_mut()
+        .find(|variant| variant.id == variant_id)
+        .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+    if let Some(name) = changes.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(Error::PackageRejected("战役名不能为空".to_string()));
+        }
+        variant.name = trimmed.to_string();
+    }
+    if let Some(author) = changes.author {
+        let trimmed = author.trim();
+        // 空字符串表示"清空作者"，读的时候会显示成未知作者
+        variant.author = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(id) = changes.registration_id {
+        let trimmed = id.trim();
+        variant.registration_id = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(description) = changes.description {
+        let trimmed = description.trim();
+        variant.description = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+
+    let updated = variant.clone();
+    library.save_index(&index)?;
+
+    Ok(updated)
 }
 
 /// 找出要覆盖的已有版本：先按注册 ID，再按名字。
