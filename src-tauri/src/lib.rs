@@ -10,7 +10,9 @@ use std::sync::{Mutex, PoisonError};
 use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
-use miyin_core::library::{self, Conflict, ImportMode, Library, SlotView, Variant, VariantChanges};
+use miyin_core::library::{
+    self, Binding, Conflict, ImportMode, Library, Patch, SlotView, Variant, VariantChanges,
+};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -232,6 +234,140 @@ fn update_variant(
         .map_err(|error| error.to_string())
 }
 
+/// 库里全部补丁。
+#[tauri::command]
+fn list_patches(state: State<'_, AppState>) -> Vec<Patch> {
+    state.library.index().patches.into_values().collect()
+}
+
+/// 某个战役挂着的补丁（含未启用的），带上它此刻能不能自动匹配。
+#[derive(Debug, serde::Serialize)]
+struct BoundPatch {
+    #[serde(flatten)]
+    patch: Patch,
+    /// 生效优先级（可能被挂载时改过）。
+    priority: i64,
+    /// 是否启用。
+    enabled: bool,
+    /// 按 requires 是否匹配得上这个战役。
+    matched: bool,
+}
+
+/// 列出某个战役挂着的补丁。
+#[tauri::command]
+fn list_bindings(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
+    library::compose::bindings_of(&state.library, &slot)
+        .into_iter()
+        .map(|(binding, patch)| BoundPatch {
+            matched: library::patch::matches_slot(&state.library, &slot, &patch),
+            patch,
+            priority: binding.priority,
+            enabled: binding.enabled,
+        })
+        .collect()
+}
+
+/// 库里还没挂到某个战役上的补丁（供界面挑选手动挂载）。
+#[tauri::command]
+fn list_available_patches(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
+    let bound: Vec<String> = library::compose::bindings_of(&state.library, &slot)
+        .into_iter()
+        .map(|(binding, _)| binding.patch_id)
+        .collect();
+
+    state
+        .library
+        .index()
+        .patches
+        .into_values()
+        .filter(|patch| !bound.contains(&patch.id))
+        .map(|patch| BoundPatch {
+            matched: library::patch::matches_slot(&state.library, &slot, &patch),
+            priority: patch.priority,
+            enabled: false,
+            patch,
+        })
+        .collect()
+}
+
+/// 导入一个补丁包（补丁不归任何战役，导入后需要挂到战役上）。
+#[tauri::command]
+fn import_patch(path: String, state: State<'_, AppState>) -> Result<Patch, String> {
+    library::patch::import_patch(&state.library, Path::new(&path)).map_err(|e| e.to_string())
+}
+
+/// 把库里所有**声明了依赖且匹配得上**的补丁自动挂到对应战役上。
+#[tauri::command]
+fn auto_bind_patches(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    library::patch::auto_bind(&state.library)
+        .map(|bound| {
+            bound
+                .into_iter()
+                .map(|(slot, name)| format!("{slot}::{name}"))
+                .collect()
+        })
+        .map_err(|error| error.to_string())
+}
+
+/// 把补丁挂到某个战役上。
+#[tauri::command]
+fn bind_patch(slot: String, patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    library::patch::bind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
+}
+
+/// 解绑（补丁本身还在库里）。
+#[tauri::command]
+fn unbind_patch(slot: String, patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    library::patch::unbind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
+}
+
+/// 改挂载设置：启用状态 / 优先级。**改完需要重新启用一次战役才会生效。**
+#[tauri::command]
+fn configure_patch(
+    slot: String,
+    patch_id: String,
+    enabled: Option<bool>,
+    priority: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<Binding, String> {
+    library::patch::configure_binding(&state.library, &slot, &patch_id, enabled, priority)
+        .map_err(|error| error.to_string())
+}
+
+/// 从库里彻底删掉一个补丁。
+#[tauri::command]
+fn delete_patch(patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    library::patch::remove_patch(&state.library, &patch_id).map_err(|e| e.to_string())
+}
+
+/// 预览某个版本打上当前补丁后的合成清单。
+#[tauri::command]
+fn preview_composition(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<library::compose::Composition, String> {
+    let index = state.library.index();
+    let variant = index
+        .slots
+        .get(&slot)
+        .and_then(|entry| entry.variants.iter().find(|v| v.id == variant_id).cloned())
+        .ok_or_else(|| "找不到这个版本".to_string())?;
+
+    let kind = library::require_slot(&slot).map_err(|error| error.to_string())?;
+    let sub = variant
+        .target_sub
+        .clone()
+        .or_else(|| kind.sub_directory().map(str::to_string));
+
+    Ok(library::compose::compose(
+        &state.library,
+        &slot,
+        &variant,
+        sub.as_deref(),
+    ))
+}
+
 /// 删除库里的某个版本（若正在启用会先切回原版战役）。
 #[tauri::command]
 fn delete_variant(
@@ -415,6 +551,16 @@ pub fn run() {
             set_installation,
             library_root,
             list_slots,
+            list_patches,
+            list_bindings,
+            list_available_patches,
+            import_patch,
+            auto_bind_patches,
+            bind_patch,
+            unbind_patch,
+            configure_patch,
+            delete_patch,
+            preview_composition,
             inspect_package,
             prepare_import,
             import_package,
