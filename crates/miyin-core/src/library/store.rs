@@ -9,13 +9,18 @@ use crate::safety;
 use crate::sc2::Installation;
 use walkdir::WalkDir;
 
-use super::{Library, Variant, now_seconds, require_slot, unique_suffix};
+use super::{ImportMode, Library, Variant, now_seconds, require_slot, unique_suffix};
 
 /// 把一个战役包导入到指定槽位，返回新建的版本记录。
 ///
 /// 同一个战役可以导入多个版本：目录名重复时会自动加序号，
 /// 因此「自由之翼：重生 v1.4」与「v1.5」可以并存，随时切换。
-pub fn import(library: &Library, package: &Path, slot_slug: &str) -> Result<Variant> {
+pub fn import(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
     let inspection = package::inspect(package)?;
@@ -46,7 +51,18 @@ pub fn import(library: &Library, package: &Path, slot_slug: &str) -> Result<Vari
 
     let mut index = library.index();
     let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();
-    let id = unique_variant_id(&slot_dir, &existing.variants, &display_name)?;
+
+    // 覆盖更新时沿用已有版本的目录名 —— 这样挂在它身上的补丁绑定不受影响
+    let overwrite_target = if mode == ImportMode::Overwrite {
+        find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned()
+    } else {
+        None
+    };
+
+    let id = match &overwrite_target {
+        Some(variant) => variant.id.clone(),
+        None => unique_variant_id(&slot_dir, &existing.variants, &display_name)?,
+    };
 
     let target = safety::ensure_within(&slot_dir, &slot_dir.join(&id))?;
 
@@ -76,10 +92,29 @@ pub fn import(library: &Library, package: &Path, slot_slug: &str) -> Result<Vari
         ));
     }
 
+    // 覆盖已有版本时先把旧的挪到一边，切换成功后再删 ——
+    // 中途失败还能把旧的改回来，不会两头落空
+    let mut replaced: Option<PathBuf> = None;
     if target.exists() {
-        std::fs::remove_dir_all(&target)?;
+        let parked = safety::ensure_within(
+            &slot_dir,
+            &slot_dir.join(format!(".replaced-{}", unique_suffix())),
+        )?;
+        std::fs::rename(&target, &parked)?;
+        replaced = Some(parked);
     }
-    std::fs::rename(&staging, &target)?;
+
+    if let Err(error) = std::fs::rename(&staging, &target) {
+        if let Some(parked) = &replaced {
+            let _ = std::fs::rename(parked, &target);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error.into());
+    }
+
+    if let Some(parked) = replaced {
+        let _ = std::fs::remove_dir_all(parked);
+    }
 
     // 启用时地图该落到哪个子目录：以包内声明的资料片为准（进化包 -> swarm/evolution），
     // 声明与所选槽位对不上时退回槽位自己的子目录。
@@ -110,10 +145,15 @@ pub fn import(library: &Library, package: &Path, slot_slug: &str) -> Result<Vari
         target_sub,
         cover,
         tags: inspection.tags.clone(),
+        registration_id: inspection.id.clone(),
+        kind: inspection.kind,
     };
 
-    // 最新的排在最前面
+    // 最新的排在最前面；覆盖更新时先摘掉旧记录
     let slot = index.slots.entry(slot_slug.to_string()).or_default();
+    if let Some(replaced) = &overwrite_target {
+        slot.variants.retain(|variant| variant.id != replaced.id);
+    }
     slot.variants.insert(0, variant.clone());
     library.save_index(&index)?;
 
@@ -156,6 +196,28 @@ pub fn remove_variant(
     library.save_index(&index)?;
 
     Ok(())
+}
+
+/// 找出要覆盖的已有版本：先按注册 ID，再按名字。
+fn find_existing<'a>(
+    variants: &'a [Variant],
+    incoming_id: Option<&str>,
+    incoming_name: &str,
+) -> Option<&'a Variant> {
+    let by_id = incoming_id.and_then(|incoming| {
+        variants.iter().find(|variant| {
+            variant
+                .registration_id
+                .as_deref()
+                .is_some_and(|existing| existing.eq_ignore_ascii_case(incoming))
+        })
+    });
+
+    by_id.or_else(|| {
+        variants
+            .iter()
+            .find(|variant| variant.name.eq_ignore_ascii_case(incoming_name))
+    })
 }
 
 /// 在槽位内生成唯一的版本目录名。

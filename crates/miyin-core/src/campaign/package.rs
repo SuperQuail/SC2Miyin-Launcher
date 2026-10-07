@@ -20,7 +20,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::campaign::metadata::{CampaignType, CcmMetadata, StandardMetadata, decode_text};
+use crate::campaign::metadata::{
+    CampaignType, CcmMetadata, PackageKind, StandardMetadata, decode_text,
+};
 use crate::campaign::sanitize::sanitize_dir_name;
 use crate::campaign::{CampaignFormat, HealthIssue};
 use crate::error::{Error, Result};
@@ -36,13 +38,65 @@ pub const MAX_ENTRIES: usize = 100_000;
 /// 包内 `miyin.format` 高于这个值时会被明确拒绝，而不是猜着解析。
 pub const MIYIN_FORMAT_VERSION: u32 = 1;
 
+/// 包内的一个**载荷**：一张地图或一个模组。
+///
+/// 关键点：`.SC2Map` / `.SC2Mod` 在真实包里**既可能是单文件 MPQ，也可能是一棵解开的目录树**
+/// （`xxx.SC2Map/Base.SC2Data/...`），所以这里用 `expanded` 区分，落盘时保持原形态。
+#[derive(Debug, Clone, Serialize)]
+pub struct Payload {
+    /// 相对内容根的路径（文件或目录）。
+    pub source: String,
+    /// 应该落到游戏目录的哪里。
+    pub target: PayloadTarget,
+    /// 是否是解开的目录树（false 表示单文件 MPQ）。
+    pub expanded: bool,
+    /// 载荷性质：`true` 是模组（`.SC2Mod`），`false` 是地图（`.SC2Map`）。
+    ///
+    /// 单独记一份，是因为落点形式（镜像 / Mods / Maps）不能代表性质 ——
+    /// 包内写死 `Mods/x.SC2Mod` 的镜像载荷，落点是镜像，但它仍然是模组。
+    pub is_mod: bool,
+}
+
+impl Payload {
+    /// 落点在游戏目录内的相对路径。
+    ///
+    /// `Map` 类型只给出文件名，调用方需要补上战役的子目录
+    /// （自由之翼在根下，虫群之心在 `swarm/` ……）。
+    pub fn target_path(&self) -> String {
+        match &self.target {
+            PayloadTarget::Mirror { path } => path.clone(),
+            PayloadTarget::Mod { name } => format!("Mods/{name}"),
+            PayloadTarget::Map { name } => name.clone(),
+        }
+    }
+
+    /// 载荷名（最后一个路径片段）。
+    pub fn target_name(&self) -> String {
+        match &self.target {
+            PayloadTarget::Mirror { path } => path.rsplit('/').next().unwrap_or(path).to_string(),
+            PayloadTarget::Mod { name } | PayloadTarget::Map { name } => name.clone(),
+        }
+    }
+}
+
+/// 载荷的落点。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum PayloadTarget {
+    /// 包内已经是游戏目录镜像：按这个相对路径落盘。
+    Mirror { path: String },
+    /// 落到 `<游戏>/Mods/<name>`。
+    Mod { name: String },
+    /// 落到 `<游戏>/Maps/Campaign/[子目录]/<name>`，子目录由绑定的战役决定。
+    Map { name: String },
+}
+
 /// 包内一个条目的摘要。
 #[derive(Debug, Clone)]
 struct Entry {
     index: usize,
     /// 校验并清理后的相对路径。
     relative: PathBuf,
-    is_dir: bool,
 }
 
 /// 包预检结果。
@@ -61,6 +115,16 @@ pub struct PackageInspection {
     pub cover: Option<String>,
     /// 包自报的标签。
     pub tags: Vec<String>,
+    /// 包类型：战役本体，还是覆盖层补丁。
+    pub kind: PackageKind,
+    /// 注册 ID（补丁靠它引用战役）。
+    pub id: Option<String>,
+    /// 补丁依赖的战役（注册 ID 或战役名）。
+    pub requires: Vec<String>,
+    /// 补丁默认优先级；数值大的后覆盖。
+    pub priority: Option<i64>,
+    /// 载荷清单：地图与模组，以及各自的落点。
+    pub payloads: Vec<Payload>,
     /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
     pub suggested_slot: Option<String>,
     /// 包内实际内容根（元数据所在目录），解压时需剥离；空串表示包根。
@@ -89,6 +153,195 @@ impl PackageInspection {
             .iter()
             .any(|issue| issue.level == crate::campaign::HealthLevel::Broken)
     }
+}
+
+/// 没有任何元数据时的作者名。
+pub const UNKNOWN_AUTHOR: &str = "未知作者";
+
+/// 构造一个"不可用"的预检结果。
+fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInspection {
+    PackageInspection {
+        path: path.to_path_buf(),
+        installable: false,
+        format: CampaignFormat::Unknown,
+        name: None,
+        author: None,
+        version: None,
+        description: None,
+        campaign_type: CampaignType::Other(String::new()),
+        cover: None,
+        tags: Vec::new(),
+        kind: PackageKind::Campaign,
+        id: None,
+        requires: Vec::new(),
+        priority: None,
+        payloads: Vec::new(),
+        suggested_slot: None,
+        content_root: String::new(),
+        suggested_dir_name: None,
+        map_count: 0,
+        mod_count: 0,
+        entry_count: 0,
+        unpacked_bytes: 0,
+        issues: vec![HealthIssue::broken(code, message).with_hint(hint)],
+    }
+}
+
+/// 识别 rar / 7z；zip 返回 `None`。
+fn unsupported_archive(path: &Path) -> Option<&'static str> {
+    use std::io::Read;
+
+    let mut magic = [0u8; 6];
+    let mut file = std::fs::File::open(path).ok()?;
+    file.read_exact(&mut magic).ok()?;
+
+    if magic.starts_with(b"Rar!") {
+        return Some("RAR");
+    }
+    if magic == [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] {
+        return Some("7z");
+    }
+    None
+}
+
+/// 包内是否直接就是游戏目录镜像（顶层出现 `Maps` 或 `Mods`）。
+fn has_mirror_root(entries: &[Entry]) -> bool {
+    entries.iter().any(|entry| {
+        entry
+            .relative
+            .components()
+            .next()
+            .map(|first| {
+                let name = first.as_os_str().to_string_lossy().to_ascii_lowercase();
+                name == "maps" || name == "mods"
+            })
+            .unwrap_or(false)
+    })
+}
+
+/// 从条目清单里找出所有载荷，并算出各自的落点。
+///
+/// 取"根"的办法：一条路径里**第一个**以 `.SC2Map` / `.SC2Mod` 结尾的组件就是载荷根，
+/// 这样无论它是单文件还是解开的目录树都能正确识别。
+fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
+    let mut roots: Vec<(String, bool)> = Vec::new();
+
+    for entry in entries {
+        let Some(relative) = strip_prefix(&entry.relative, content_root) else {
+            continue;
+        };
+        let Some(root) = payload_root(&relative) else {
+            continue;
+        };
+        if !roots.iter().any(|(existing, _)| existing == &root.0) {
+            roots.push(root);
+        }
+    }
+
+    roots
+        .into_iter()
+        .map(|(source, is_mod)| {
+            let expanded = entries.iter().any(|entry| {
+                strip_prefix(&entry.relative, content_root)
+                    .is_some_and(|relative| is_under(&relative, &source))
+            });
+            let target = payload_target(&source, is_mod);
+            Payload {
+                source,
+                target,
+                expanded,
+                is_mod,
+            }
+        })
+        .collect()
+}
+
+/// 取相对路径里的载荷根：第一个以 `.SC2Map` / `.SC2Mod` 结尾的组件（含它自己）。
+fn payload_root(relative: &Path) -> Option<(String, bool)> {
+    let mut parts: Vec<String> = Vec::new();
+
+    for component in relative.components() {
+        let name = component.as_os_str().to_string_lossy().into_owned();
+        parts.push(name.clone());
+        let lower = name.to_ascii_lowercase();
+        if lower.ends_with(".sc2mod") {
+            return Some((parts.join("/"), true));
+        }
+        if lower.ends_with(".sc2map") {
+            return Some((parts.join("/"), false));
+        }
+    }
+
+    None
+}
+
+/// `candidate` 是否位于 `root` 之下（用来判断载荷是不是解开的目录树）。
+fn is_under(candidate: &Path, root: &str) -> bool {
+    candidate
+        .strip_prefix(root)
+        .map(|rest| rest.components().next().is_some())
+        .unwrap_or(false)
+}
+
+/// 决定载荷落到游戏目录的哪里。
+fn payload_target(source: &str, is_mod: bool) -> PayloadTarget {
+    let lower = source.to_ascii_lowercase();
+
+    // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）
+    if lower.starts_with("maps/") || lower.starts_with("mods/") {
+        return PayloadTarget::Mirror {
+            path: source.replace('\\', "/"),
+        };
+    }
+
+    let name = source.rsplit('/').next().unwrap_or(source).to_string();
+    if is_mod {
+        PayloadTarget::Mod { name }
+    } else {
+        PayloadTarget::Map { name }
+    }
+}
+
+/// 按地图名推断官方战役。
+///
+/// 暴雪官方战役地图用首字母区分资料片：`t` 自由之翼、`z` 虫群之心、
+/// `p` 虚空之遗、`n` 诺娃。需要明显多数才采信，避免误判。
+fn infer_campaign(payloads: &[Payload]) -> Option<CampaignType> {
+    let mut votes: [usize; 4] = [0; 4];
+
+    for payload in payloads {
+        if payload.is_mod {
+            continue;
+        }
+        let name = payload.target_name();
+        match name.chars().next().map(|first| first.to_ascii_lowercase()) {
+            Some('t') => votes[0] += 1,
+            Some('z') => votes[1] += 1,
+            Some('p') => votes[2] += 1,
+            Some('n') => votes[3] += 1,
+            _ => {}
+        }
+    }
+
+    let kinds = [
+        CampaignType::Wol,
+        CampaignType::Hots,
+        CampaignType::Lotv,
+        CampaignType::Nova,
+    ];
+    let mut ranked: Vec<(usize, CampaignType)> = votes.into_iter().zip(kinds).collect();
+    ranked.sort_by(|left, right| right.0.cmp(&left.0));
+
+    let (best, kind) = ranked.first()?.clone();
+    if best == 0 {
+        return None;
+    }
+    // 第二名超过第一名的 3/4 就认为分不清
+    if ranked[1].0 * 4 > best * 3 {
+        return None;
+    }
+
+    Some(kind)
 }
 
 /// 校验 zip 条目名，并返回清理后的相对路径。
@@ -123,36 +376,26 @@ pub fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 /// 读取并检查一个战役包。
 pub fn inspect(path: &Path) -> Result<PackageInspection> {
+    // 先说清楚不支持的格式，而不是让用户对着"不是有效 zip"发呆
+    if let Some(kind) = unsupported_archive(path) {
+        return Ok(unusable(
+            path,
+            "UNSUPPORTED_ARCHIVE",
+            format!("暂不支持 {kind} 压缩包"),
+            "请先用压缩软件解压，再重新打成 .zip",
+        ));
+    }
+
     let file = std::fs::File::open(path)?;
     let mut archive = match zip::ZipArchive::new(file) {
         Ok(archive) => archive,
         Err(error) => {
-            return Ok(PackageInspection {
-                path: path.to_path_buf(),
-                installable: false,
-                format: CampaignFormat::Unknown,
-                name: None,
-                author: None,
-                version: None,
-                description: None,
-                campaign_type: CampaignType::Other(String::new()),
-                cover: None,
-                tags: Vec::new(),
-                suggested_slot: None,
-                content_root: String::new(),
-                suggested_dir_name: None,
-                map_count: 0,
-                mod_count: 0,
-                entry_count: 0,
-                unpacked_bytes: 0,
-                issues: vec![
-                    HealthIssue::broken(
-                        "NOT_AN_ARCHIVE",
-                        format!("不是有效的 zip 压缩包：{error}"),
-                    )
-                    .with_hint("请确认下载完整，或重新导出为 .zip"),
-                ],
-            });
+            return Ok(unusable(
+                path,
+                "NOT_AN_ARCHIVE",
+                format!("不是有效的 zip 压缩包：{error}"),
+                "请确认下载完整；如果是 .rar / .7z，请解压后重新打成 zip",
+            ));
         }
     };
 
@@ -183,11 +426,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         if !is_dir {
             unpacked_bytes = unpacked_bytes.saturating_add(size);
         }
-        entries.push(Entry {
-            index,
-            relative,
-            is_dir,
-        });
+        entries.push(Entry { index, relative });
     }
 
     // ---- 安全闸门 ----
@@ -264,6 +503,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut campaign_raw = String::new();
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
+    let mut declared_id: Option<String> = None;
+    let mut declared_kind = PackageKind::Campaign;
+    let mut declared_requires: Vec<String> = Vec::new();
+    let mut declared_priority: Option<i64> = None;
     let mut content_root = String::new();
     let mut format = CampaignFormat::Plain;
 
@@ -276,6 +519,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     // 先借走扩展信息，后面几个字段会被移出
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
+                    declared_id = clean(meta.id().map(str::to_owned));
+                    declared_kind = meta.package_kind();
+                    declared_requires = meta.patch_requires();
+                    declared_priority = meta.patch_priority();
                     let extension_format =
                         meta.miyin.as_ref().and_then(|extensions| extensions.format);
 
@@ -330,6 +577,14 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             campaign_raw = clean(meta.campaign).unwrap_or_default();
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
+            declared_id = clean(meta.id.clone());
+            declared_kind = meta
+                .kind
+                .as_deref()
+                .map(PackageKind::parse)
+                .unwrap_or(PackageKind::Campaign);
+            declared_requires = meta.requires.clone();
+            declared_priority = meta.priority;
         }
     } else {
         issues.push(
@@ -341,7 +596,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         );
     }
 
-    let campaign_type = CampaignType::parse(&campaign_raw);
+    let mut campaign_type = CampaignType::parse(&campaign_raw);
     if format != CampaignFormat::Plain && !campaign_type.is_actionable() {
         issues.push(
             HealthIssue::warning(
@@ -352,27 +607,74 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         );
     }
 
-    // ---- 内容统计（丢弃内容根前缀） ----
-    let mut map_count = 0usize;
-    let mut mod_count = 0usize;
-    for entry in &entries {
-        if entry.is_dir {
-            continue;
-        }
-        let Some(relative) = strip_prefix(&entry.relative, &content_root) else {
-            continue;
-        };
-        match extension_of(&relative).as_str() {
-            "sc2map" => map_count += 1,
-            "sc2mod" => mod_count += 1,
-            _ => {}
-        }
+    // ---- 镜像布局优先 ----
+    //
+    // 包内直接就是游戏目录的样子（顶层有 Maps/ 或 Mods/）时，内容根应当是**包根**。
+    // 否则 metadata 所在的那一层会把同一包里的其它目录切掉 —— 真实案例：
+    // metadata 在 Maps/Campaign/void/，但内容同时包含 Maps/Campaign/voidprologue/。
+    if has_mirror_root(&entries) {
+        content_root = String::new();
     }
 
-    if map_count == 0 && mod_count == 0 {
+    // ---- 载荷：地图与模组（文件或解开的目录树） ----
+    let payloads = collect_payloads(&entries, &content_root);
+
+    // 元数据没标明归属时，按地图名推断（战役包才做，补丁的目标由绑定决定）
+    if declared_kind == PackageKind::Campaign
+        && !campaign_type.is_actionable()
+        && let Some(inferred) = infer_campaign(&payloads)
+    {
+        issues.push(HealthIssue::warning(
+            "CAMPAIGN_INFERRED",
+            format!(
+                "元数据未标明归属，已按地图名推断为「{}」",
+                inferred.display_name()
+            ),
+        ));
+        campaign_type = inferred;
+    }
+
+    let map_count = payloads.iter().filter(|payload| !payload.is_mod).count();
+    let mod_count = payloads.iter().filter(|payload| payload.is_mod).count();
+
+    if payloads.is_empty() {
         issues.push(
-            HealthIssue::warning("NO_CONTENT", "包内没有找到 .SC2Map 地图或 .SC2Mod 模组文件")
+            HealthIssue::warning("NO_CONTENT", "包内没有找到 .SC2Map 地图或 .SC2Mod 模组")
                 .with_hint("这可能不是战役包，或使用了未支持的打包方式"),
+        );
+    }
+
+    // 最小地图包：没有任何元数据时，名字取压缩包名、作者记为未知
+    if format == CampaignFormat::Plain && author.is_none() {
+        author = Some(UNKNOWN_AUTHOR.to_string());
+    }
+
+    // 启发式：**只有模组、一张地图都没有** 且元数据没表态 -> 判定为补丁。
+    // 现实里的补丁（幼儿园补丁、优化覆盖补丁……）正是这个样子：一堆 .SC2Mod，没有 metadata。
+    if declared_kind == PackageKind::Campaign
+        && !payloads.is_empty()
+        && payloads.iter().all(|payload| payload.is_mod)
+        && !matches!(campaign_type, CampaignType::Other(_))
+    {
+        declared_kind = PackageKind::Patch;
+    } else if declared_kind == PackageKind::Campaign
+        && !payloads.is_empty()
+        && payloads.iter().all(|payload| payload.is_mod)
+    {
+        declared_kind = PackageKind::Patch;
+        issues.push(HealthIssue::warning(
+            "PATCH_INFERRED",
+            "包内只有模组、没有地图，已按补丁处理",
+        ));
+    }
+
+    if declared_kind == PackageKind::Patch && declared_requires.is_empty() {
+        issues.push(
+            HealthIssue::warning(
+                "PATCH_UNBOUND",
+                "这是一个没有声明依赖的补丁，只能手动指定要打给哪个战役",
+            )
+            .with_hint("包作者可以在元数据里写 requires 来让启动器自动匹配"),
         );
     }
 
@@ -422,6 +724,11 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         campaign_type,
         cover: declared_cover,
         tags: declared_tags,
+        kind: declared_kind,
+        id: declared_id,
+        requires: declared_requires,
+        priority: declared_priority,
+        payloads,
         suggested_slot,
         content_root,
         suggested_dir_name,
@@ -698,5 +1005,127 @@ mod tests {
                 .iter()
                 .any(|issue| issue.code == "NOT_AN_ARCHIVE")
         );
+    }
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn entry(path: &str, _is_dir: bool) -> Entry {
+        Entry {
+            index: 0,
+            relative: PathBuf::from(path),
+        }
+    }
+
+    #[test]
+    fn detects_single_file_payloads() {
+        let entries = vec![
+            entry("metadata.txt", false),
+            entry("paiur01.SC2Map", false),
+            entry("HTXL.SC2Mod", false),
+        ];
+        let payloads = collect_payloads(&entries, "");
+        assert_eq!(payloads.len(), 2);
+
+        let map = payloads
+            .iter()
+            .find(|p| p.source == "paiur01.SC2Map")
+            .expect("map");
+        assert!(!map.expanded, "单文件 MPQ 不应标记为解开的目录");
+        assert!(matches!(&map.target, PayloadTarget::Map { name } if name == "paiur01.SC2Map"));
+
+        let mode = payloads
+            .iter()
+            .find(|p| p.source == "HTXL.SC2Mod")
+            .expect("mod");
+        assert!(matches!(&mode.target, PayloadTarget::Mod { name } if name == "HTXL.SC2Mod"));
+    }
+
+    #[test]
+    fn detects_expanded_directory_payloads() {
+        // 真实数据里 .SC2Map 经常是一棵解开的目录树
+        let entries = vec![
+            entry("Maps/Campaign/void/metadata.txt", false),
+            entry("Maps/Campaign/void/epiloguestory01.SC2Map/", true),
+            entry(
+                "Maps/Campaign/void/epiloguestory01.SC2Map/DocumentHeader",
+                false,
+            ),
+            entry(
+                "Maps/Campaign/void/epiloguestory01.SC2Map/Base.SC2Data/x.xml",
+                false,
+            ),
+        ];
+        let payloads = collect_payloads(&entries, "Maps/Campaign/void");
+        assert_eq!(payloads.len(), 1);
+
+        let payload = &payloads[0];
+        assert_eq!(payload.source, "epiloguestory01.SC2Map");
+        assert!(payload.expanded, "目录树应标记为 expanded");
+        // 包内已经是游戏目录镜像，落点保持原路径
+        assert!(payload.target_name().starts_with("epiloguestory01.SC2Map"));
+    }
+
+    #[test]
+    fn mirror_paths_are_preserved() {
+        let entries = vec![entry("Mods/Foo.SC2Mod/Base.SC2Data/a.xml", false)];
+        let payloads = collect_payloads(&entries, "");
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(
+            payloads[0].target_path(),
+            "Mods/Foo.SC2Mod",
+            "镜像路径应当原样保留"
+        );
+    }
+
+    #[test]
+    fn infers_campaign_from_official_map_prefixes() {
+        let lotv = collect_payloads(
+            &[
+                entry("paiur01.SC2Map", false),
+                entry("pkorhal01.SC2Map", false),
+                entry("ppurifier02.SC2Map", false),
+            ],
+            "",
+        );
+        assert_eq!(infer_campaign(&lotv), Some(CampaignType::Lotv));
+
+        let hots = collect_payloads(
+            &[
+                entry("zchar01.SC2Map", false),
+                entry("zlab02.SC2Map", false),
+            ],
+            "",
+        );
+        assert_eq!(infer_campaign(&hots), Some(CampaignType::Hots));
+
+        // 分不清时必须返回 None，交给界面问用户
+        let mixed = collect_payloads(
+            &[
+                entry("paiur01.SC2Map", false),
+                entry("zchar01.SC2Map", false),
+            ],
+            "",
+        );
+        assert_eq!(infer_campaign(&mixed), None);
+
+        let unknown = collect_payloads(&[entry("mymap.SC2Map", false)], "");
+        assert_eq!(infer_campaign(&unknown), None);
+    }
+
+    #[test]
+    fn rejects_unsupported_archive_by_magic() {
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        let rar = dir.path().join("x.rar");
+        std::fs::write(&rar, b"Rar!\x1a\x07\x01\x00rest").expect("write");
+        assert_eq!(unsupported_archive(&rar), Some("RAR"));
+
+        let zip = dir.path().join("x.zip");
+        std::fs::write(&zip, b"PK\x03\x04rest").expect("write");
+        assert_eq!(unsupported_archive(&zip), None);
     }
 }

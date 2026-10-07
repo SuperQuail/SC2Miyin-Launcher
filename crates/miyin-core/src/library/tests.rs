@@ -2,7 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::library::{Library, activate, import, remove_variant};
+use crate::library::{
+    ImportMode, Library, VersionRelation, activate, compare_versions, conflict_for, import,
+    remove_variant,
+};
 use crate::sc2::{DiscoverySource, Installation};
 
 const MARKER: &str = "StarCraft II.exe";
@@ -111,6 +114,7 @@ fn imports_multiple_versions_of_the_same_campaign() {
         &fixture.library,
         &package(&fixture, "a.zip", "自由之翼：重生", &["01.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import first");
     let second = import(
@@ -122,6 +126,7 @@ fn imports_multiple_versions_of_the_same_campaign() {
             &["01.SC2Map", "02.SC2Map"],
         ),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import second");
 
@@ -141,6 +146,7 @@ fn activate_then_deactivate_restores_vanilla() {
         &fixture.library,
         &package(&fixture, "a.zip", "重生", &["01.SC2Map", "02.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import");
 
@@ -173,12 +179,14 @@ fn switching_between_versions_swaps_files() {
         &fixture.library,
         &package(&fixture, "a.zip", "版本A", &["A.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import a");
     let b = import(
         &fixture.library,
         &package(&fixture, "b.zip", "版本B", &["B.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import b");
 
@@ -222,6 +230,7 @@ fn official_map_is_backed_up_and_restored() {
         &fixture.library,
         &package(&fixture, "a.zip", "重生", &["01.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import");
     activate(
@@ -249,6 +258,7 @@ fn removing_active_version_switches_back_to_vanilla_first() {
         &fixture.library,
         &package(&fixture, "a.zip", "重生", &["01.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import");
     activate(
@@ -280,7 +290,7 @@ fn rejects_unknown_or_malicious_slots() {
 
     for bad in ["nope", "../evil", "", "wol/../.."] {
         assert!(
-            import(&fixture.library, &path, bad).is_err(),
+            import(&fixture.library, &path, bad, ImportMode::Rename).is_err(),
             "槽位 {bad} 必须被拒绝"
         );
     }
@@ -315,7 +325,7 @@ fn package_cover_is_picked_up() {
         ],
     );
 
-    let variant = import(&fixture.library, &path, "wol").expect("import");
+    let variant = import(&fixture.library, &path, "wol", ImportMode::Rename).expect("import");
     assert_eq!(
         variant.cover.as_deref(),
         Some("cover.png"),
@@ -337,6 +347,7 @@ fn package_without_cover_leaves_it_empty() {
         &fixture.library,
         &package(&fixture, "a.zip", "无封面", &["01.SC2Map"]),
         "wol",
+        ImportMode::Rename,
     )
     .expect("import");
 
@@ -356,7 +367,7 @@ fn evolution_package_targets_evolution_directory() {
     );
 
     // 进化包导入到「虫群之心」槽位……
-    let variant = import(&fixture.library, &path, "hots").expect("import");
+    let variant = import(&fixture.library, &path, "hots", ImportMode::Rename).expect("import");
     assert_eq!(
         variant.target_sub.as_deref(),
         Some("swarm/evolution"),
@@ -394,7 +405,7 @@ fn hots_maps_land_in_swarm_subdirectory() {
         ],
     );
 
-    let variant = import(&fixture.library, &path, "hots").expect("import");
+    let variant = import(&fixture.library, &path, "hots", ImportMode::Rename).expect("import");
     activate(
         &fixture.library,
         &fixture.installation,
@@ -412,4 +423,133 @@ fn hots_maps_land_in_swarm_subdirectory() {
             .is_file(),
         "虫群之心的地图应当落到 Maps/Campaign/swarm"
     );
+}
+
+#[test]
+fn version_comparison_is_lenient() {
+    use std::cmp::Ordering;
+
+    assert_eq!(compare_versions("1.4.2", "1.4.10"), Some(Ordering::Less));
+    assert_eq!(compare_versions("1.5.0", "1.4.2"), Some(Ordering::Greater));
+    assert_eq!(compare_versions("v0.53", "0.53"), Some(Ordering::Equal));
+    assert_eq!(compare_versions("1.32", "1.3"), Some(Ordering::Greater));
+
+    // 认不出来就返回 None，绝不瞎猜
+    assert_eq!(compare_versions("正式版", "1.0"), None);
+    assert_eq!(compare_versions("", "1.0"), None);
+    assert_eq!(compare_versions("abc", "def"), None);
+}
+
+#[test]
+fn conflict_detection_matches_by_id_then_name() {
+    let fixture = fixture();
+    let package = build_zip(
+        fixture.work.path(),
+        "golden.zip",
+        &[
+            (
+                "metadata.txt",
+                "title=黄金之遗\nid=HTXL.golden\ncampaign=Lotv\nversion=1.32\n",
+            ),
+            ("paiur01.SC2Map", "stub"),
+        ],
+    );
+    let variant = import(&fixture.library, &package, "lotv", ImportMode::Rename).expect("import");
+    assert_eq!(variant.registration_id.as_deref(), Some("HTXL.golden"));
+
+    // 同一个注册 ID -> 命中，且能比较版本
+    let conflict = conflict_for(
+        &fixture.library,
+        "lotv",
+        Some("htxl.GOLDEN"),
+        "改了个名字",
+        Some("1.40"),
+    )
+    .expect("应当命中同 ID 的已有版本");
+    assert!(conflict.same_id);
+    assert_eq!(conflict.existing_id, variant.id);
+    assert_eq!(conflict.relation, VersionRelation::Newer);
+
+    // 没有 ID 时按名字兜底
+    let by_name = conflict_for(&fixture.library, "lotv", None, "黄金之遗", Some("1.30"))
+        .expect("应当按名字命中");
+    assert!(!by_name.same_id);
+    assert_eq!(by_name.relation, VersionRelation::Older);
+
+    // 都不匹配 -> 没有冲突
+    assert!(conflict_for(&fixture.library, "lotv", None, "别的战役", Some("9.9")).is_none());
+}
+
+#[test]
+fn rename_mode_keeps_both_versions() {
+    let fixture = fixture();
+    let first = import(
+        &fixture.library,
+        &package(&fixture, "a.zip", "重生", &["01.SC2Map"]),
+        "wol",
+        ImportMode::Rename,
+    )
+    .expect("first");
+    let second = import(
+        &fixture.library,
+        &package(&fixture, "b.zip", "重生", &["01.SC2Map"]),
+        "wol",
+        ImportMode::Rename,
+    )
+    .expect("second");
+
+    assert_ne!(first.id, second.id);
+    assert_eq!(
+        slot(&fixture, "wol").variants.len(),
+        2,
+        "重命名模式应当两者并存"
+    );
+}
+
+#[test]
+fn overwrite_mode_replaces_in_place_and_keeps_identity() {
+    let fixture = fixture();
+    let old = build_zip(
+        fixture.work.path(),
+        "old.zip",
+        &[
+            (
+                "metadata.txt",
+                "title=重生\nid=creator.reborn\ncampaign=WOL\nversion=1.0\n",
+            ),
+            ("maps/old.SC2Map", "stub"),
+        ],
+    );
+    let first = import(&fixture.library, &old, "wol", ImportMode::Rename).expect("first");
+    assert_eq!(first.version.as_deref(), Some("1.0"));
+
+    let new = build_zip(
+        fixture.work.path(),
+        "new.zip",
+        &[
+            (
+                "metadata.txt",
+                "title=重生\nid=creator.reborn\ncampaign=WOL\nversion=2.0\n",
+            ),
+            ("maps/new.SC2Map", "stub"),
+        ],
+    );
+    let second = import(&fixture.library, &new, "wol", ImportMode::Overwrite).expect("overwrite");
+
+    // 覆盖更新沿用同一个目录名，因此挂在它身上的补丁绑定不受影响
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.version.as_deref(), Some("2.0"));
+    assert_eq!(
+        slot(&fixture, "wol").variants.len(),
+        1,
+        "覆盖更新不应留下旧记录"
+    );
+
+    let installed = fixture.library.slot_dir("wol").join(&second.id);
+    assert!(installed.join("metadata.txt").is_file());
+    assert!(
+        !installed.join("maps").join("old.SC2Map").exists(),
+        "旧版本内容应当被换掉"
+    );
+    assert!(installed.join("maps").join("new.SC2Map").is_file());
 }

@@ -31,6 +31,16 @@ pub fn decode_text(bytes: &[u8]) -> String {
     }
 }
 
+/// 按常见分隔符切分一个列表值（逗号 / 顿号 / 分号 / 空格）。
+fn split_list(value: &str) -> Vec<String> {
+    value
+        .split([',', '，', '、', ';', '；', ' '])
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// CCM 包元数据（来自 `metadata.txt`）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct CcmMetadata {
@@ -45,6 +55,14 @@ pub struct CcmMetadata {
     pub cover: Option<String>,
     /// 标签（逗号 / 顿号 / 空格分隔）。这是弥音扩展键，CCM 本身没有。
     pub tags: Vec<String>,
+    /// **注册 ID**：补丁靠它引用战役，更新靠它认出同一个战役。
+    pub id: Option<String>,
+    /// 包类型：`campaign`（默认）或 `patch`。
+    pub kind: Option<String>,
+    /// 补丁依赖的战役（注册 ID 或战役名）。为空表示只能手动指定。
+    pub requires: Vec<String>,
+    /// 补丁默认优先级；大的后覆盖。
+    pub priority: Option<i64>,
 }
 
 impl CcmMetadata {
@@ -80,14 +98,13 @@ impl CcmMetadata {
                 "campaign" => meta.campaign = Some(value.to_string()),
                 "version" => meta.version = Some(value.to_string()),
                 "cover" | "image" | "icon" | "banner" => meta.cover = Some(value.to_string()),
-                "tags" | "tag" => {
-                    meta.tags = value
-                        .split([',', '，', '、', ' '])
-                        .map(str::trim)
-                        .filter(|tag| !tag.is_empty())
-                        .map(str::to_string)
-                        .collect();
+                "id" => meta.id = Some(value.to_string()),
+                "type" | "kind" => meta.kind = Some(value.to_string()),
+                "requires" | "require" | "dependencies" => {
+                    meta.requires = split_list(value);
                 }
+                "priority" => meta.priority = value.parse().ok(),
+                "tags" | "tag" => meta.tags = split_list(value),
                 _ => {}
             }
         }
@@ -104,6 +121,10 @@ impl CcmMetadata {
             && self.version.is_none()
             && self.cover.is_none()
             && self.tags.is_empty()
+            && self.id.is_none()
+            && self.kind.is_none()
+            && self.requires.is_empty()
+            && self.priority.is_none()
     }
 }
 
@@ -135,6 +156,9 @@ pub struct StandardMetadata {
     /// 包内自带的封面图（相对包根的路径）。
     #[serde(default)]
     pub cover: Option<String>,
+    /// 注册 ID（顶层写法；`miyin.id` 优先）。
+    #[serde(default)]
+    pub id: Option<String>,
     /// 弥音专属扩展（命名空间字段，其它工具会直接忽略）。
     #[serde(default)]
     pub miyin: Option<MiyinExtensions>,
@@ -147,6 +171,48 @@ impl StandardMetadata {
             .as_ref()
             .and_then(|extensions| extensions.cover.as_deref())
             .or(self.cover.as_deref())
+    }
+
+    /// 注册 ID：命名空间写法优先，其次顶层。
+    pub fn id(&self) -> Option<&str> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.id.as_deref())
+            .or(self.id.as_deref())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+    }
+
+    /// 包类型：`miyin.kind` 优先，其次顶层的 `type`。
+    pub fn package_kind(&self) -> PackageKind {
+        if let Some(kind) = self
+            .miyin
+            .as_ref()
+            .and_then(|extensions| extensions.kind.as_deref())
+        {
+            return PackageKind::parse(kind);
+        }
+        match self.kind.as_deref() {
+            Some(kind) => PackageKind::parse(kind),
+            None => PackageKind::Campaign,
+        }
+    }
+
+    /// 补丁依赖的战役。
+    pub fn patch_requires(&self) -> Vec<String> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.patch.as_ref())
+            .map(|patch| patch.requires.clone())
+            .unwrap_or_default()
+    }
+
+    /// 补丁默认优先级。
+    pub fn patch_priority(&self) -> Option<i64> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.patch.as_ref())
+            .and_then(|patch| patch.priority)
     }
 
     /// 扩展字段里的标签。
@@ -173,12 +239,54 @@ pub struct MiyinExtensions {
     /// 标签，显示在版本卡片上。
     #[serde(default)]
     pub tags: Vec<String>,
+    /// 注册 ID（优先级高于顶层 `id`）。
+    #[serde(default)]
+    pub id: Option<String>,
+    /// 包类型：`campaign`（默认）或 `patch`。
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// 补丁专属字段。
+    #[serde(default)]
+    pub patch: Option<PatchExtensions>,
+}
+
+/// 补丁专属扩展。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PatchExtensions {
+    /// 依赖的战役（注册 ID 或战役名）；为空表示只能手动指定。
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// 默认优先级；数值大的后覆盖。
+    #[serde(default)]
+    pub priority: Option<i64>,
 }
 
 impl StandardMetadata {
     /// 解析 `metadata.json` 文本。
     pub fn parse(text: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(text)
+    }
+}
+
+/// 包的类型：战役本体，还是覆盖在战役之上的补丁。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageKind {
+    /// 战役包。
+    #[default]
+    Campaign,
+    /// 补丁包（覆盖层）。
+    Patch,
+}
+
+impl PackageKind {
+    /// 容错解析；认不出来一律当战役。
+    pub fn parse(raw: &str) -> Self {
+        if raw.trim().eq_ignore_ascii_case("patch") {
+            Self::Patch
+        } else {
+            Self::Campaign
+        }
     }
 }
 
