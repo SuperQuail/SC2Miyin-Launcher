@@ -319,10 +319,23 @@ StarCraft II/
 
 ---
 
-## 12. 待确认事项（TODO）
+## 12. 决策记录与待确认事项
 
-- [ ] **GUI 框架最终选型**：Tauri 2 + Vue 3（当前推荐基线）vs egui / iced 纯 Rust。
+### 12.1 已确认（2026-10-07）
+
+| 决策 | 结论 |
+| --- | --- |
+| 项目名 | 中文「弥音启动器」/ 英文 **MiYin Launcher**（曾用名 HSCL 仅保留在本地目录名） |
+| 技术栈 | **Rust + Tauri 2 + Vue 3 + TypeScript**（见 §3.1） |
+| 版本管理 | Git，`main` 为稳定分支，提交遵循 Conventional Commits（见 §7） |
+| 参考实现 | `reference/scnexus`（BSD-3-Clause，gitignored，**只读**，见 §8） |
+| 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
+| 脚手架 | **暂不生成**：先以约定文档与设计为主，功能边界明确后再落代码 |
+
+### 12.2 待确认（TODO）
+
 - [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
 - [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
 - [ ] 首个可运行版本的功能边界（先做"发现 + 启动"还是"战役管理"）。
 - [ ] CCM 格式规格文档整理（放 `docs/`）。
+- [ ] `README.md` / `LICENSE` / `CONTRIBUTING.md` / Issue 模板 / CI 工作流（公开发布前必备，见 §7.3）。
