@@ -30,6 +30,15 @@ fn main() {
                 println!("  版本    : {:?}", inspection.version);
                 println!("  注册ID  : {:?}", inspection.id);
                 println!("  资料片  : {:?}", inspection.campaign_type);
+                match &inspection.identification {
+                    Some(found) => println!(
+                        "  判定依据: {:?}（精确={}）依据内容={:?}",
+                        found.evidence,
+                        found.evidence.is_exact(),
+                        found.detail
+                    ),
+                    None => println!("  判定依据: 包内已声明"),
+                }
                 println!("  建议槽位: {:?}", inspection.suggested_slot);
                 println!("  内容根  : {:?}", inspection.content_root);
                 println!("  封面    : {:?}", inspection.cover);

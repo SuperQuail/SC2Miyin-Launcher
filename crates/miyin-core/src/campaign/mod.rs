@@ -11,6 +11,7 @@
 //! 注意：**战役库**（多版本共存与切换）在 [`crate::library`] 里，
 //! 不在这里 —— 库属于启动器自身的数据，与游戏目录解耦。
 
+pub mod identify;
 pub mod installer;
 pub mod metadata;
 pub mod package;

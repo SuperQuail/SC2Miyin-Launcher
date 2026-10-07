@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::campaign::identify::{self, Identification, MAX_SCANNED_MAPS};
 use crate::campaign::metadata::{
     CampaignType, CcmMetadata, PackageKind, StandardMetadata, decode_text,
 };
@@ -97,6 +98,8 @@ struct Entry {
     index: usize,
     /// 校验并清理后的相对路径。
     relative: PathBuf,
+    /// 解压后的字节数（依赖扫描时用来设上限）。
+    size: u64,
 }
 
 /// 包预检结果。
@@ -125,6 +128,8 @@ pub struct PackageInspection {
     pub priority: Option<i64>,
     /// 载荷清单：地图与模组，以及各自的落点。
     pub payloads: Vec<Payload>,
+    /// 归属判定的结论与依据；元数据已声明时是 `None`。
+    pub identification: Option<Identification>,
     /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
     pub suggested_slot: Option<String>,
     /// 包内实际内容根（元数据所在目录），解压时需剥离；空串表示包根。
@@ -176,6 +181,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         requires: Vec::new(),
         priority: None,
         payloads: Vec::new(),
+        identification: None,
         suggested_slot: None,
         content_root: String::new(),
         suggested_dir_name: None,
@@ -202,6 +208,69 @@ fn unsupported_archive(path: &Path) -> Option<&'static str> {
         return Some("7z");
     }
     None
+}
+
+/// 单张地图最多读多少字节（畸形包防线）。
+const MAX_MAP_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 条目路径统一成正斜杠。
+fn entry_path(entry: &Entry) -> String {
+    entry.relative.to_string_lossy().replace('\\', "/")
+}
+
+/// 从地图内部读取依赖声明。
+///
+/// - **展开形态**（`xxx.SC2Map/DocumentHeader`）：那个小文件就在包里，直接读
+/// - **单文件 MPQ**：扫里面的 zlib 流再解压（见 [`identify::inflate_streams`]）
+///
+/// 只扫前 [`MAX_SCANNED_MAPS`] 张地图 —— 同一个包里的地图几乎不会有不同归属，
+/// 扫太多张既慢又没用。
+fn collect_map_declarations(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    entries: &[Entry],
+    content_root: &str,
+    payloads: &[Payload],
+) -> Vec<String> {
+    let mut declarations = Vec::new();
+    let mut scanned = 0usize;
+
+    for payload in payloads {
+        if payload.is_mod || scanned >= MAX_SCANNED_MAPS {
+            continue;
+        }
+        scanned += 1;
+
+        let relative = if content_root.is_empty() {
+            payload.source.clone()
+        } else {
+            format!("{content_root}/{}", payload.source)
+        };
+        let wanted = if payload.expanded {
+            format!("{relative}/DocumentHeader")
+        } else {
+            relative
+        };
+
+        let Some(entry) = entries.iter().find(|entry| entry_path(entry) == wanted) else {
+            continue;
+        };
+        if entry.size > MAX_MAP_BYTES {
+            continue;
+        }
+        let Some(blob) = read_entry(archive, entry.index) else {
+            continue;
+        };
+
+        if payload.expanded {
+            declarations.extend(identify::extract_campaign_declarations(&blob));
+        } else {
+            for stream in identify::inflate_streams(&blob) {
+                declarations.extend(identify::extract_campaign_declarations(&stream));
+            }
+        }
+    }
+
+    declarations
 }
 
 /// 包内是否直接就是游戏目录镜像（顶层出现 `Maps` 或 `Mods`）。
@@ -302,48 +371,6 @@ fn payload_target(source: &str, is_mod: bool) -> PayloadTarget {
     }
 }
 
-/// 按地图名推断官方战役。
-///
-/// 暴雪官方战役地图用首字母区分资料片：`t` 自由之翼、`z` 虫群之心、
-/// `p` 虚空之遗、`n` 诺娃。需要明显多数才采信，避免误判。
-fn infer_campaign(payloads: &[Payload]) -> Option<CampaignType> {
-    let mut votes: [usize; 4] = [0; 4];
-
-    for payload in payloads {
-        if payload.is_mod {
-            continue;
-        }
-        let name = payload.target_name();
-        match name.chars().next().map(|first| first.to_ascii_lowercase()) {
-            Some('t') => votes[0] += 1,
-            Some('z') => votes[1] += 1,
-            Some('p') => votes[2] += 1,
-            Some('n') => votes[3] += 1,
-            _ => {}
-        }
-    }
-
-    let kinds = [
-        CampaignType::Wol,
-        CampaignType::Hots,
-        CampaignType::Lotv,
-        CampaignType::Nova,
-    ];
-    let mut ranked: Vec<(usize, CampaignType)> = votes.into_iter().zip(kinds).collect();
-    ranked.sort_by(|left, right| right.0.cmp(&left.0));
-
-    let (best, kind) = ranked.first()?.clone();
-    if best == 0 {
-        return None;
-    }
-    // 第二名超过第一名的 3/4 就认为分不清
-    if ranked[1].0 * 4 > best * 3 {
-        return None;
-    }
-
-    Some(kind)
-}
-
 /// 校验 zip 条目名，并返回清理后的相对路径。
 ///
 /// 返回 `None` 表示该条目**越界或不可用**，必须整体拒绝这个包：
@@ -426,7 +453,11 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         if !is_dir {
             unpacked_bytes = unpacked_bytes.saturating_add(size);
         }
-        entries.push(Entry { index, relative });
+        entries.push(Entry {
+            index,
+            relative,
+            size,
+        });
     }
 
     // ---- 安全闸门 ----
@@ -619,19 +650,50 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     // ---- 载荷：地图与模组（文件或解开的目录树） ----
     let payloads = collect_payloads(&entries, &content_root);
 
-    // 元数据没标明归属时，按地图名推断（战役包才做，补丁的目标由绑定决定）
-    if declared_kind == PackageKind::Campaign
-        && !campaign_type.is_actionable()
-        && let Some(inferred) = infer_campaign(&payloads)
-    {
-        issues.push(HealthIssue::warning(
-            "CAMPAIGN_INFERRED",
-            format!(
-                "元数据未标明归属，已按地图名推断为「{}」",
-                inferred.display_name()
+    // ---- 归属判定：按可靠度从高到低 ----
+    //
+    // 1. 元数据里的 campaign 字段（读到就不进这里）
+    // 2. 包内镜像路径       Maps/Campaign/void/…
+    // 3. 地图内的依赖声明   Void Story (Campaign)
+    // 4. 地图文件名前缀     p*
+    //
+    // 补丁不参与：它的目标战役由"挂到谁身上"决定，不由包里声明。
+    let mut identification: Option<Identification> = None;
+    if declared_kind == PackageKind::Campaign && !campaign_type.is_actionable() {
+        let mirror_paths: Vec<String> = payloads
+            .iter()
+            .map(|payload| payload.target_path())
+            .collect();
+        let map_names: Vec<String> = payloads
+            .iter()
+            .filter(|payload| !payload.is_mod)
+            .map(|payload| payload.target_name())
+            .collect();
+        let declarations =
+            collect_map_declarations(&mut archive, &entries, &content_root, &payloads);
+
+        identification = identify::from_mirror_paths(&mirror_paths)
+            .or_else(|| identify::from_dependencies(&declarations))
+            .or_else(|| identify::from_map_names(&map_names));
+
+        match &identification {
+            Some(found) => {
+                issues.push(HealthIssue::warning(
+                    "CAMPAIGN_IDENTIFIED",
+                    format!(
+                        "包内没有声明归属，已按{}判定为「{}」（依据：{}）",
+                        found.evidence.label(),
+                        found.campaign_type.display_name(),
+                        found.detail,
+                    ),
+                ));
+                campaign_type = found.campaign_type.clone();
+            }
+            None => issues.push(
+                HealthIssue::warning("CAMPAIGN_UNKNOWN", "无法判断这个包属于哪部战役")
+                    .with_hint("导入时请手动选择目标战役"),
             ),
-        ));
-        campaign_type = inferred;
+        }
     }
 
     let map_count = payloads.iter().filter(|payload| !payload.is_mod).count();
@@ -729,6 +791,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         requires: declared_requires,
         priority: declared_priority,
         payloads,
+        identification,
         suggested_slot,
         content_root,
         suggested_dir_name,
@@ -1011,12 +1074,14 @@ mod tests {
 #[cfg(test)]
 mod payload_tests {
     use super::*;
+    use crate::campaign::identify::CampaignEvidence;
     use std::path::PathBuf;
 
     fn entry(path: &str, _is_dir: bool) -> Entry {
         Entry {
             index: 0,
             relative: PathBuf::from(path),
+            size: 0,
         }
     }
 
@@ -1082,8 +1147,23 @@ mod payload_tests {
     }
 
     #[test]
-    fn infers_campaign_from_official_map_prefixes() {
-        let lotv = collect_payloads(
+    fn identifies_packages_by_mirror_path_before_falling_back() {
+        // 镜像路径是"精确"证据，应当优先于文件名启发式
+        let entries = vec![
+            entry("Maps/Campaign/void/paiur01.SC2Map", false),
+            entry("Maps/Campaign/void/pkorhal01.SC2Map", false),
+        ];
+        let payloads = collect_payloads(&entries, "");
+        let mirror: Vec<String> = payloads.iter().map(|p| p.target_path()).collect();
+        let found = identify::from_mirror_paths(&mirror).expect("应当按镜像路径判定");
+        assert_eq!(found.campaign_type, CampaignType::Lotv);
+        assert_eq!(found.evidence, CampaignEvidence::MirrorPath);
+        assert!(found.evidence.is_exact());
+    }
+
+    #[test]
+    fn falls_back_to_map_name_prefixes() {
+        let types = collect_payloads(
             &[
                 entry("paiur01.SC2Map", false),
                 entry("pkorhal01.SC2Map", false),
@@ -1091,7 +1171,11 @@ mod payload_tests {
             ],
             "",
         );
-        assert_eq!(infer_campaign(&lotv), Some(CampaignType::Lotv));
+        let names: Vec<String> = types.iter().map(|p| p.target_name()).collect();
+        let found = identify::from_map_names(&names).expect("应当按文件名判定");
+        assert_eq!(found.campaign_type, CampaignType::Lotv);
+        assert_eq!(found.evidence, CampaignEvidence::MapNamePrefix);
+        assert!(!found.evidence.is_exact(), "文件名只是启发式，不算精确证据");
 
         let hots = collect_payloads(
             &[
@@ -1100,7 +1184,11 @@ mod payload_tests {
             ],
             "",
         );
-        assert_eq!(infer_campaign(&hots), Some(CampaignType::Hots));
+        let names: Vec<String> = hots.iter().map(|p| p.target_name()).collect();
+        assert_eq!(
+            identify::from_map_names(&names).map(|found| found.campaign_type),
+            Some(CampaignType::Hots)
+        );
 
         // 分不清时必须返回 None，交给界面问用户
         let mixed = collect_payloads(
@@ -1110,10 +1198,13 @@ mod payload_tests {
             ],
             "",
         );
-        assert_eq!(infer_campaign(&mixed), None);
+        let names: Vec<String> = mixed.iter().map(|p| p.target_name()).collect();
+        assert!(identify::from_map_names(&names).is_none());
 
+        // 自定义命名认不出来，但也不算错
         let unknown = collect_payloads(&[entry("mymap.SC2Map", false)], "");
-        assert_eq!(infer_campaign(&unknown), None);
+        let names: Vec<String> = unknown.iter().map(|p| p.target_name()).collect();
+        assert!(identify::from_map_names(&names).is_none());
     }
 
     #[test]
