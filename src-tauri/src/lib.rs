@@ -7,7 +7,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use miyin_core::campaign::metadata::CampaignType;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
 use miyin_core::library::{self, Library, SlotView, Variant};
@@ -150,13 +149,11 @@ fn import_package(
 ) -> Result<Variant, String> {
     let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
 
+    // 槽位没指定就按包内声明自动判断（进化包会归到「虫群之心」）
     let chosen = slot
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| match &inspection.campaign_type {
-            CampaignType::Other(_) => None,
-            kind => Some(kind.slug().to_string()),
-        })
-        .ok_or_else(|| "无法从包内识别归属资料片，请指定要导入到哪个战役".to_string())?;
+        .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
+        .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
 
     library::import(&state.library, Path::new(&path), &chosen).map_err(|error| error.to_string())
 }
