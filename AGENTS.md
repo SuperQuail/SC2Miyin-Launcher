@@ -15,7 +15,7 @@
 | 本地目录 | `D:\Code\Rust\HSCL`（目录名暂未随改名调整，避免破坏现有工作流） |
 | 语言 | **Rust**（核心）+ 前端技术栈（见 §3） |
 | 目标平台 | **Windows 优先**（星际争霸 II 仅 Windows / macOS 有客户端，本机为 Windows 国服客户端） |
-| 状态 | 🚧 初始化阶段：仓库刚建立，尚无业务代码 |
+| 状态 | 🚧 早期开发中：**战役扫描 / 预检 / 安装 / 卸载**与桌面界面已可运行（见 §12.1） |
 
 ---
 
@@ -70,55 +70,71 @@
 
 ---
 
-## 4. 仓库结构（规划）
+## 4. 仓库结构（当前实现）
 
 ```text
 HSCL/                          # 仓库根（目录名待后续统一为 miyin-launcher）
 ├── AGENTS.md                  # 本文件
-├── README.md                  # 面向用户的项目介绍（待补）
-├── LICENSE                    # 待定，见 §10
 ├── Cargo.toml                 # workspace 根
 ├── crates/
-│   ├── miyin-core/            # 领域核心：SC2 安装发现、战役/Mod 模型、元数据解析
-│   ├── miyin-install/         # 安装、卸载、启停、目录隔离
-│   ├── miyin-net/             # 下载、镜像、校验、代理
-│   ├── miyin-store/           # 配置与本地数据库持久化
-│   ├── miyin-cli/             # 可选 CLI，便于无 GUI 调试与自动化测试
-│   └── miyin-app/             # Tauri 应用入口（src-tauri）
-├── ui/                        # 前端工程（若采用 Tauri）
-├── docs/                      # 设计文档、格式说明、调研结论
-├── reference/                 # ⚠️ 外部参考仓库，已被 .gitignore 忽略，禁止提交
-│   └── scnexus/
-└── .github/workflows/         # CI / 发布流水线（待补）
+│   └── miyin-core/            # 领域核心：不含任何 GUI 依赖
+│       └── src/
+│           ├── error.rs       # 统一错误类型（错误信息直接面向用户，用中文）
+│           ├── safety.rs      # 路径白名单与规范化校验（所有写操作的闸门）
+│           ├── sc2/           # 安装发现（注册表 / 手动）+ .build.info 解析
+│           └── campaign/      # 战役领域
+│               ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
+│               ├── sanitize.rs    # 目录名安全化（防目录穿越）
+│               ├── package.rs     # zip 预检：格式识别、zip-slip、体积上限
+│               ├── installer.rs   # 事务化安装 / 卸载（带回滚）
+│               └── scanner.rs     # 已安装战役扫描与核对
+├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
+│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里
+│   ├── tauri.conf.json
+│   └── icons/                 # 由 scripts/prepare-icons.py 生成
+├── ui/                        # Vue 3 + TypeScript 前端
+│   ├── public/                # 美术资产（见 §13，含 NOTICE.md）
+│   └── src/
+│       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射
+│       ├── components/        # CampaignCard、InstallDialog
+│       ├── composables/       # useLauncher：全局状态与动作
+│       ├── views/             # CampaignsView、SettingsView
+│       └── styles/            # tokens.css（设计令牌）、base.css
+├── scripts/                   # prepare-assets.py / prepare-icons.py
+├── docs/                      # 设计文档、格式说明
+└── reference/                 # ⚠️ 只读参考仓库，已 gitignore，禁止提交
 ```
 
-**依赖方向（不可违反）**：`*-core` ← `*-install` ← `miyin-app`；核心层**不得**依赖 GUI、不得直接弹窗或读环境变量做交互。
+**依赖方向（不可违反）**：`miyin-core` ← `src-tauri` ← `ui`。
+核心层**不得**依赖 GUI、不得弹窗、不得自己去读配置目录（路径由调用方传入）。
 
 ---
 
 ## 5. 常用命令
 
 ```bash
-# 构建 / 运行
-cargo build                       # debug 构建
-cargo build --release             # 发布构建
-cargo run -p miyin-cli -- --help  # 调试用 CLI
+# Rust：构建与质量门禁（提交前必过）
+cargo fmt --all                     # 格式化
+cargo fmt --all -- --check          # 校验格式（CI 用）
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace              # 领域逻辑测试都在 miyin-core
 
-# 质量门禁（提交前必过）
-cargo fmt --all                   # 格式化
-cargo fmt --all -- --check        # 校验格式（CI 用）
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --workspace
+# 前端
+pnpm -C ui install
+pnpm -C ui dev                      # 浏览器演示模式：无需桌面壳，自带示例数据
+pnpm -C ui build                    # vue-tsc 类型检查 + 打包到 ui/dist
 
-# 依赖审计 / 体积
-cargo tree -d                     # 重复依赖
-cargo bloat --release             # 二进制体积分析（可选）
+# 桌面版
+pnpm -C ui build && cargo run --release -p miyin-launcher   # release 使用内嵌前端
+cargo build -p miyin-launcher --release                     # 产物 target/release/miyin-launcher.exe
 
-# 前端（若采用 Tauri）
-pnpm install
-pnpm tauri dev
-pnpm tauri build
+# 素材再生成（需要 Pillow）
+python scripts/prepare-assets.py     # 原始素材 -> ui/public/
+python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 ```
+
+> 调试运行（debug）时 Tauri 会去连 `devUrl`（`http://localhost:5183`），
+> 因此需要先在另一个终端执行 `pnpm -C ui dev`；release 构建则使用打包进二进制的前端。
 
 ---
 
@@ -330,12 +346,50 @@ StarCraft II/
 | 版本管理 | Git，`main` 为稳定分支，提交遵循 Conventional Commits（见 §7） |
 | 参考实现 | `reference/scnexus`（BSD-3-Clause，gitignored，**只读**，见 §8） |
 | 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
-| 脚手架 | **暂不生成**：先以约定文档与设计为主，功能边界明确后再落代码 |
+| 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + Vue 3 前端（见 §4） |
+| 功能范围 | 首个版本聚焦**战役管理与安装**（扫描 / 预检 / 安装 / 卸载），不含下载站与账号功能 |
+| 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + 紫色主色 + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
 
 ### 12.2 待确认（TODO）
 
 - [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
 - [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
-- [ ] 首个可运行版本的功能边界（先做"发现 + 启动"还是"战役管理"）。
+- [ ] **启用 / 停用战役（激活）**：把地图按清单复制进 `Maps/Campaign`，并支持按清单精确回滚
+      （参考实现在这里会误删官方战役目录，务必按 §10.5 的白名单思路实现）。
+- [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免安装时文件被占用。
 - [ ] CCM 格式规格文档整理（放 `docs/`）。
 - [ ] `README.md` / `LICENSE` / `CONTRIBUTING.md` / Issue 模板 / CI 工作流（公开发布前必备，见 §7.3）。
+
+---
+
+## 13. 美术资产与合规
+
+### 13.1 视觉风格
+
+界面**只参考 HMCL 的视觉语言**（Material 3 色彩体系、紫色主色、大圆角卡片、柔和阴影、模糊背景），
+**不参考它的布局**。设计令牌集中在 `ui/src/styles/tokens.css`：改风格先改令牌，不要在组件里散写颜色。
+
+### 13.2 素材来源与授权（重要）
+
+| 素材 | 位置 | 授权状况 |
+| --- | --- | --- |
+| 战役 key art / 主 Logo / 背景 | `ui/public/campaigns/`、`ui/public/backdrop.jpg` | **Blizzard 版权素材**，仅作标识性使用 |
+| 弥音立绘 | `ui/public/miyin/` | 项目作者提供 |
+
+- 完整说明与再生成方法见 `ui/public/NOTICE.md`。
+- **原始素材不入库**：`assets-staging/` 已加入 `.gitignore`，只有压缩后的产出会被提交。
+- ⚠️ **公开发布前必须复核**：把 Blizzard 素材打包进公开仓库存在权利风险。
+  若无法接受，替换 `ui/public/campaigns/*` 后重跑 `scripts/prepare-assets.py` 即可；
+  界面在缺少素材时会退回渐变背景（`art.ts` 已做缺省处理）。
+
+### 13.3 立绘使用位置
+
+| 立绘 | 用途 |
+| --- | --- |
+| `miyin/wink.png` | 首页看板（封面看板娘） |
+| `miyin/chibi.png` | 顶栏品牌头像、安装对话框 |
+| `miyin/portrait.png` | 「关于」立绘，并用于生成应用图标 |
+| `miyin/cry.png` | 空状态插画 |
+
+立绘自带白底，界面统一用 `mask-image: radial-gradient(...)` 把方形边缘化开；
+**不要**把立绘直接放在深色背景上而不加遮罩。
