@@ -1,0 +1,77 @@
+# ============================================================
+# 弥音启动器 / MiYin Launcher — Git 忽略规则
+# 原则：构建产物、依赖、本地配置、外部参考仓库一律不入库
+# 注意：Cargo.lock **需要**提交（本项目是应用程序而非库）
+# ============================================================
+
+# ---------- 参考仓库（只读参考，禁止提交）----------
+/reference/
+
+# ---------- Rust ----------
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+*.profraw
+*.profdata
+
+# ---------- 前端 / Node（若采用 Tauri）----------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ---------- 构建产物 / 安装包 ----------
+/build/
+/release/
+/out/
+*.msi
+*.exe
+!**/testdata/**/*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.nsis.zip
+
+# ---------- 覆盖率 ----------
+/coverage/
+lcov.info
+*.lcov
+
+# ---------- 日志 ----------
+*.log
+/logs/
+
+# ---------- 本地配置与环境变量 ----------
+.env
+.env.*
+!.env.example
+*.local
+*.local.toml
+/config/local.*
+/secrets/
+
+# ---------- 编辑器 / IDE ----------
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.suo
+*.swp
+*.swo
+
+# ---------- 操作系统 ----------
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---------- 本地沙箱 / 测试数据（可能含游戏版权内容，体积大）----------
+/sandbox/
+/testdata/StarCraft*
