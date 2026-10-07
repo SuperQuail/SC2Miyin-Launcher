@@ -360,7 +360,7 @@ StarCraft II/
 
 - [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
 - [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
-- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.5）。
+- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.7）。
 - [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
 - [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
       （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
@@ -441,11 +441,39 @@ StarCraft II/
 
 ### 14.4 包格式规范
 
-**`docs/package-format.md` 是包格式的唯一权威**（兼容 CCM 与枢纽标准，扩展放在 `miyin` 命名空间）。
+**`docs/package-format.md` 是包格式的唯一权威**（v2：兼容 CCM 与枢纽标准，扩展放在 `miyin` 命名空间）。
 改解析逻辑时必须同步改那份文档；格式语义变化要提升 `miyin.format`，
 并同步 `miyin-core` 里的 `MIYIN_FORMAT_VERSION`。
 
-### 14.5 切换的安全底线
+### 14.5 载荷：地图与模组既可能是文件也可能是目录树
+
+**这是本项目最容易踩的坑**：真实包里 `.SC2Map` / `.SC2Mod` 有两种载体 ——
+
+- 单文件 MPQ：`paiur01.SC2Map`（一个 1 MB 的文件，CCM 平铺包就是这样）
+- 解开目录树：`paiur01.SC2Map/Base.SC2Data/...`（镜像包就是这样）
+
+`Payload` 用 `expanded` 区分，落盘时保持原形态。取"载荷根"的办法是
+**路径里第一个以 `.SC2Map`/`.SC2Mod` 结尾的组件**（见 `payload_root`）。
+
+另一个坑：包内可能是**游戏目录镜像**（顶层有 `Maps/` 或 `Mods/`）。
+这时内容根必须是**包根**，否则 metadata 所在的那一层会把同包的其它目录切掉 ——
+真实案例：metadata 在 `Maps/Campaign/void/`，内容却还包含 `Maps/Campaign/voidprologue/`。
+见 `has_mirror_root`。
+
+### 14.6 补丁与版本
+
+- **补丁 = 覆盖层**，不是战役。判定：元数据写明 `kind=patch`，或者
+  **包里只有模组、一张地图都没有**（现实补丁几乎都是这样，见 `PATCH_INFERRED`）。
+- **依赖**：`requires` 非空 = 完全补丁，可自动匹配战役；为空 = 只能手动指定（`PATCH_UNBOUND`）。
+- **版本**：每个版本都有 `version` 与 `registration_id`（注册 ID，缺失时启动器生成）。
+- **导入冲突**：往同一战役导同一个 ID（或同名）的版本时，`conflict_for` 会给出
+  `Conflict`（含新旧版本对比 `VersionRelation`），界面据此让用户选
+  **覆盖更新**（`ImportMode::Overwrite`，沿用原目录名，补丁绑定不受影响）
+  还是 **重命名后导入**（`ImportMode::Rename`，两者并存）。
+
+`compare_versions` 是宽松比较（抽数字段按数值比），认不出来返回 `None` —— **不要瞎猜版本新旧**。
+
+### 14.7 切换的安全底线
 
 启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
 
