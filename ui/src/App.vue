@@ -105,9 +105,9 @@ onMounted(() => {
   gap: 24px;
   height: var(--header-height);
   padding: 0 22px;
-  background: linear-gradient(120deg, #6d59b8 0%, #5a48a0 55%, #4a3b8c 100%);
+  background: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
   color: #fff;
-  box-shadow: 0 2px 16px rgba(10, 6, 30, 0.45);
+  box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
 }
 
 .brand {
@@ -176,7 +176,7 @@ onMounted(() => {
 
 .tab--active {
   background: #fff;
-  color: #4a3b8c;
+  color: #2b57c4;
 }
 
 .topbar__right {

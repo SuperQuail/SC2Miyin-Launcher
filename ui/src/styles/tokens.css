@@ -1,30 +1,30 @@
 /* ============================================================
  * 弥音启动器 —— 设计令牌
  *
- * 美术风格参考 HMCL：Material 3 色彩体系、紫色主色、大圆角、
+ * 美术风格参考 HMCL：Material 3 色彩体系、蓝色主色、大圆角、
  * 柔和阴影、模糊背景。**布局不参考 HMCL**（见 AGENTS.md）。
  * ============================================================ */
 
 :root {
   color-scheme: light;
 
-  /* 主色（Material 3 primary 家族） */
-  --accent: #6750a4;
-  --accent-hover: #5b4595;
-  --accent-pressed: #4f3d85;
-  --accent-soft: #eaddff;
-  --accent-softer: #f6edff;
+  /* 主色（Material 3 primary 家族，蓝色系） */
+  --accent: #3b6ce0;
+  --accent-hover: #315fcb;
+  --accent-pressed: #2750ab;
+  --accent-soft: #dbe6ff;
+  --accent-softer: #eef3ff;
   --on-accent: #ffffff;
 
   /* 表面层级 */
-  --surface: #fdf7ff;
+  --surface: #fbfcff;
   --surface-1: #ffffff;
-  --surface-2: #f5eefa;
-  --surface-3: #ece2f6;
-  --on-surface: #1d1b20;
-  --on-surface-variant: #5d5568;
-  --outline: #d3c7e0;
-  --outline-strong: #b9a9cc;
+  --surface-2: #f3f6fd;
+  --surface-3: #e8eefb;
+  --on-surface: #191c22;
+  --on-surface-variant: #555c6b;
+  --outline: #cdd5e5;
+  --outline-strong: #aab5ca;
 
   /* 语义色 */
   --success: #2e7d32;
@@ -43,9 +43,9 @@
   --radius-pill: 999px;
 
   /* 阴影 */
-  --shadow-1: 0 1px 2px rgba(29, 27, 32, 0.1), 0 1px 3px rgba(29, 27, 32, 0.06);
-  --shadow-2: 0 4px 14px rgba(29, 27, 32, 0.1), 0 2px 4px rgba(29, 27, 32, 0.06);
-  --shadow-3: 0 18px 48px rgba(24, 16, 48, 0.32);
+  --shadow-1: 0 1px 2px rgba(20, 28, 48, 0.1), 0 1px 3px rgba(20, 28, 48, 0.06);
+  --shadow-2: 0 4px 14px rgba(20, 28, 48, 0.1), 0 2px 4px rgba(20, 28, 48, 0.06);
+  --shadow-3: 0 18px 48px rgba(10, 18, 40, 0.3);
 
   /* 尺寸 */
   --header-height: 62px;
@@ -59,21 +59,21 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --accent: #cfbcff;
-  --accent-hover: #ded0ff;
-  --accent-pressed: #bda7f5;
-  --accent-soft: #4a3a78;
-  --accent-softer: #33294f;
-  --on-accent: #21143f;
+  --accent: #a8c4ff;
+  --accent-hover: #c0d4ff;
+  --accent-pressed: #8fb2f5;
+  --accent-soft: #2b3f70;
+  --accent-softer: #1e2c4d;
+  --on-accent: #07203f;
 
-  --surface: #141018;
-  --surface-1: #1d1824;
-  --surface-2: #251f2e;
-  --surface-3: #2f2838;
-  --on-surface: #e9e1ee;
-  --on-surface-variant: #cabfd6;
-  --outline: #494154;
-  --outline-strong: #645a70;
+  --surface: #101318;
+  --surface-1: #181c23;
+  --surface-2: #20252e;
+  --surface-3: #2a303a;
+  --on-surface: #e3e6ec;
+  --on-surface-variant: #bfc6d4;
+  --outline: #414855;
+  --outline-strong: #5b6473;
 
   --success: #8fd694;
   --success-soft: #1f3a22;

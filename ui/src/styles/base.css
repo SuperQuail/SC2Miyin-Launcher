@@ -29,9 +29,9 @@ body {
   z-index: 0;
   background-color: #0c0a18;
   background-image:
-    radial-gradient(1100px 620px at 12% -10%, rgba(103, 80, 164, 0.55), transparent 62%),
-    radial-gradient(900px 520px at 105% 12%, rgba(30, 86, 160, 0.5), transparent 58%),
-    radial-gradient(700px 500px at 60% 110%, rgba(140, 60, 170, 0.35), transparent 60%),
+    radial-gradient(1100px 620px at 12% -10%, rgba(59, 108, 224, 0.55), transparent 62%),
+    radial-gradient(900px 520px at 105% 12%, rgba(30, 110, 190, 0.5), transparent 58%),
+    radial-gradient(700px 500px at 60% 110%, rgba(50, 90, 200, 0.38), transparent 60%),
     linear-gradient(165deg, #0b0918 0%, #171236 46%, #0a1024 100%);
 }
 
