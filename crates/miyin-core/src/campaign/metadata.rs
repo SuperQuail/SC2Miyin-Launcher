@@ -39,6 +39,10 @@ pub struct CcmMetadata {
     pub author: Option<String>,
     pub campaign: Option<String>,
     pub version: Option<String>,
+    /// 包内自带的封面图（相对内容根的路径）。
+    ///
+    /// 包作者可以用 cover / image / icon / banner 指定；没写就由导入逻辑按文件名特征查找。
+    pub cover: Option<String>,
 }
 
 impl CcmMetadata {
@@ -73,6 +77,7 @@ impl CcmMetadata {
                 "author" => meta.author = Some(value.to_string()),
                 "campaign" => meta.campaign = Some(value.to_string()),
                 "version" => meta.version = Some(value.to_string()),
+                "cover" | "image" | "icon" | "banner" => meta.cover = Some(value.to_string()),
                 _ => {}
             }
         }
@@ -87,6 +92,7 @@ impl CcmMetadata {
             && self.author.is_none()
             && self.campaign.is_none()
             && self.version.is_none()
+            && self.cover.is_none()
     }
 }
 
@@ -115,6 +121,9 @@ pub struct StandardMetadata {
     pub maps_directory: Option<String>,
     #[serde(default)]
     pub mods_directory: Option<String>,
+    /// 包内自带的封面图（相对包根的路径）。
+    #[serde(default)]
+    pub cover: Option<String>,
 }
 
 impl StandardMetadata {
@@ -166,6 +175,77 @@ impl CampaignType {
             Self::Other(raw.trim().to_string())
         }
     }
+
+    /// 官方资料片的**固定展示顺序**：自由之翼 → 虫群之心 → 进化 → 虚空之遗 → 序章 → 诺娃。
+    ///
+    /// 界面必须按这个顺序排，而不是按名字排序 —— 否则「虚空之遗」会排到「诺娃」后面。
+    pub fn order(&self) -> u8 {
+        match self {
+            Self::Wol => 0,
+            Self::Hots => 1,
+            Self::HotsEvolution => 2,
+            Self::Lotv => 3,
+            Self::LotvPrologue => 4,
+            Self::Nova => 5,
+            Self::Other(_) => u8::MAX,
+        }
+    }
+
+    /// 稳定标识：用作战役库的槽位键与数据目录名。
+    pub fn slug(&self) -> &'static str {
+        match self {
+            Self::Wol => "wol",
+            Self::Hots => "hots",
+            Self::HotsEvolution => "hotsevolution",
+            Self::Lotv => "lotv",
+            Self::LotvPrologue => "lotvprologue",
+            Self::Nova => "nova",
+            Self::Other(_) => "other",
+        }
+    }
+
+    /// 由稳定标识还原（只认官方槽位）。
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        match slug {
+            "wol" => Some(Self::Wol),
+            "hots" => Some(Self::Hots),
+            "hotsevolution" => Some(Self::HotsEvolution),
+            "lotv" => Some(Self::Lotv),
+            "lotvprologue" => Some(Self::LotvPrologue),
+            "nova" => Some(Self::Nova),
+            _ => None,
+        }
+    }
+
+    /// 全部官方槽位，按发布顺序。
+    /// 所属的**主战役**：进化归虫群之心、序章归虚空之遗。
+    ///
+    /// 主菜单只列四大战役，归并关系放在这里，而不是让界面去特判。
+    pub fn parent(&self) -> Self {
+        match self {
+            Self::HotsEvolution => Self::Hots,
+            Self::LotvPrologue => Self::Lotv,
+            other => other.clone(),
+        }
+    }
+
+    /// 是否为主菜单上的四大战役之一。
+    pub fn is_main(&self) -> bool {
+        matches!(self, Self::Wol | Self::Hots | Self::Lotv | Self::Nova)
+    }
+
+    /// 主菜单上的四大战役。
+    pub const MAIN: [Self; 4] = [Self::Wol, Self::Hots, Self::Lotv, Self::Nova];
+
+    /// 全部官方槽位，按发布顺序。
+    pub const ALL: [Self; 6] = [
+        Self::Wol,
+        Self::Hots,
+        Self::HotsEvolution,
+        Self::Lotv,
+        Self::LotvPrologue,
+        Self::Nova,
+    ];
 
     /// 启用时地图应复制到的 `Maps/Campaign` 子目录。
     ///
@@ -265,6 +345,48 @@ mod tests {
             CampaignType::Other(_)
         ));
         assert!(matches!(CampaignType::parse(""), CampaignType::Other(_)));
+    }
+
+    #[test]
+    fn campaign_order_puts_lotv_before_nova() {
+        // 这正是用户提的问题：虚空之遗必须排在诺娃前面
+        assert!(CampaignType::Lotv.order() < CampaignType::Nova.order());
+        assert!(CampaignType::LotvPrologue.order() < CampaignType::Nova.order());
+        assert!(CampaignType::Hots.order() < CampaignType::Lotv.order());
+
+        let slugs: Vec<&str> = CampaignType::ALL.iter().map(CampaignType::slug).collect();
+        assert_eq!(
+            slugs,
+            vec![
+                "wol",
+                "hots",
+                "hotsevolution",
+                "lotv",
+                "lotvprologue",
+                "nova"
+            ]
+        );
+    }
+
+    #[test]
+    fn evolution_and_prologue_belong_to_their_parent_campaigns() {
+        assert_eq!(CampaignType::HotsEvolution.parent(), CampaignType::Hots);
+        assert_eq!(CampaignType::LotvPrologue.parent(), CampaignType::Lotv);
+        assert_eq!(CampaignType::Wol.parent(), CampaignType::Wol);
+
+        // 主菜单只有四大战役
+        assert_eq!(CampaignType::MAIN.len(), 4);
+        assert!(CampaignType::MAIN.iter().all(CampaignType::is_main));
+        assert!(!CampaignType::HotsEvolution.is_main());
+    }
+
+    #[test]
+    fn slug_round_trips() {
+        for slot in CampaignType::ALL {
+            assert_eq!(CampaignType::from_slug(slot.slug()), Some(slot));
+        }
+        assert_eq!(CampaignType::from_slug("nope"), None);
+        assert_eq!(CampaignType::Other("x".into()).slug(), "other");
     }
 
     #[test]

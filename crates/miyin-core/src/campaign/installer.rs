@@ -9,7 +9,6 @@
 //! 3. **每一次路径拼接都过一遍白名单校验**，即便前面已经校验过包内容。
 //! 4. **失败可回滚**：切换失败时把备份改回原名。
 
-use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -84,7 +83,7 @@ pub fn install(installation: &Installation, package_path: &Path) -> Result<Campa
     )?;
     std::fs::create_dir_all(&staging)?;
 
-    let extraction = extract(installation, package_path, &plan, &staging);
+    let extraction = package::extract_to(package_path, &plan.inspection.content_root, &staging);
     if let Err(error) = extraction {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(error);
@@ -125,52 +124,6 @@ pub fn install(installation: &Installation, package_path: &Path) -> Result<Campa
     }
 
     scanner::inspect_dir(&plan.target_dir)
-}
-
-/// 把包内容解压到暂存目录。
-fn extract(
-    installation: &Installation,
-    package_path: &Path,
-    plan: &InstallPlan,
-    staging: &Path,
-) -> Result<()> {
-    let file = std::fs::File::open(package_path)?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|error| Error::PackageRejected(format!("不是有效的 zip 压缩包：{error}")))?;
-
-    let content_root = &plan.inspection.content_root;
-
-    for (index, relative, is_dir) in package::collect_entries(&mut archive) {
-        // 剥离内容根：Reborn/metadata.txt -> metadata.txt
-        let Some(stripped) = package::strip_prefix(&relative, content_root) else {
-            continue;
-        };
-        if stripped.as_os_str().is_empty() {
-            continue;
-        }
-
-        // 即便 collect_entries 已经校验过，这里仍然再校验一次：
-        // 这是"写盘"的最后一道闸门，不依赖上游的正确性。
-        let target = safety::ensure_within(staging, &staging.join(&stripped))?;
-
-        if is_dir {
-            std::fs::create_dir_all(&target)?;
-            continue;
-        }
-
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let mut source = archive
-            .by_index(index)
-            .map_err(|error| Error::Parse(format!("读取压缩包条目失败：{error}")))?;
-        let mut destination = std::fs::File::create(&target)?;
-        io::copy(&mut source, &mut destination)?;
-    }
-
-    let _ = installation;
-    Ok(())
 }
 
 /// 卸载一个战役。

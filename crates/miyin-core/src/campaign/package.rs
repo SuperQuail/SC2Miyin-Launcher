@@ -23,7 +23,7 @@ use serde::Serialize;
 use crate::campaign::metadata::{CampaignType, CcmMetadata, StandardMetadata, decode_text};
 use crate::campaign::sanitize::sanitize_dir_name;
 use crate::campaign::{CampaignFormat, HealthIssue};
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// 允许解压的最大总字节数（防 zip bomb）。
 pub const MAX_UNPACKED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -52,6 +52,8 @@ pub struct PackageInspection {
     pub version: Option<String>,
     pub description: Option<String>,
     pub campaign_type: CampaignType,
+    /// 包自报的封面图（相对内容根的路径）；没写就是 `None`，由导入逻辑再按文件名找一次。
+    pub cover: Option<String>,
     /// 包内实际内容根（元数据所在目录），解压时需剥离；空串表示包根。
     pub content_root: String,
     /// 建议的安装目录名（已安全化）。
@@ -125,6 +127,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                 version: None,
                 description: None,
                 campaign_type: CampaignType::Other(String::new()),
+                cover: None,
                 content_root: String::new(),
                 suggested_dir_name: None,
                 map_count: 0,
@@ -248,6 +251,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut version = None;
     let mut description = None;
     let mut campaign_raw = String::new();
+    let mut declared_cover = None;
     let mut content_root = String::new();
     let mut format = CampaignFormat::Plain;
 
@@ -262,6 +266,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     version = clean(meta.version);
                     description = clean(meta.description);
                     campaign_raw = clean(meta.campaign).unwrap_or_default();
+                    declared_cover = clean(meta.cover);
                     if let Some(kind) = meta.kind.as_deref()
                         && !kind.eq_ignore_ascii_case("campaign")
                     {
@@ -290,6 +295,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             version = clean(meta.version);
             description = clean(meta.description);
             campaign_raw = clean(meta.campaign).unwrap_or_default();
+            declared_cover = clean(meta.cover);
         }
     } else {
         issues.push(
@@ -377,6 +383,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         version,
         description,
         campaign_type,
+        cover: declared_cover,
         content_root,
         suggested_dir_name,
         map_count,
@@ -385,6 +392,62 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         unpacked_bytes,
         issues,
     })
+}
+
+/// 解压统计。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExtractStats {
+    pub files: usize,
+    pub maps: usize,
+    pub mods: usize,
+    pub bytes: u64,
+}
+
+/// 把压缩包内容解压到目标目录（自动剥离内容根）。
+///
+/// 每一条落盘路径都会**再做一次包含性校验**：这是写盘的最后一道闸门，
+/// 不依赖上游已经校验过。
+pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Result<ExtractStats> {
+    let file = std::fs::File::open(package)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| Error::PackageRejected(format!("不是有效的 zip 压缩包：{error}")))?;
+
+    let mut stats = ExtractStats::default();
+
+    for (index, relative, is_dir) in collect_entries(&mut archive) {
+        let Some(stripped) = strip_prefix(&relative, content_root) else {
+            continue;
+        };
+        if stripped.as_os_str().is_empty() {
+            continue;
+        }
+
+        let target = crate::safety::ensure_within(destination, &destination.join(&stripped))?;
+
+        if is_dir {
+            std::fs::create_dir_all(&target)?;
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut source = archive
+            .by_index(index)
+            .map_err(|error| Error::Parse(format!("读取压缩包条目失败：{error}")))?;
+        let mut destination_file = std::fs::File::create(&target)?;
+        let written = std::io::copy(&mut source, &mut destination_file)?;
+
+        stats.files += 1;
+        stats.bytes += written;
+        match extension_of(&stripped).as_str() {
+            "sc2map" => stats.maps += 1,
+            "sc2mod" => stats.mods += 1,
+            _ => {}
+        }
+    }
+
+    Ok(stats)
 }
 
 /// 收集包内条目（供解压使用）。

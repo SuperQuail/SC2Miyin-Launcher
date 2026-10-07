@@ -5,9 +5,11 @@
 //! - [`metadata`]：CCM `metadata.txt` 与枢纽标准 `metadata.json` 的解析
 //! - [`sanitize`]：目录名安全化（防目录穿越与非法名）
 //! - [`package`]：zip 包预检（格式识别、zip-slip 校验、体积上限）
-//! - [`installer`]：事务化安装 / 卸载
-//! - [`scanner`]：已安装战役的扫描与核对
-//! - [`activation`]：启用 / 停用（把地图复制进官方战役目录，并按清单精确回滚）
+//! - [`installer`]：直接安装到游戏目录（旧路径，保留给"就地安装"场景）
+//! - [`scanner`]：目录扫描与核对
+//!
+//! 注意：**战役库**（多版本共存与切换）在 [`crate::library`] 里，
+//! 不在这里 —— 库属于启动器自身的数据，与游戏目录解耦。
 
 pub mod installer;
 pub mod metadata;
@@ -17,12 +19,12 @@ pub mod scanner;
 
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub use metadata::CampaignType;
 
 /// 战役包的来源格式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CampaignFormat {
     /// CCM 自制战役包：包内任意层级有 `metadata.txt`。
