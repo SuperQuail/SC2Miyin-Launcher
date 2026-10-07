@@ -15,18 +15,18 @@
 //!   解压时剥离该前缀 —— 参考实现处理这种包时必然报 `EPERM/ENOTEMPTY`。
 //! - **zip 内文件名编码异常时给出提示**，而不是让用户面对乱码文件夹。
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::campaign::contents;
 use crate::campaign::identify::{self, Identification, MAX_SCANNED_MAPS};
 use crate::campaign::metadata::{
     CampaignType, CcmMetadata, PackageKind, StandardMetadata, decode_text,
 };
 use crate::campaign::sanitize::sanitize_dir_name;
 use crate::campaign::{CampaignFormat, HealthIssue};
-use crate::error::{Error, Result};
+use crate::error::Result;
 
 /// 允许解压的最大总字节数（防 zip bomb）。
 pub const MAX_UNPACKED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -193,23 +193,6 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
     }
 }
 
-/// 识别 rar / 7z；zip 返回 `None`。
-fn unsupported_archive(path: &Path) -> Option<&'static str> {
-    use std::io::Read;
-
-    let mut magic = [0u8; 6];
-    let mut file = std::fs::File::open(path).ok()?;
-    file.read_exact(&mut magic).ok()?;
-
-    if magic.starts_with(b"Rar!") {
-        return Some("RAR");
-    }
-    if magic == [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] {
-        return Some("7z");
-    }
-    None
-}
-
 /// 单张地图最多读多少字节（畸形包防线）。
 const MAX_MAP_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -226,7 +209,7 @@ fn entry_path(entry: &Entry) -> String {
 /// 只扫前 [`MAX_SCANNED_MAPS`] 张地图 —— 同一个包里的地图几乎不会有不同归属，
 /// 扫太多张既慢又没用。
 fn collect_map_declarations(
-    archive: &mut zip::ZipArchive<std::fs::File>,
+    archive: &mut contents::Contents,
     entries: &[Entry],
     content_root: &str,
     payloads: &[Payload],
@@ -455,47 +438,37 @@ pub fn safe_entry_path(name: &str) -> Option<PathBuf> {
 
 /// 读取并检查一个战役包。
 pub fn inspect(path: &Path) -> Result<PackageInspection> {
-    // 先说清楚不支持的格式，而不是让用户对着"不是有效 zip"发呆
-    if let Some(kind) = unsupported_archive(path) {
-        return Ok(unusable(
-            path,
-            "UNSUPPORTED_ARCHIVE",
-            format!("暂不支持 {kind} 压缩包"),
-            "请先用压缩软件解压，再重新打成 .zip",
-        ));
-    }
-
-    let file = std::fs::File::open(path)?;
-    let mut archive = match zip::ZipArchive::new(file) {
+    // 任意打包形式：zip 原生读，其它交给系统解压器（见 contents 模块）
+    let mut archive = match contents::Contents::open(path) {
         Ok(archive) => archive,
         Err(error) => {
             return Ok(unusable(
                 path,
                 "NOT_AN_ARCHIVE",
-                format!("不是有效的 zip 压缩包：{error}"),
-                "请确认下载完整；如果是 .rar / .7z，请解压后重新打成 zip",
+                format!("读不了这个压缩包：{error}"),
+                "请确认文件完整；实在读不了就解压后重新打成 zip",
             ));
         }
     };
 
     let mut issues: Vec<HealthIssue> = Vec::new();
-    let mut entries: Vec<Entry> = Vec::with_capacity(archive.len());
     let mut unpacked_bytes: u64 = 0;
     let mut unsafe_name: Option<String> = None;
     let mut lossy_names = 0usize;
 
-    for index in 0..archive.len() {
-        let Ok(file) = archive.by_index(index) else {
-            continue;
-        };
-        let raw = file.name().to_string();
-        let lossy_name = std::str::from_utf8(file.name_raw()).is_err();
+    // 先把清单拷出来，后面读内容还要可变借用 archive
+    let listing: Vec<(String, u64, bool, bool)> = archive
+        .entries()
+        .iter()
+        .map(|item| (item.name.clone(), item.size, item.is_dir, item.lossy))
+        .collect();
+
+    let mut entries: Vec<Entry> = Vec::with_capacity(listing.len());
+
+    for (index, (raw, size, is_dir, lossy_name)) in listing.into_iter().enumerate() {
         if lossy_name {
             lossy_names += 1;
         }
-        let size = file.size();
-        let is_dir = file.is_dir();
-        drop(file);
 
         let Some(relative) = safe_entry_path(&raw) else {
             unsafe_name.get_or_insert(raw);
@@ -872,13 +845,19 @@ pub struct ExtractStats {
 /// 每一条落盘路径都会**再做一次包含性校验**：这是写盘的最后一道闸门，
 /// 不依赖上游已经校验过。
 pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Result<ExtractStats> {
-    let file = std::fs::File::open(package)?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|error| Error::PackageRejected(format!("不是有效的 zip 压缩包：{error}")))?;
-
+    let mut archive = contents::Contents::open(package)?;
     let mut stats = ExtractStats::default();
 
-    for (index, relative, is_dir) in collect_entries(&mut archive) {
+    let listing: Vec<(String, bool)> = archive
+        .entries()
+        .iter()
+        .map(|item| (item.name.clone(), item.is_dir))
+        .collect();
+
+    for (index, (name, is_dir)) in listing.into_iter().enumerate() {
+        let Some(relative) = safe_entry_path(&name) else {
+            continue;
+        };
         let Some(stripped) = strip_prefix(&relative, content_root) else {
             continue;
         };
@@ -892,18 +871,12 @@ pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Res
             std::fs::create_dir_all(&target)?;
             continue;
         }
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
 
-        let mut source = archive
-            .by_index(index)
-            .map_err(|error| Error::Parse(format!("读取压缩包条目失败：{error}")))?;
-        let mut destination_file = std::fs::File::create(&target)?;
-        let written = std::io::copy(&mut source, &mut destination_file)?;
-
+        archive.copy_to(index, &target)?;
         stats.files += 1;
-        stats.bytes += written;
+        stats.bytes += std::fs::metadata(&target)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
         match extension_of(&stripped).as_str() {
             "sc2map" => stats.maps += 1,
             "sc2mod" => stats.mods += 1,
@@ -914,34 +887,9 @@ pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Res
     Ok(stats)
 }
 
-/// 收集包内条目（供解压使用）。
-pub(crate) fn collect_entries(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-) -> Vec<(usize, PathBuf, bool)> {
-    let mut out = Vec::with_capacity(archive.len());
-    for index in 0..archive.len() {
-        let Ok(file) = archive.by_index(index) else {
-            continue;
-        };
-        let raw = file.name().to_string();
-        let is_dir = file.is_dir();
-        drop(file);
-        if let Some(relative) = safe_entry_path(&raw) {
-            out.push((index, relative, is_dir));
-        }
-    }
-    out
-}
-
 /// 读取包内某个条目的全部字节。
-pub(crate) fn read_entry(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    index: usize,
-) -> Option<Vec<u8>> {
-    let mut file = archive.by_index(index).ok()?;
-    let mut buffer = Vec::with_capacity(file.size() as usize);
-    file.read_to_end(&mut buffer).ok()?;
-    Some(buffer)
+pub(crate) fn read_entry(archive: &mut contents::Contents, index: usize) -> Option<Vec<u8>> {
+    archive.read(index)
 }
 
 /// 去掉内容根前缀，得到包内相对路径。
@@ -1260,19 +1208,6 @@ mod payload_tests {
         let unknown = collect_payloads(&[entry("mymap.SC2Map", false)], "");
         let names: Vec<String> = unknown.iter().map(|p| p.target_name()).collect();
         assert!(identify::from_map_names(&names).is_none());
-    }
-
-    #[test]
-    fn rejects_unsupported_archive_by_magic() {
-        let dir = tempfile::tempdir().expect("tempdir");
-
-        let rar = dir.path().join("x.rar");
-        std::fs::write(&rar, b"Rar!\x1a\x07\x01\x00rest").expect("write");
-        assert_eq!(unsupported_archive(&rar), Some("RAR"));
-
-        let zip = dir.path().join("x.zip");
-        std::fs::write(&zip, b"PK\x03\x04rest").expect("write");
-        assert_eq!(unsupported_archive(&zip), None);
     }
 
     #[test]
