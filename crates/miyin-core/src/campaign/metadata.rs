@@ -43,6 +43,8 @@ pub struct CcmMetadata {
     ///
     /// 包作者可以用 cover / image / icon / banner 指定；没写就由导入逻辑按文件名特征查找。
     pub cover: Option<String>,
+    /// 标签（逗号 / 顿号 / 空格分隔）。这是弥音扩展键，CCM 本身没有。
+    pub tags: Vec<String>,
 }
 
 impl CcmMetadata {
@@ -78,6 +80,14 @@ impl CcmMetadata {
                 "campaign" => meta.campaign = Some(value.to_string()),
                 "version" => meta.version = Some(value.to_string()),
                 "cover" | "image" | "icon" | "banner" => meta.cover = Some(value.to_string()),
+                "tags" | "tag" => {
+                    meta.tags = value
+                        .split([',', '，', '、', ' '])
+                        .map(str::trim)
+                        .filter(|tag| !tag.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                }
                 _ => {}
             }
         }
@@ -93,6 +103,7 @@ impl CcmMetadata {
             && self.campaign.is_none()
             && self.version.is_none()
             && self.cover.is_none()
+            && self.tags.is_empty()
     }
 }
 
@@ -124,6 +135,44 @@ pub struct StandardMetadata {
     /// 包内自带的封面图（相对包根的路径）。
     #[serde(default)]
     pub cover: Option<String>,
+    /// 弥音专属扩展（命名空间字段，其它工具会直接忽略）。
+    #[serde(default)]
+    pub miyin: Option<MiyinExtensions>,
+}
+
+impl StandardMetadata {
+    /// 取封面路径：命名空间写法 `miyin.cover` 优先，其次顶层的 `cover`。
+    pub fn cover_path(&self) -> Option<&str> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.cover.as_deref())
+            .or(self.cover.as_deref())
+    }
+
+    /// 扩展字段里的标签。
+    pub fn tags(&self) -> Vec<String> {
+        self.miyin
+            .as_ref()
+            .map(|extensions| extensions.tags.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// 弥音专属扩展字段（`metadata.json` 里的 `miyin` 对象）。
+///
+/// 放在独立命名空间里，是为了让「星际枢纽」等工具直接忽略它们，
+/// 同时给我们自己留出**不与枢纽未来字段撞名**的扩展空间。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MiyinExtensions {
+    /// 扩展格式版本。启动器只接受不高于自己支持版本的包。
+    #[serde(default)]
+    pub format: Option<u32>,
+    /// 封面图（相对包根的路径）。
+    #[serde(default)]
+    pub cover: Option<String>,
+    /// 标签，显示在版本卡片上。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl StandardMetadata {
@@ -227,6 +276,15 @@ impl CampaignType {
             Self::LotvPrologue => Self::Lotv,
             other => other.clone(),
         }
+    }
+
+    /// 该资料片**应当归入的主战役槽位**；认不出来时返回 `None`。
+    ///
+    /// 这是「自动判断是哪个战役」的唯一规则来源：
+    /// 进化包 -> `hots`、序章包 -> `lotv`，认不出来就交给界面问用户。
+    pub fn main_slot(&self) -> Option<&'static str> {
+        let main = self.parent();
+        main.is_main().then(|| main.slug())
     }
 
     /// 是否为主菜单上的四大战役之一。
@@ -396,6 +454,42 @@ mod tests {
         assert_eq!(CampaignType::Lotv.sub_directory(), Some("void"));
         assert_eq!(CampaignType::Nova.sub_directory(), Some("nova"));
         assert!(!CampaignType::Other("x".into()).is_actionable());
+    }
+
+    #[test]
+    fn standard_metadata_reads_miyin_extensions() {
+        let text = r#"{
+            "name": "重生",
+            "author": "Creator",
+            "campaign": "HOTSEVO",
+            "cover": "top.png",
+            "miyin": {
+                "format": 1,
+                "cover": "namespace.png",
+                "tags": ["重制", "全语音"]
+            }
+        }"#;
+
+        let meta = StandardMetadata::parse(text).expect("应解析成功");
+        assert_eq!(meta.name.as_deref(), Some("重生"));
+        // 命名空间写法优先于顶层字段
+        assert_eq!(meta.cover_path(), Some("namespace.png"));
+        assert_eq!(meta.tags(), vec!["重制".to_string(), "全语音".to_string()]);
+        assert_eq!(meta.miyin.as_ref().and_then(|e| e.format), Some(1));
+    }
+
+    #[test]
+    fn standard_metadata_falls_back_to_top_level_cover() {
+        let meta = StandardMetadata::parse(r#"{"name":"A","cover":"cover.png"}"#).expect("解析");
+        assert_eq!(meta.cover_path(), Some("cover.png"));
+        assert!(meta.tags().is_empty());
+        assert_eq!(meta.miyin.as_ref().and_then(|e| e.format), None);
+    }
+
+    #[test]
+    fn ccm_tags_accept_common_separators() {
+        let meta = CcmMetadata::parse("title=A\ntags=重制, 全语音、中文\n");
+        assert_eq!(meta.tags, vec!["重制", "全语音", "中文"]);
     }
 
     #[test]

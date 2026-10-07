@@ -109,6 +109,7 @@ pub fn import(library: &Library, package: &Path, slot_slug: &str) -> Result<Vari
         size_bytes: stats.bytes,
         target_sub,
         cover,
+        tags: inspection.tags.clone(),
     };
 
     // 最新的排在最前面

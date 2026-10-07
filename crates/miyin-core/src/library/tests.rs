@@ -287,6 +287,22 @@ fn rejects_unknown_or_malicious_slots() {
 }
 
 #[test]
+fn slot_for_routes_evolution_packages_to_hots() {
+    use crate::campaign::metadata::CampaignType;
+    use crate::library::slot_for;
+
+    assert_eq!(slot_for(&CampaignType::Wol), Some("wol"));
+    assert_eq!(slot_for(&CampaignType::Hots), Some("hots"));
+    // 进化包自动归到「虫群之心」——这就是「自动判断是哪个战役」的依据
+    assert_eq!(slot_for(&CampaignType::HotsEvolution), Some("hots"));
+    assert_eq!(slot_for(&CampaignType::Lotv), Some("lotv"));
+    assert_eq!(slot_for(&CampaignType::LotvPrologue), Some("lotv"));
+    assert_eq!(slot_for(&CampaignType::Nova), Some("nova"));
+    // 认不出来时必须返回 None，让界面去问用户
+    assert_eq!(slot_for(&CampaignType::Other("???".into())), None);
+}
+
+#[test]
 fn package_cover_is_picked_up() {
     let fixture = fixture();
     let path = build_zip(

@@ -31,6 +31,11 @@ pub const MAX_UNPACKED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// 允许的最大条目数。
 pub const MAX_ENTRIES: usize = 100_000;
 
+/// 当前启动器支持的**弥音扩展格式**版本（见 `docs/package-format.md`）。
+///
+/// 包内 `miyin.format` 高于这个值时会被明确拒绝，而不是猜着解析。
+pub const MIYIN_FORMAT_VERSION: u32 = 1;
+
 /// 包内一个条目的摘要。
 #[derive(Debug, Clone)]
 struct Entry {
@@ -54,6 +59,10 @@ pub struct PackageInspection {
     pub campaign_type: CampaignType,
     /// 包自报的封面图（相对内容根的路径）；没写就是 `None`，由导入逻辑再按文件名找一次。
     pub cover: Option<String>,
+    /// 包自报的标签。
+    pub tags: Vec<String>,
+    /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
+    pub suggested_slot: Option<String>,
     /// 包内实际内容根（元数据所在目录），解压时需剥离；空串表示包根。
     pub content_root: String,
     /// 建议的安装目录名（已安全化）。
@@ -128,6 +137,8 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                 description: None,
                 campaign_type: CampaignType::Other(String::new()),
                 cover: None,
+                tags: Vec::new(),
+                suggested_slot: None,
                 content_root: String::new(),
                 suggested_dir_name: None,
                 map_count: 0,
@@ -252,6 +263,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut description = None;
     let mut campaign_raw = String::new();
     let mut declared_cover = None;
+    let mut declared_tags: Vec<String> = Vec::new();
     let mut content_root = String::new();
     let mut format = CampaignFormat::Plain;
 
@@ -261,12 +273,33 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         if let Some(text) = read_entry(&mut archive, entry.index) {
             match StandardMetadata::parse(&decode_text(&text)) {
                 Ok(meta) => {
+                    // 先借走扩展信息，后面几个字段会被移出
+                    declared_cover = clean(meta.cover_path().map(str::to_owned));
+                    declared_tags = meta.tags();
+                    let extension_format =
+                        meta.miyin.as_ref().and_then(|extensions| extensions.format);
+
                     name = clean(meta.name);
                     author = clean(meta.author);
                     version = clean(meta.version);
                     description = clean(meta.description);
                     campaign_raw = clean(meta.campaign).unwrap_or_default();
-                    declared_cover = clean(meta.cover);
+
+                    // 扩展格式版本比启动器新 -> 明确拒绝，而不是猜着解析
+                    if let Some(format) = extension_format
+                        && format > MIYIN_FORMAT_VERSION
+                    {
+                        issues.push(
+                            HealthIssue::broken(
+                                "FORMAT_TOO_NEW",
+                                format!(
+                                    "该包使用了更新的扩展格式（v{format}），当前启动器只支持到 v{MIYIN_FORMAT_VERSION}"
+                                ),
+                            )
+                            .with_hint("请升级弥音启动器后再导入"),
+                        );
+                    }
+
                     if let Some(kind) = meta.kind.as_deref()
                         && !kind.eq_ignore_ascii_case("campaign")
                     {
@@ -296,6 +329,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             description = clean(meta.description);
             campaign_raw = clean(meta.campaign).unwrap_or_default();
             declared_cover = clean(meta.cover);
+            declared_tags = meta.tags.clone();
         }
     } else {
         issues.push(
@@ -372,6 +406,9 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         ));
     }
 
+    // 先算出来：campaign_type 马上要被移进结构体
+    let suggested_slot = campaign_type.main_slot().map(str::to_string);
+
     Ok(PackageInspection {
         path: path.to_path_buf(),
         installable: !issues
@@ -384,6 +421,8 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         description,
         campaign_type,
         cover: declared_cover,
+        tags: declared_tags,
+        suggested_slot,
         content_root,
         suggested_dir_name,
         map_count,

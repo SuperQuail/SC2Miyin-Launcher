@@ -69,6 +69,9 @@ pub struct Variant {
     /// 包自带的封面图（相对版本目录的路径）；没有就用该战役的官方美术。
     #[serde(default)]
     pub cover: Option<String>,
+    /// 包自报的标签。
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// 一个官方资料片槽位。
@@ -219,6 +222,13 @@ pub fn default_root(executable: &Path) -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("data")
+}
+
+/// 由包内声明的资料片推断应该导入到哪个槽位。
+///
+/// 规则本体在 [`CampaignType::main_slot`]，这里只是给调用方一个好找的入口。
+pub fn slot_for(kind: &CampaignType) -> Option<&'static str> {
+    kind.main_slot()
 }
 
 /// 校验槽位标识，返回对应的资料片。
