@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import { MIYIN } from "../api/art";
-import CampaignCard from "../components/CampaignCard.vue";
-import InstallDialog from "../components/InstallDialog.vue";
+import SlotCard from "../components/SlotCard.vue";
 import { useLauncher } from "../composables/useLauncher";
+import SlotMenuView from "./SlotMenuView.vue";
 
 const emit = defineEmits<{ "open-settings": [] }>();
 
-const { installation, campaigns, loading, launch, reveal, uninstall, refresh, chooseGameDirectory } =
+const { installation, slots, loading, launch, reveal, refresh, chooseGameDirectory, bootstrap } =
   useLauncher();
 
-const showInstall = ref(false);
+/** 当前打开的槽位。 */
+const opened = ref<string | null>(null);
+
+onMounted(() => {
+  void bootstrap();
+
+  // 支持 #slot=wol 直接打开某个槽位（调试与截图用）
+  const match = /slot=([a-z]+)/.exec(typeof window === "undefined" ? "" : window.location.hash);
+  if (match) opened.value = match[1];
+});
+
+const openSlot = computed(() => slots.value.find((slot) => slot.slug === opened.value) ?? null);
 
 const regionLabel = computed(() => {
   const branch = installation.value?.branch;
@@ -19,7 +30,10 @@ const regionLabel = computed(() => {
   return branch.toLowerCase() === "cn" ? "国服" : branch.toUpperCase();
 });
 
-const healthyCount = computed(() => campaigns.value.filter((item) => item.health === "ok").length);
+const modCount = computed(() =>
+  slots.value.reduce((total, slot) => total + slot.variants.length, 0),
+);
+const activeCount = computed(() => slots.value.filter((slot) => slot.active !== null).length);
 </script>
 
 <template>
@@ -42,6 +56,9 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
       </div>
     </section>
 
+    <!-- 进入某个战役自己的菜单：选择原版 / 已导入的玩家版本 -->
+    <SlotMenuView v-else-if="openSlot" :slot="openSlot" @back="opened = null" />
+
     <template v-else>
       <!-- 游戏状态 + 看板娘 -->
       <section class="hero card">
@@ -59,16 +76,16 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
 
           <dl class="hero__stats">
             <div class="stat">
-              <dt>已安装战役</dt>
-              <dd>{{ campaigns.length }}</dd>
+              <dt>官方战役</dt>
+              <dd>{{ slots.length }}</dd>
             </div>
             <div class="stat">
-              <dt>状态正常</dt>
-              <dd>{{ healthyCount }}</dd>
+              <dt>已导入版本</dt>
+              <dd>{{ modCount }}</dd>
             </div>
             <div class="stat">
-              <dt>构建号</dt>
-              <dd>{{ installation.build ?? "—" }}</dd>
+              <dt>已切换</dt>
+              <dd>{{ activeCount }}</dd>
             </div>
           </dl>
         </div>
@@ -78,48 +95,33 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
         </div>
       </section>
 
-      <!-- 战役列表 -->
+      <!-- 战役槽位 -->
       <div class="section-head">
         <h3 class="section-head__title">
-          我的战役
-          <span class="section-head__count">{{ campaigns.length }}</span>
+          战役
+          <span class="section-head__count">{{ slots.length }}</span>
         </h3>
         <div class="section-head__actions">
           <button class="btn btn-text" type="button" :disabled="loading" @click="refresh">
-            {{ loading ? "扫描中…" : "重新扫描" }}
-          </button>
-          <button class="btn btn-tonal" type="button" @click="showInstall = true">
-            ＋ 安装战役包
+            {{ loading ? "读取中…" : "重新读取" }}
           </button>
         </div>
       </div>
 
-      <div v-if="campaigns.length" class="grid">
-        <CampaignCard
-          v-for="campaign in campaigns"
-          :key="campaign.id"
-          :campaign="campaign"
-          @reveal="reveal"
-          @uninstall="uninstall"
+      <p class="section-hint">
+        每部战役默认是原版。点开任意一部，可以导入并切换不同玩家制作的版本 ——
+        同一个战役的多个版本会同时保留在启动器里，互不覆盖。
+      </p>
+
+      <div class="grid">
+        <SlotCard
+          v-for="slot in slots"
+          :key="slot.slug"
+          :slot="slot"
+          @open="opened = $event"
         />
       </div>
-
-      <section v-else class="empty empty--compact card">
-        <img class="empty__art empty__art--small" :src="MIYIN.cry" alt="" />
-        <h2 class="empty__title">还没有安装自制战役</h2>
-        <p class="empty__text">
-          支持 CCM 战役包（内含 <code>metadata.txt</code>）与弥音标准包（根目录含
-          <code>metadata.json</code>）。安装前会先做一次完整核对，不会直接往游戏目录里写东西。
-        </p>
-        <div class="empty__actions">
-          <button class="btn btn-primary" type="button" @click="showInstall = true">
-            安装第一个战役
-          </button>
-        </div>
-      </section>
     </template>
-
-    <InstallDialog v-if="showInstall" @close="showInstall = false" />
   </div>
 </template>
 
@@ -127,7 +129,7 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
 .page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
   max-width: var(--content-max);
   margin: 0 auto;
 }
@@ -143,8 +145,8 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   overflow: hidden;
   padding: 24px 28px;
   background:
-    radial-gradient(360px 280px at 86% 74%, rgba(178, 150, 255, 0.42), transparent 72%),
-    linear-gradient(118deg, #ffffff 0%, #fdfaff 58%, #f7f0ff 100%);
+    radial-gradient(360px 280px at 86% 74%, rgba(150, 185, 255, 0.45), transparent 72%),
+    linear-gradient(118deg, #ffffff 0%, #fbfdff 58%, #f2f7ff 100%);
   border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
 }
 
@@ -228,7 +230,6 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 4px;
 }
 
 .section-head__title {
@@ -254,7 +255,6 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   gap: 8px;
 }
 
-/* 这一行浮在深色背景上，默认的紫色文字按钮几乎看不见 */
 .section-head__actions .btn-text {
   color: #fff;
   background: rgba(255, 255, 255, 0.16);
@@ -264,9 +264,17 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   background: rgba(255, 255, 255, 0.26);
 }
 
+.section-hint {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
   gap: 18px;
 }
 
@@ -281,10 +289,6 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   padding: 40px 32px 46px;
 }
 
-.empty--compact {
-  padding: 30px 32px 38px;
-}
-
 .empty__art {
   width: 176px;
   height: 176px;
@@ -292,11 +296,6 @@ const healthyCount = computed(() => campaigns.value.filter((item) => item.health
   margin-bottom: -6px;
   -webkit-mask-image: radial-gradient(circle at 50% 52%, #000 62%, transparent 82%);
   mask-image: radial-gradient(circle at 50% 52%, #000 62%, transparent 82%);
-}
-
-.empty__art--small {
-  width: 132px;
-  height: 132px;
 }
 
 .empty__title {

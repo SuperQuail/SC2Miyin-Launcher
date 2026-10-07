@@ -53,22 +53,37 @@ export interface HealthIssue {
   hint: string | null;
 }
 
-/** 一个已安装的战役。 */
-export interface Campaign {
+/** 库里的一个战役版本，即「某个玩家做的某一版」。 */
+export interface Variant {
   id: string;
   name: string;
   author: string | null;
   version: string | null;
   description: string | null;
-  cover: string | null;
-  path: string;
   format: CampaignFormat;
-  campaign_type: CampaignType;
-  enabled: boolean;
-  health: HealthLevel;
-  issues: HealthIssue[];
-  map_count: number | null;
-  size_bytes: number | null;
+  /** 导入时间（Unix 秒）。 */
+  imported_at: number;
+  source: string | null;
+  map_count: number;
+  mod_count: number;
+  size_bytes: number;
+  /** 启用时地图落到 Maps/Campaign 下的哪个子目录。 */
+  target_sub: string | null;
+  /** 包内自带的封面图（相对版本目录）；null 表示没有，界面用官方美术。 */
+  cover: string | null;
+}
+
+/** 一个官方资料片槽位。 */
+export interface SlotView {
+  slug: string;
+  display_name: string;
+  /** 启用时地图落到的官方子目录（相对 Maps/Campaign）。 */
+  sub_directory: string | null;
+  variants: Variant[];
+  /** 当前启用的版本 id；null 表示原版战役。 */
+  active: string | null;
+  active_name: string | null;
+  notice: string | null;
 }
 
 /** 安装前对包的预检结果。 */
@@ -94,13 +109,19 @@ export interface PackageInspection {
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
-  listCampaigns(): Promise<Campaign[]>;
+  /** 战役库根目录（软件同级的 data 目录）。 */
+  libraryRoot(): Promise<string>;
+  /** 全部槽位，已按官方发布顺序排列。 */
+  listSlots(): Promise<SlotView[]>;
   inspectPackage(path: string): Promise<PackageInspection>;
-  installPackage(path: string): Promise<Campaign>;
-  uninstallCampaign(id: string): Promise<void>;
+  importPackage(path: string, slot: string | null): Promise<Variant>;
+  /** 启用某个版本；variantId 传 null 表示切回原版战役。 */
+  activateVariant(slot: string, variantId: string | null): Promise<string[]>;
+  deleteVariant(slot: string, variantId: string): Promise<void>;
   launchGame(): Promise<void>;
   revealPath(path: string): Promise<void>;
   pickPackage(): Promise<string | null>;
   pickGameDirectory(): Promise<string | null>;
-  campaignCover(dir: string): Promise<string | null>;
+  /** 读取某个版本自带的封面图（data URL）；没有则返回 null。 */
+  variantCover(slot: string, variantId: string): Promise<string | null>;
 }

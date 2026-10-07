@@ -6,7 +6,7 @@
 import { computed, ref } from "vue";
 
 import { api, isDesktop } from "../api/bridge";
-import type { Campaign, Installation, PackageInspection } from "../api/types";
+import type { Installation, SlotView, Variant } from "../api/types";
 
 export type ToastKind = "info" | "success" | "error";
 
@@ -16,7 +16,8 @@ export interface Toast {
 }
 
 const installation = ref<Installation | null>(null);
-const campaigns = ref<Campaign[]>([]);
+const slots = ref<SlotView[]>([]);
+const libraryRoot = ref("");
 const loading = ref(false);
 const busy = ref(false);
 const ready = ref(false);
@@ -40,15 +41,14 @@ export function errorText(error: unknown): string {
   return String(error);
 }
 
-/** 首次进入时探测游戏并载入战役列表。 */
+/** 首次进入时探测游戏并载入战役库。 */
 async function bootstrap(): Promise<void> {
   if (ready.value) return;
   loading.value = true;
   try {
     installation.value = await api.detectInstallation();
-    if (installation.value) {
-      campaigns.value = await api.listCampaigns();
-    }
+    libraryRoot.value = await api.libraryRoot();
+    slots.value = await api.listSlots();
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -57,12 +57,11 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-/** 重新扫描战役列表。 */
+/** 重新读取槽位。 */
 async function refresh(): Promise<void> {
-  if (!installation.value) return;
   loading.value = true;
   try {
-    campaigns.value = await api.listCampaigns();
+    slots.value = await api.listSlots();
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -83,25 +82,19 @@ async function chooseGameDirectory(): Promise<void> {
   }
 }
 
-/** 选择战役包并预检。 */
-async function pickAndInspect(): Promise<PackageInspection | null> {
-  try {
-    const path = await api.pickPackage();
-    if (!path) return null;
-    return await api.inspectPackage(path);
-  } catch (error) {
-    notify("error", errorText(error));
-    return null;
-  }
-}
-
-/** 安装一个已预检过的包。 */
-async function install(path: string): Promise<boolean> {
+/** 启用某个版本（variantId 为 null 表示切回原版战役）。 */
+async function activate(slot: string, variantId: string | null): Promise<boolean> {
   busy.value = true;
   try {
-    const campaign = await api.installPackage(path);
+    const warnings = await api.activateVariant(slot, variantId);
     await refresh();
-    notify("success", "已安装：" + campaign.name);
+    if (warnings.length) {
+      notify("info", warnings[0]);
+    } else if (variantId === null) {
+      notify("success", "已切回原版战役");
+    } else {
+      notify("success", "已启用：" + variantId);
+    }
     return true;
   } catch (error) {
     notify("error", errorText(error));
@@ -111,15 +104,33 @@ async function install(path: string): Promise<boolean> {
   }
 }
 
-/** 卸载战役。 */
-async function uninstall(id: string): Promise<void> {
+/** 从库里删除一个版本。 */
+async function removeVariant(slot: string, variantId: string): Promise<boolean> {
   busy.value = true;
   try {
-    await api.uninstallCampaign(id);
+    await api.deleteVariant(slot, variantId);
     await refresh();
-    notify("success", "已卸载：" + id);
+    notify("success", "已删除：" + variantId);
+    return true;
   } catch (error) {
     notify("error", errorText(error));
+    return false;
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 把包导入到某个槽位。 */
+async function importInto(slot: string, path: string): Promise<Variant | null> {
+  busy.value = true;
+  try {
+    const created = await api.importPackage(path, slot);
+    await refresh();
+    notify("success", "已导入：" + created.name);
+    return created;
+  } catch (error) {
+    notify("error", errorText(error));
+    return null;
   } finally {
     busy.value = false;
   }
@@ -148,7 +159,8 @@ export function useLauncher() {
   return {
     isDesktop,
     installation: computed(() => installation.value),
-    campaigns: computed(() => campaigns.value),
+    slots: computed(() => slots.value),
+    libraryRoot: computed(() => libraryRoot.value),
     loading: computed(() => loading.value),
     busy: computed(() => busy.value),
     toast: computed(() => toast.value),
@@ -156,9 +168,9 @@ export function useLauncher() {
     bootstrap,
     refresh,
     chooseGameDirectory,
-    pickAndInspect,
-    install,
-    uninstall,
+    activate,
+    removeVariant,
+    importInto,
     launch,
     reveal,
     notify,

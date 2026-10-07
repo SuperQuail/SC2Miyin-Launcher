@@ -4,7 +4,7 @@ import { computed } from "vue";
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
 
-const { installation, chooseGameDirectory, reveal, isDesktop } = useLauncher();
+const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
 
 const rows = computed(() => {
   const current = installation.value;
@@ -52,26 +52,39 @@ const rows = computed(() => {
 
     <section class="card panel">
       <header class="panel__head">
+        <h3 class="panel__title">战役库</h3>
+        <button class="btn btn-text" type="button" @click="reveal(libraryRoot)">打开库目录</button>
+      </header>
+      <p class="path">{{ libraryRoot || "（未初始化）" }}</p>
+      <p class="hint">
+        导入的每个玩家版本都完整保存在这里（软件同级的 data 目录），与游戏目录解耦。
+        同一个战役可以并存多个版本，切换时只把选中的那一份铺进游戏目录。
+      </p>
+    </section>
+
+    <section class="card panel">
+      <header class="panel__head">
         <h3 class="panel__title">安装与安全</h3>
       </header>
       <ul class="notes">
         <li>
-          <strong>安装前先核对。</strong>
+          <strong>导入前先核对。</strong>
           压缩包会先被完整读一遍：确认格式、解析元数据、检查是否存在越界路径条目
           （zip-slip）、统计解压后体积。这一步不写入任何文件。
         </li>
         <li>
           <strong>事务化落盘。</strong>
-          内容先解压到暂存目录，校验通过后整体切换；切换失败会自动回滚，
-          不会出现「旧版本已删、新版本没装上」的半途状态。
+          内容先解压到暂存目录，校验通过后整体改名进库；失败自动清理，
+          不会留下半个版本。
         </li>
         <li>
-          <strong>删除范围严格受限。</strong>
-          卸载只会删除战役自己的目录，绝不触碰父目录或官方战役地图。
+          <strong>切换只动自己放的文件。</strong>
+          启用某个版本时，我们放进去的每个文件都被记账；切回原版时只删这些文件。
+          遇到同名官方文件会先挪进备份区，切回时原样还原 —— 全程不对官方目录做递归删除。
         </li>
         <li>
           <strong>路径白名单。</strong>
-          所有写操作都要求目标位于游戏目录或用户文档目录之内，并会解析符号链接后再校验一次。
+          所有写操作都要求目标位于游戏目录之内，并会解析符号链接后再校验一次。
         </li>
         <li>
           <strong>编码兼容。</strong>
@@ -159,6 +172,14 @@ const rows = computed(() => {
   font-size: 12.5px;
   word-break: break-all;
   font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.path {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  word-break: break-all;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  color: var(--on-surface);
 }
 
 .notes {

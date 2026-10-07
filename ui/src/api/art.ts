@@ -39,6 +39,11 @@ export function campaignArt(type: CampaignType): string | null {
   return ART[campaignTypeKey(type)] ?? null;
 }
 
+/** 按槽位标识取官方美术。 */
+export function slotArt(slug: string): string | null {
+  return ART[slug] ?? null;
+}
+
 /** 资料片中文名。 */
 export function campaignTypeName(type: CampaignType): string {
   switch (campaignTypeKey(type)) {
@@ -57,6 +62,14 @@ export function campaignTypeName(type: CampaignType): string {
     default:
       return "未标注资料片";
   }
+}
+
+/** 人类可读的时间（Unix 秒）。 */
+export function formatDate(seconds: number | null): string {
+  if (!seconds) return "—";
+  const date = new Date(seconds * 1000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
 }
 
 /** 人类可读的体积。 */

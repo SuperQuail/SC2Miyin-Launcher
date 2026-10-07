@@ -7,10 +7,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use miyin_core::campaign::Campaign;
-use miyin_core::campaign::installer;
+use miyin_core::campaign::metadata::CampaignType;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
+use miyin_core::library::{self, Library, SlotView, Variant};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -23,15 +23,16 @@ struct Config {
 }
 
 /// 应用运行期状态。
-#[derive(Default)]
 struct AppState {
     installation: Mutex<Option<Installation>>,
     config_path: Mutex<Option<PathBuf>>,
+    /// 战役库：存放玩家导入的各个版本（与游戏目录解耦）。
+    library: Library,
 }
 
 impl AppState {
     /// 读取配置并尝试恢复上次使用的安装。
-    fn bootstrap(config_path: PathBuf) -> Self {
+    fn bootstrap(config_path: PathBuf, library_root: PathBuf) -> Self {
         let config = load_config(&config_path);
 
         let installation = config
@@ -42,6 +43,7 @@ impl AppState {
         Self {
             installation: Mutex::new(installation),
             config_path: Mutex::new(Some(config_path)),
+            library: Library::new(library_root),
         }
     }
 
@@ -117,12 +119,17 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     Ok(installation)
 }
 
-/// 列出全部已安装战役（含核对结论）。
+/// 战役库根目录（软件同级的 data 目录）。
 #[tauri::command]
-fn list_campaigns(state: State<'_, AppState>) -> Result<Vec<Campaign>, String> {
-    let installation = require_installation(&state)?;
-    // 启用状态由激活模块维护；本版本尚未启用该功能，先给空集合。
-    Ok(scanner::scan(&installation, &Default::default()))
+fn library_root(state: State<'_, AppState>) -> String {
+    state.library.root().to_string_lossy().into_owned()
+}
+
+/// 读取全部槽位：每个官方资料片下已导入的版本，以及当前启用的是哪个。
+#[tauri::command]
+fn list_slots(state: State<'_, AppState>) -> Result<Vec<SlotView>, String> {
+    let installation = state.installation.lock().map_err(lock_error)?.clone();
+    Ok(state.library.slots(installation.as_ref()))
 }
 
 /// 安装前预检一个战役包。
@@ -131,18 +138,51 @@ fn inspect_package(path: String) -> Result<PackageInspection, String> {
     package::inspect(Path::new(&path)).map_err(|error| error.to_string())
 }
 
-/// 安装一个战役包。
+/// 把一个战役包导入到某个槽位。
+///
+/// 槽位可以不传：这时按包内元数据的 campaign 字段自动判定；
+/// 判定不出来就报错，由界面提示用户手动选择。
 #[tauri::command]
-fn install_package(path: String, state: State<'_, AppState>) -> Result<Campaign, String> {
-    let installation = require_installation(&state)?;
-    installer::install(&installation, Path::new(&path)).map_err(|error| error.to_string())
+fn import_package(
+    path: String,
+    slot: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
+
+    let chosen = slot
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| match &inspection.campaign_type {
+            CampaignType::Other(_) => None,
+            kind => Some(kind.slug().to_string()),
+        })
+        .ok_or_else(|| "无法从包内识别归属资料片，请指定要导入到哪个战役".to_string())?;
+
+    library::import(&state.library, Path::new(&path), &chosen).map_err(|error| error.to_string())
 }
 
-/// 卸载一个战役。
+/// 启用某个版本；variantId 传 null 表示切回**原版战役**。
 #[tauri::command]
-fn uninstall_campaign(id: String, state: State<'_, AppState>) -> Result<(), String> {
+fn activate_variant(
+    slot: String,
+    variant_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
     let installation = require_installation(&state)?;
-    installer::uninstall(&installation, &id).map_err(|error| error.to_string())
+    library::activate(&state.library, &installation, &slot, variant_id.as_deref())
+        .map_err(|error| error.to_string())
+}
+
+/// 删除库里的某个版本（若正在启用会先切回原版战役）。
+#[tauri::command]
+fn delete_variant(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let installation = require_installation(&state)?;
+    library::remove_variant(&state.library, &installation, &slot, &variant_id)
+        .map_err(|error| error.to_string())
 }
 
 /// 启动游戏。
@@ -211,18 +251,44 @@ fn pick_game_directory() -> Option<String> {
 /// 读取战役目录内的封面图，返回 data URL 供界面直接显示。
 #[tauri::command]
 fn campaign_cover(dir: String) -> Option<String> {
+    let cover = scanner::find_cover_for(&PathBuf::from(dir))?;
+    file_to_data_url(&cover)
+}
+
+/// 读取库里某个版本自带的封面图。
+///
+/// 返回 `None` 表示这个包没配封面，界面会退回该战役的官方美术。
+#[tauri::command]
+fn variant_cover(slot: String, variant_id: String, state: State<'_, AppState>) -> Option<String> {
+    let relative = {
+        let index = state.library.index();
+        index
+            .slots
+            .get(&slot)?
+            .variants
+            .iter()
+            .find(|variant| variant.id == variant_id)?
+            .cover
+            .clone()?
+    };
+
+    // 相对路径来自索引文件，落盘前仍然过一遍白名单校验
+    let root = state.library.slot_dir(&slot).join(&variant_id);
+    let target = miyin_core::safety::ensure_within(&root, &root.join(&relative)).ok()?;
+    file_to_data_url(&target)
+}
+
+/// 把图片文件读成 data URL。
+fn file_to_data_url(path: &Path) -> Option<String> {
     const MAX_BYTES: u64 = 6 * 1024 * 1024;
 
-    let directory = PathBuf::from(dir);
-    let cover = scanner::find_cover_for(&directory)?;
-
-    let metadata = std::fs::metadata(&cover).ok()?;
+    let metadata = std::fs::metadata(path).ok()?;
     if metadata.len() > MAX_BYTES {
         return None;
     }
 
-    let bytes = std::fs::read(&cover).ok()?;
-    let mime = match cover
+    let bytes = std::fs::read(path).ok()?;
+    let mime = match path
         .extension()
         .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default()
@@ -276,21 +342,30 @@ pub fn run() {
                 .map(|dir| dir.join("config.json"))
                 .unwrap_or_else(|_| PathBuf::from("miyin-config.json"));
 
-            app.manage(AppState::bootstrap(config_path));
+            // 战役库放在**软件同级目录**下（绿色版，随软件走）
+            let data_root = std::env::current_exe()
+                .ok()
+                .map(|executable| miyin_core::library::default_root(&executable))
+                .unwrap_or_else(|| PathBuf::from("data"));
+
+            app.manage(AppState::bootstrap(config_path, data_root));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             detect_installation,
             set_installation,
-            list_campaigns,
+            library_root,
+            list_slots,
             inspect_package,
-            install_package,
-            uninstall_campaign,
+            import_package,
+            activate_variant,
+            delete_variant,
             launch_game,
             reveal_path,
             pick_package,
             pick_game_directory,
             campaign_cover,
+            variant_cover,
         ])
         .run(tauri::generate_context!())
         .expect("弥音启动器启动失败");
