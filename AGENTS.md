@@ -82,12 +82,16 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │           ├── error.rs       # 统一错误类型（错误信息直接面向用户，用中文）
 │           ├── safety.rs      # 路径白名单与规范化校验（所有写操作的闸门）
 │           ├── sc2/           # 安装发现（注册表 / 手动）+ .build.info 解析
-│           └── campaign/      # 战役领域
-│               ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
-│               ├── sanitize.rs    # 目录名安全化（防目录穿越）
-│               ├── package.rs     # zip 预检：格式识别、zip-slip、体积上限
-│               ├── installer.rs   # 事务化安装 / 卸载（带回滚）
-│               └── scanner.rs     # 已安装战役扫描与核对
+│           ├── campaign/      # 战役包领域（与游戏目录耦合的那部分）
+│           │   ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
+│           │   ├── sanitize.rs    # 目录名安全化（防目录穿越）
+│           │   ├── package.rs     # zip 预检：格式识别、zip-slip、体积上限、解压
+│           │   ├── installer.rs   # 直接装进游戏目录（旧路径，保留）
+│           │   └── scanner.rs     # 目录扫描与核对
+│           └── library/       # **战役库**：多版本共存与切换（见 §14）
+│               ├── mod.rs          # 索引模型、槽位、封面与路径规则
+│               ├── store.rs        # 导入 / 删除版本
+│               └── activation.rs   # 启用 / 停用（按清单精确回滚）
 ├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
 │   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里
 │   ├── tauri.conf.json
@@ -96,9 +100,9 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │   ├── public/                # 美术资产（见 §13，含 NOTICE.md）
 │   └── src/
 │       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射
-│       ├── components/        # CampaignCard、InstallDialog
+│       ├── components/        # SlotCard（战役卡片）、VariantCard（版本卡片）
 │       ├── composables/       # useLauncher：全局状态与动作
-│       ├── views/             # CampaignsView、SettingsView
+│       ├── views/             # CampaignsView（战役列表）、SlotMenuView（战役菜单）、SettingsView
 │       └── styles/            # tokens.css（设计令牌）、base.css
 ├── scripts/                   # prepare-assets.py / prepare-icons.py
 ├── docs/                      # 设计文档、格式说明
@@ -348,15 +352,18 @@ StarCraft II/
 | 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
 | 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + Vue 3 前端（见 §4） |
 | 功能范围 | 首个版本聚焦**战役管理与安装**（扫描 / 预检 / 安装 / 卸载），不含下载站与账号功能 |
-| 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + 紫色主色 + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
+| 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + **蓝色主色** + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
+| 战役数据 | **存放在软件同级的 data 目录**（绿色版），支持同一战役多版本共存与自由切换（见 §14） |
+| 主菜单范围 | 只列**四大战役**（自由之翼 / 虫群之心 / 虚空之遗 / 诺娃），进化与序章归并到父战役 |
 
 ### 12.2 待确认（TODO）
 
 - [ ] **许可证**：HMCL 为 GPL-3.0、参考项目 scnexus 为 BSD-3-Clause；本项目需自行决定（若希望被广泛集成，MIT/Apache-2.0 更宽松）。
 - [ ] **仓库 / 目录正式更名**：`HSCL` → `miyin-launcher`（含 crate 名、仓库名、CI 路径）。
-- [ ] **启用 / 停用战役（激活）**：把地图按清单复制进 `Maps/Campaign`，并支持按清单精确回滚
-      （参考实现在这里会误删官方战役目录，务必按 §10.5 的白名单思路实现）。
-- [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免安装时文件被占用。
+- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.4）。
+- [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
+- [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
+      （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
 - [ ] CCM 格式规格文档整理（放 `docs/`）。
 - [ ] `README.md` / `LICENSE` / `CONTRIBUTING.md` / Issue 模板 / CI 工作流（公开发布前必备，见 §7.3）。
 
@@ -366,7 +373,7 @@ StarCraft II/
 
 ### 13.1 视觉风格
 
-界面**只参考 HMCL 的视觉语言**（Material 3 色彩体系、紫色主色、大圆角卡片、柔和阴影、模糊背景），
+界面**只参考 HMCL 的视觉语言**（Material 3 色彩体系、**蓝色主色**、大圆角卡片、柔和阴影、模糊背景），
 **不参考它的布局**。设计令牌集中在 `ui/src/styles/tokens.css`：改风格先改令牌，不要在组件里散写颜色。
 
 ### 13.2 素材来源与授权（重要）
@@ -393,3 +400,49 @@ StarCraft II/
 
 立绘自带白底，界面统一用 `mask-image: radial-gradient(...)` 把方形边缘化开；
 **不要**把立绘直接放在深色背景上而不加遮罩。
+
+---
+
+## 14. 战役库（多版本共存）
+
+### 14.1 为什么放在软件目录而不是游戏目录
+
+游戏目录里的 `Maps/CustomCampaigns` 只能放「当前这一份」，装第二个版本就得先删第一个。
+所以库放在**软件可执行文件同级的 `data/` 目录**（绿色版，随软件走，见 `library::default_root`）：
+
+```text
+<启动器目录>/data/
+├── library.json               # 索引：每个槽位下有哪些版本、当前启用哪个
+├── active.json                # 激活清单：我们往游戏目录放了什么、挪走了什么
+├── campaigns/<槽位>/<版本>/    # 各版本的完整内容
+└── backup/<槽位>/              # 被挪走的官方文件，切回原版时原样还原
+```
+
+### 14.2 四大战役与归并
+
+主菜单**只列四大战役**：自由之翼 → 虫群之心 → 虚空之遗 → 诺娃隐秘行动。
+顺序由 `CampaignType::MAIN` 固定，**不要**改成按名字排序（那样虚空之遗会排到诺娃后面）。
+
+「虫群之心 · 进化」与「虚空之遗 · 序章」**不作为独立条目**：
+`CampaignType::parent()` 把它们归并到父战役。包内声明 `campaign=HOTSEVO` 的包
+导入到「虫群之心」槽位，但 `Variant::target_sub` 记为 `swarm/evolution`，
+启用时地图落到正确位置 —— **目标子目录属于版本，而不是槽位**，这是关键设计。
+
+### 14.3 交互约定
+
+- 战役列表是**卡片**；点进某个战役进入它**自己的菜单页**（不是弹窗），里面同样是**卡片**。
+- 每个战役菜单里第一张卡永远是「原版战役」，其后是导入的玩家版本。
+- 包可以自带封面图：在 `metadata.txt` 里写 `cover=xxx.png`（也认 image / icon / banner），
+  或者直接放 `cover` / `preview` / `banner` / `poster` 命名的图片。
+  没有就用该战役的官方美术（`ui/src/api/art.ts` 的 `slotArt()`）。
+
+### 14.4 切换的安全底线
+
+启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
+
+1. `deactivate` 上一个版本：删掉我们放进去的文件、还原被挪走的官方文件。
+2. 目标位置若已有同名文件（多半是官方的），先挪进 `data/backup/` 并记账。
+3. 复制新版本的文件并逐条记账，最后写 `active.json`。
+
+因此最坏情况是「多留了几个文件」，而不是「官方战役没了」。
+这部分由 `crates/miyin-core/src/library/tests.rs` 的端到端测试覆盖。
