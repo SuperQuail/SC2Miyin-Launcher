@@ -7,9 +7,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
+use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
-use miyin_core::library::{self, Library, SlotView, Variant};
+use miyin_core::library::{self, Conflict, ImportMode, Library, SlotView, Variant};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -137,25 +138,71 @@ fn inspect_package(path: String) -> Result<PackageInspection, String> {
     package::inspect(Path::new(&path)).map_err(|error| error.to_string())
 }
 
+/// 导入预览：预检结果 + 目标战役 + 与已有版本的冲突。
+#[derive(Debug, serde::Serialize)]
+struct ImportPreview {
+    path: String,
+    inspection: PackageInspection,
+    /// 自动判断出的目标战役；None 表示需要用户指定。
+    slot: Option<String>,
+    /// 与库里已有版本的冲突；None 表示没有冲突。
+    conflict: Option<Conflict>,
+}
+
+/// 选完文件后的第一步：预检、判断归属、查冲突。**不写任何文件。**
+#[tauri::command]
+fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPreview, String> {
+    let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
+
+    // 补丁不自动挑战役 —— 它是覆盖层，要挂到哪个战役上由用户定
+    let slot = match inspection.kind {
+        PackageKind::Patch => None,
+        PackageKind::Campaign => library::slot_for(&inspection.campaign_type).map(str::to_string),
+    };
+
+    let conflict = slot.as_deref().and_then(|slug| {
+        library::conflict_for(
+            &state.library,
+            slug,
+            inspection.id.as_deref(),
+            inspection.name.as_deref().unwrap_or_default(),
+            inspection.version.as_deref(),
+        )
+    });
+
+    Ok(ImportPreview {
+        path,
+        inspection,
+        slot,
+        conflict,
+    })
+}
+
 /// 把一个战役包导入到某个槽位。
 ///
-/// 槽位可以不传：这时按包内元数据的 campaign 字段自动判定；
-/// 判定不出来就报错，由界面提示用户手动选择。
+/// - 槽位可以不传：按包内声明自动判断（进化包会归到「虫群之心」）
+/// - mode 决定遇到已有同名 / 同 ID 版本时，是**覆盖更新**还是**重命名后导入**
 #[tauri::command]
 fn import_package(
     path: String,
     slot: Option<String>,
+    mode: Option<ImportMode>,
     state: State<'_, AppState>,
 ) -> Result<Variant, String> {
     let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
 
-    // 槽位没指定就按包内声明自动判断（进化包会归到「虫群之心」）
     let chosen = slot
         .filter(|value| !value.trim().is_empty())
         .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
         .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
 
-    library::import(&state.library, Path::new(&path), &chosen).map_err(|error| error.to_string())
+    library::import(
+        &state.library,
+        Path::new(&path),
+        &chosen,
+        mode.unwrap_or_default(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// 启用某个版本；variantId 传 null 表示切回**原版战役**。
@@ -354,6 +401,7 @@ pub fn run() {
             library_root,
             list_slots,
             inspect_package,
+            prepare_import,
             import_package,
             activate_variant,
             delete_variant,
