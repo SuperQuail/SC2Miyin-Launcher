@@ -1158,3 +1158,43 @@ fn natural_order_puts_terran2_before_terran10() {
     chapters.sort_by(|left, right| super::natural_cmp(left, right));
     assert_eq!(chapters, vec!["1. Rebel Yell", "2. Overmind", "10. Later"]);
 }
+#[test]
+fn unconfigured_variants_mount_every_mod() {
+    use crate::campaign::package::{Payload, PayloadTarget};
+    use crate::library::{Variant, effective_mounted_mods};
+
+    let mods = |name: &str| Payload {
+        source: name.to_string(),
+        target: PayloadTarget::Mod {
+            name: name.to_string(),
+        },
+        expanded: false,
+        is_mod: true,
+    };
+
+    let mut variant = Variant {
+        id: "v1".to_string(),
+        payloads: vec![mods("A.SC2Mod"), mods("B.SC2Mod")],
+        ..Variant::default()
+    };
+
+    // 老记录没有 mounted_mods 字段 -> 按「全挂」算。
+    // 这是防回归：曾经用空 Vec 表示"没配过"，结果官方战役包里带的模组
+    // 会突然一个都不铺。
+    assert_eq!(variant.mounted_mods, None);
+    assert_eq!(
+        effective_mounted_mods(&variant),
+        vec!["A.SC2Mod".to_string(), "B.SC2Mod".to_string()]
+    );
+
+    // 用户明确关掉一个 -> 只铺剩下的
+    variant.mounted_mods = Some(vec!["B.SC2Mod".to_string()]);
+    assert_eq!(
+        effective_mounted_mods(&variant),
+        vec!["B.SC2Mod".to_string()]
+    );
+
+    // 用户明确全关 -> 一个都不铺（这与"没配过"是两回事）
+    variant.mounted_mods = Some(Vec::new());
+    assert!(effective_mounted_mods(&variant).is_empty());
+}

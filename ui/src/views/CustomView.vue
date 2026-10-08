@@ -136,6 +136,13 @@ function openTools(event: MouseEvent): void {
 }
 
 /* 和战役页的 hero 同一套写法，两页看起来才是一家的 */
+/* 卡片网格：scoped 样式不共享，每个用到 .grid 的视图都得自己定义一份 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 18px;
+}
+
 .hero {
   display: flex;
   align-items: center;

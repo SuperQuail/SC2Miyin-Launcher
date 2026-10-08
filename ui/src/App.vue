@@ -9,6 +9,7 @@ import ContextMenu from "./components/ContextMenu.vue";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
+import ModsView from "./views/ModsView.vue";
 import CheatsView from "./views/CheatsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -36,6 +37,7 @@ const tabs: { id: ViewId; label: string }[] = [
   // 自制战役是**另一个顶层选项**，不是「战役」里的一个分组 ——
   // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
   { id: "custom", label: "自制战役" },
+  { id: "mods", label: "模组" },
   { id: "settings", label: "设置" },
 ];
 
@@ -183,12 +185,14 @@ onUnmounted(() => {
           v-if="currentView === 'campaigns'"
           key="campaigns"
           @open-settings="currentView = 'settings'"
+          @open-cheats="cheatsOpen = true"
         />
         <CustomView
           v-else-if="currentView === 'custom'"
           key="custom"
           @open-cheats="cheatsOpen = true"
         />
+        <ModsView v-else-if="currentView === 'mods'" key="mods" />
         <SettingsView v-else key="settings" />
       </Transition>
     </main>

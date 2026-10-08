@@ -30,6 +30,29 @@ pub enum DiscoverySource {
     Manual,
 }
 
+/// 游戏目录 `Mods/` 里的一个模组。
+#[derive(Debug, Clone, Serialize)]
+pub struct GameModEntry {
+    /// 显示名（文件名去掉 .SC2Mod 后缀）。
+    pub display: String,
+    /// 实际的文件 / 目录名。
+    pub name: String,
+    /// 是解开后的目录树（而不是单个文件）。
+    pub expanded: bool,
+    pub size_bytes: u64,
+}
+
+/// 递归量一个目录的体积。
+fn directory_size(root: &Path) -> u64 {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|meta| meta.len())
+        .sum()
+}
+
 /// 一份可用的星际争霸 II 安装。
 #[derive(Debug, Clone, Serialize)]
 pub struct Installation {
@@ -213,6 +236,52 @@ impl Installation {
     /// 按需创建自制战役根目录 `Maps/CustomCampaigns`。
     pub fn ensure_custom_campaigns_dir(&self) -> Result<PathBuf> {
         self.ensure_dir(&self.custom_campaigns_root)
+    }
+
+    /// 扫一遍游戏目录的 `Mods/`，列出里面已经放着的模组。
+    ///
+    /// 给「模组管理」用：让用户看见游戏目录里**实际**有什么 ——
+    /// 包括我们自己铺进去的，也包括他手动放的、别的工具留下的。
+    pub fn game_mods(&self) -> Vec<GameModEntry> {
+        let mut rows = Vec::new();
+        let Ok(entries) = std::fs::read_dir(&self.mods_root) else {
+            return rows;
+        };
+
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            let Some(name) = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+            else {
+                continue;
+            };
+            // 只认 .SC2Mod：文件形态或解开后的目录树都算
+            if !name.to_ascii_lowercase().ends_with(".sc2mod") {
+                continue;
+            }
+
+            let meta = entry.metadata().ok();
+            let expanded = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
+            let size_bytes = match (&meta, expanded) {
+                (Some(m), false) => m.len(),
+                (_, true) => directory_size(&path),
+                _ => 0,
+            };
+
+            rows.push(GameModEntry {
+                display: name
+                    .rsplit_once('.')
+                    .map(|(stem, _)| stem.to_string())
+                    .unwrap_or_else(|| name.clone()),
+                name,
+                expanded,
+                size_bytes,
+            });
+        }
+
+        rows.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+        rows
     }
 }
 

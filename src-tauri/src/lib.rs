@@ -12,10 +12,10 @@ use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
 use miyin_core::library::{
-    self, Binding, Conflict, DocInfo, ImportMode, Library, MainMapChoice, MapEntry, ModEntry,
-    Patch, SlotView, Variant, VariantChanges,
+    self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
+    ModEntry, Patch, SlotView, Variant, VariantChanges,
 };
-use miyin_core::sc2::{DiscoverySource, Installation};
+use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
 use miyin_core::update::Reporter;
 use miyin_core::update::apply::Staged;
 use miyin_core::update::check::UpdateCheck;
@@ -455,6 +455,19 @@ fn open_map_in_editor(
         map,
         guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
     })
+}
+
+/// **全库模组汇总**：模组管理菜单用。
+#[tauri::command(async)]
+fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, String> {
+    Ok(state.library.all_mods())
+}
+
+/// 游戏目录 Mods/ 里实际放着的模组。
+#[tauri::command(async)]
+fn list_game_mods(state: State<'_, AppState>) -> Result<Vec<GameModEntry>, String> {
+    let installation = require_installation(&state)?;
+    Ok(installation.game_mods())
 }
 
 /// 某个版本自带的说明文档（PDF）；没有就是 `None`。
@@ -1108,6 +1121,8 @@ pub fn run() {
             main_map_choice,
             open_map_in_editor,
             variant_doc,
+            list_library_mods,
+            list_game_mods,
             read_doc,
             update_variant,
             delete_variant,

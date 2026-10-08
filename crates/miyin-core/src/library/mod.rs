@@ -101,20 +101,40 @@ pub struct Variant {
     pub main_map: Option<String>,
     /// **挂载到游戏目录的模组**，存载荷的 source（相对版本目录的路径）。
     ///
-    /// 自制战役的地图里写死了 `Mods\xxx.SC2Mod` 这种依赖路径，模组不铺进
-    /// `<游戏>/Mods/` 就打不开。但不同的自制战役之间会互相打架，
-    /// 所以让用户自己选挂哪几个；一个都没挂时启动前会警告。
+    /// 地图可能依赖包里的模组，模组不铺进 `<游戏>/Mods/` 就打不开；
+    /// 但不同战役的模组之间会互相打架，所以让用户自己选挂哪几个。
     ///
-    /// 空 = 一个都没挂。**注意这与「包里有模组」是两回事** ——
-    /// 得看 `variant_mods()` 才知道包里有哪些。
+    /// - `None` = **还没配过**，按「全挂」处理（老记录也是这种）
+    /// - `Some([])` = 用户**明确**一个都不挂
+    ///
+    /// 用 `Option` 而不是空 `Vec` 就是为了区分这两种情况 ——
+    /// 否则早先导入的记录（当时还没有这个字段）会被当成"用户取消了一切"，
+    /// 官方战役包里的模组会突然不铺了。
     #[serde(default)]
-    pub mounted_mods: Vec<String>,
+    pub mounted_mods: Option<Vec<String>>,
     /// **说明文档（PDF）**，相对版本目录的路径。
     ///
     /// 导入时按包内声明解析；没声明就按文件名特征找（说明 / readme / manual…）。
     /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
     #[serde(default)]
     pub doc: Option<String>,
+}
+
+/// 库里的一个模组，带着它属于哪个版本的上下文。
+#[derive(Debug, Clone, Serialize)]
+pub struct LibraryMod {
+    /// 所属槽位。
+    pub slot: String,
+    /// 槽位显示名（「自由之翼」「自制战役」…）。
+    pub slot_name: String,
+    /// 所属版本。
+    pub variant_id: String,
+    pub variant_name: String,
+    /// 挂载键：载荷的 source，同时是相对版本目录的路径。
+    pub path: String,
+    /// 显示名（文件名去掉 .SC2Mod 后缀）。
+    pub name: String,
+    pub mounted: bool,
 }
 
 /// 版本自带的说明文档。
@@ -136,6 +156,21 @@ pub struct ModEntry {
     pub name: String,
     /// 是不是已经挂上了。
     pub mounted: bool,
+}
+
+/// 这个版本**实际**会铺哪些模组。
+///
+/// 没配过（`None`）时按「全挂」算 —— 保证老记录和刚导入的包都能正常跑。
+pub fn effective_mounted_mods(variant: &Variant) -> Vec<String> {
+    if let Some(list) = &variant.mounted_mods {
+        return list.clone();
+    }
+
+    variant
+        .payloads
+        .iter()
+        .filter_map(|payload| mod_identity(payload).map(|(key, _)| key))
+        .collect()
 }
 
 /// 认出一个载荷是不是模组，返回 (挂载键, 显示名)。
@@ -481,12 +516,14 @@ impl Library {
             return Vec::new();
         };
 
+        let mounted_list = effective_mounted_mods(&variant);
+
         variant
             .payloads
             .iter()
             .filter_map(|payload| {
                 let (path, name) = mod_identity(payload)?;
-                let mounted = variant.mounted_mods.iter().any(|item| item == &path);
+                let mounted = mounted_list.iter().any(|item| item == &path);
                 Some(ModEntry {
                     path,
                     name,
@@ -494,6 +531,49 @@ impl Library {
                 })
             })
             .collect()
+    }
+
+    /// **全库的模组汇总**：模组管理菜单用。
+    ///
+    /// 按「战役 → 版本 → 模组」铺平，每一行都带着它属于谁 ——
+    /// 用户看的是「自由之翼·重生 v1.4 的 XXX.SC2Mod」，不是一堆孤零零的文件名。
+    pub fn all_mods(&self) -> Vec<LibraryMod> {
+        let index = self.index();
+        let mut rows = Vec::new();
+
+        for (slug, slot) in &index.slots {
+            let slot_name = CampaignType::from_slug(slug)
+                .map(|kind| kind.display_name())
+                .unwrap_or_else(|| slug.clone());
+
+            for variant in &slot.variants {
+                let mounted_list = effective_mounted_mods(variant);
+
+                for payload in &variant.payloads {
+                    let Some((path, name)) = mod_identity(payload) else {
+                        continue;
+                    };
+                    rows.push(LibraryMod {
+                        slot: slug.clone(),
+                        slot_name: slot_name.clone(),
+                        variant_id: variant.id.clone(),
+                        variant_name: variant.name.clone(),
+                        path: path.clone(),
+                        name,
+                        mounted: mounted_list.iter().any(|item| item == &path),
+                    });
+                }
+            }
+        }
+
+        // 稳定顺序：先按战役，再按版本，最后按名字
+        rows.sort_by(|left, right| {
+            left.slot_name
+                .cmp(&right.slot_name)
+                .then_with(|| left.variant_name.cmp(&right.variant_name))
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        rows
     }
 
     /// 改某个版本的挂载模组清单。
@@ -523,11 +603,14 @@ impl Library {
             .filter_map(|payload| mod_identity(payload).map(|(key, _)| key))
             .collect();
 
-        variant.mounted_mods = mods
-            .iter()
-            .filter(|wanted| known.contains(wanted))
-            .cloned()
-            .collect();
+        // 写 Some 而不是空 Vec：这样「一个都不挂」才是用户的意思，
+        // 而不是"没配过"
+        variant.mounted_mods = Some(
+            mods.iter()
+                .filter(|wanted| known.contains(wanted))
+                .cloned()
+                .collect(),
+        );
 
         let updated = variant.clone();
         self.save_index(&index)?;

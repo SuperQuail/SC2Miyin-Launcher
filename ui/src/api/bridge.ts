@@ -14,6 +14,8 @@ import type {
   NetworkSettings,
   DocInfo,
   EditorLaunch,
+  GameModEntry,
+  LibraryMod,
   MainMapChoice,
   MapEntry,
   ModEntry,
@@ -89,6 +91,8 @@ const desktop: LauncherApi = {
   openMapInEditor: (slot, variantId, map) =>
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
+  listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
+  listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
   readDoc: (slot, variantId) =>
     invoke<ArrayBuffer>("read_doc", { slot, variantId }),
 
@@ -285,9 +289,64 @@ const demoslots: SlotView[] = [
     active_name: null,
     notice: null,
   },
+  {
+    slug: "custom",
+    display_name: "自制战役",
+    sub_directory: null,
+    variants: [
+      Object.assign(
+        variant(
+          "Starcraft Mass Recall 8.0",
+          "Starcraft Mass Recall",
+          "SCMR Team",
+          "8.0",
+          138,
+          1_414_700_000,
+        ),
+        { mod_count: 4, doc: null },
+      ),
+    ],
+    active: "Starcraft Mass Recall 8.0",
+    active_name: "Starcraft Mass Recall",
+    notice: null,
+  },
 ];
 
 /** 让演示模式也有「正在处理」的观感。 */
+/** 演示模式的库内模组。 */
+function demoLibraryMods(): LibraryMod[] {
+  const rows: LibraryMod[] = [];
+  const push = (slot: string, slotName: string, variantId: string, variantName: string, names: string[]) => {
+    for (const name of names) {
+      rows.push({
+        slot,
+        slot_name: slotName,
+        variant_id: variantId,
+        variant_name: variantName,
+        path: "Mods/" + name + ".SC2Mod",
+        name,
+        mounted: true,
+      });
+    }
+  };
+  push("wol", "自由之翼", "wol-reborn", "自由之翼：重生 v1.4", ["RebornData"]);
+  push("custom", "自制战役", "scmr-8", "Starcraft Mass Recall", [
+    "SCMRmod",
+    "SCMRlocal",
+    "SCMRassets",
+    "SCMRcinematics",
+  ]);
+  return rows;
+}
+
+/** 演示模式的游戏目录模组。 */
+function demoGameMods(): GameModEntry[] {
+  return [
+    { display: "RebornData", name: "RebornData.SC2Mod", expanded: false, size_bytes: 12_345_678 },
+    { display: "SCMRmod", name: "SCMRmod.SC2Mod", expanded: false, size_bytes: 45_678_901 },
+  ];
+}
+
 /** 演示模式的地图列表 —— 照 SCMR 的样子来。 */
 function demoMaps(): MapEntry[] {
   const chapters: [string, string[]][] = [
@@ -577,6 +636,8 @@ const demo: LauncherApi = {
       guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。",
     }),
   variantDoc: () => delay(null),
+  listLibraryMods: () => delay(demoLibraryMods()),
+  listGameMods: () => delay(demoGameMods()),
   readDoc: () => delay(new ArrayBuffer(0)),
 
   appVersion: () => delay("0.1.0a3"),

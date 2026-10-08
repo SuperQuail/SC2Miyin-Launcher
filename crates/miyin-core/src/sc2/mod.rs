@@ -9,4 +9,4 @@ pub mod build_info;
 pub mod discovery;
 
 pub use build_info::BuildInfo;
-pub use discovery::{DiscoverySource, Installation, MARKER};
+pub use discovery::{DiscoverySource, GameModEntry, Installation, MARKER};

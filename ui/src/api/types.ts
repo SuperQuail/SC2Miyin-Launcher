@@ -357,6 +357,26 @@ export interface DocInfo {
   size: number;
 }
 
+/** 库里的一个模组，带着它属于哪个版本。 */
+export interface LibraryMod {
+  slot: string;
+  slot_name: string;
+  variant_id: string;
+  variant_name: string;
+  /** 挂载键：相对版本目录的路径。 */
+  path: string;
+  name: string;
+  mounted: boolean;
+}
+
+/** 游戏目录 Mods/ 里的一个模组。 */
+export interface GameModEntry {
+  display: string;
+  name: string;
+  expanded: boolean;
+  size_bytes: number;
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -462,6 +482,11 @@ export interface LauncherApi {
   variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
   /** 读出说明文档的字节，交给 PDF 渲染器。 */
   readDoc(slot: string, variantId: string): Promise<ArrayBuffer>;
+
+  /** 全库模组汇总。 */
+  listLibraryMods(): Promise<LibraryMod[]>;
+  /** 游戏目录 Mods/ 里实际放着的模组。 */
+  listGameMods(): Promise<GameModEntry[]>;
 
   /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
   onUpdateLog(handler: (line: string) => void): Promise<() => void>;

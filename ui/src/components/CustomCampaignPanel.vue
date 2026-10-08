@@ -23,6 +23,8 @@ const maps = ref<MapEntry[]>([]);
 const mods = ref<ModEntry[]>([]);
 const choice = ref<MainMapChoice | null>(null);
 const doc = ref<DocInfo | null>(null);
+/** 包自带的封面；没有就退回渐变，不硬塞一张官方美术（那会张冠李戴）。 */
+const cover = ref<string | null>(null);
 const loading = ref(true);
 const busy = ref(false);
 const keyword = ref("");
@@ -48,6 +50,13 @@ async function load(): Promise<void> {
     choice.value = picked;
     doc.value = found;
     collapsed.value = new Set();
+
+    // 封面单独取：取不到不算错误，界面会退回渐变
+    try {
+      cover.value = await api.variantCover(props.slot, props.variant.id);
+    } catch {
+      cover.value = null;
+    }
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -91,6 +100,11 @@ const groups = computed(() => {
 const mountedCount = computed(() => mods.value.filter((item) => item.mounted).length);
 const hasMods = computed(() => mods.value.length > 0);
 const mainMap = computed(() => choice.value?.path ?? null);
+
+/** 面板顶部的背景：有封面就用，没有交给 CSS 渐变。 */
+const bannerStyle = computed(() =>
+  cover.value ? { backgroundImage: "url(" + cover.value + ")" } : undefined,
+);
 
 function toggleGroup(title: string): void {
   const next = new Set(collapsed.value);
@@ -208,19 +222,29 @@ async function launchAnyway(): Promise<void> {
 
 <template>
   <section class="custom">
-    <header class="custom__head">
-      <div>
-        <h3 class="custom__title">{{ variant.name }}</h3>
-        <p class="custom__sub">
+    <!--
+      背景用**包自带的封面**。没有就退回渐变 —— 不拿官方美术顶替，
+      否则一个自制战役配着虚空之遗的图，纯属张冠李戴。
+    -->
+    <header class="banner" :style="bannerStyle">
+      <div class="banner__scrim"></div>
+      <div class="banner__body">
+        <h3 class="banner__title">{{ variant.name }}</h3>
+        <p class="banner__sub">
           地图不装进游戏目录，用编辑器打开来玩。
           <span v-if="maps.length">共 {{ maps.length }} 张地图。</span>
         </p>
       </div>
-      <div class="custom__actions">
-        <button v-if="doc" class="btn btn-text" type="button" @click="emit('open-doc', doc)">
+      <div class="banner__actions">
+        <button v-if="doc" class="btn btn-text banner__btn" type="button" @click="emit('open-doc', doc)">
           查看说明
         </button>
-        <button class="btn btn-primary" type="button" :disabled="busy || loading" @click="launch()">
+        <button
+          class="btn btn-primary banner__btn"
+          type="button"
+          :disabled="busy || loading"
+          @click="launch()"
+        >
           启动
         </button>
       </div>
@@ -367,28 +391,79 @@ async function launchAnyway(): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
 }
 
-.custom__head {
+/* 顶部横幅：包封面做背景 + 一层暗角。没有封面时走渐变兜底 */
+.banner {
+  position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
+  min-height: 132px;
+  margin: -16px -18px 4px;
+  padding: 18px;
+  overflow: hidden;
+  background-color: #1b2436;
+  /* 没封面时的兜底：主色一抹 + 深蓝渐变，看着是「设计过的」而不是黑块 */
+  background-image:
+    radial-gradient(
+      460px 240px at 84% 12%,
+      color-mix(in srgb, var(--accent) 42%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      360px 200px at 12% 96%,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(118deg, #2b3a5c 0%, #1d2740 58%, #131a2b 100%);
+  background-size: cover;
+  background-position: center 30%;
 }
 
-.custom__title {
+.banner__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 16, 28, 0.25) 0%,
+    rgba(10, 16, 28, 0.72) 100%
+  );
+}
+
+.banner__body,
+.banner__actions {
+  position: relative;
+  z-index: 1;
+}
+
+.banner__title {
   margin: 0 0 3px;
-  font-size: 16px;
+  font-size: 17px;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
 }
 
-.custom__sub {
+.banner__sub {
   margin: 0;
   font-size: 12.5px;
-  color: var(--on-surface-variant);
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
 }
 
-.custom__actions {
+.banner__actions {
   display: flex;
   gap: 8px;
+}
+
+/* 深色底上的按钮：文字按钮用白字才看得见 */
+.banner__btn.btn-text {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.banner__btn.btn-text:hover {
+  background: rgba(255, 255, 255, 0.26);
 }
 
 .custom__main,
