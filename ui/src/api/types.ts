@@ -75,6 +75,10 @@ export interface Variant {
   tags: string[];
   /** 包声明的注册 ID：补丁靠它引用战役，更新靠它认出同一个战役。 */
   registration_id: string | null;
+  /** 包内**声明为依赖**的模组键。 */
+  declared_mods: string[];
+  /** 版本自带的说明文档（PDF）；没有就是 null。 */
+  doc: string | null;
 }
 
 /** 一个官方资料片槽位。 */
@@ -313,6 +317,228 @@ export interface UpdateProgress {
   percent: number | null;
 }
 
+/** 版本里的一张地图。 */
+export interface MapEntry {
+  /** 相对版本目录的路径，用 / 分隔 —— 主地图存的就是这个形式。 */
+  path: string;
+  /** 显示名（文件名去掉扩展名）。 */
+  name: string;
+  /** 包内的第一层目录名。作者可能拿它分章节 / 幕，也可能压根不用目录。 */
+  chapter: string | null;
+  size: number;
+  is_main: boolean;
+}
+
+/** 版本里的一个模组。 */
+export interface ModEntry {
+  /** 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。 */
+  path: string;
+  name: string;
+  mounted: boolean;
+  /** 这个模组由几个文件组成。 */
+  parts: number;
+}
+
+/** 主地图的解析结果。 */
+export interface MainMapChoice {
+  path: string | null;
+  /** 是不是「只有一张地图，替你选了」。 */
+  automatic: boolean;
+  /** 声明了却找不到时的提示 —— 只警告，不阻断。 */
+  warning: string | null;
+}
+
+/** 编辑器启动的结果。 */
+export interface EditorLaunch {
+  editor: string;
+  map: string;
+  /** 用户接下来要自己做什么，界面照着念。 */
+  guidance: string;
+}
+
+/** 版本自带的说明文档。 */
+export interface DocInfo {
+  path: string;
+  name: string;
+  size: number;
+}
+
+/** 库里的一个模组，带着它属于哪个版本。 */
+export interface LibraryMod {
+  slot: string;
+  slot_name: string;
+  variant_id: string;
+  variant_name: string;
+  /** 挂载键：`Mods/` 之后的第一段。 */
+  path: string;
+  name: string;
+  mounted: boolean;
+  /** 这个模组由几个文件组成（按文件夹分，一个模组可能有很多部分）。 */
+  parts: number;
+  /** 从哪来的。 */
+  origin: "official_campaign" | "custom_campaign" | "standalone";
+  /** 是不是包内声明为依赖的模组。 */
+  required: boolean;
+  /** 单独导入的模组才有：库里的 id。 */
+  standalone_id: string | null;
+  /** 同一个模组的多个版本靠它归到一起。 */
+  modid: string | null;
+  version: string | null;
+  /** 铺进游戏目录时用的名字（原样保留的那个）。 */
+  folder: string | null;
+  /** 铺成文件还是目录。 */
+  kind: "file" | "folder" | null;
+  /** 模组记录的 id —— 有它就能改信息。 */
+  mod_record_id: string | null;
+  /** 内容在哪：`library`（独立库）或 `campaign`（某个战役版本）。 */
+  source_kind: string;
+}
+
+/** 跟着战役包来的模组的定位信息（第一次编辑时用来建记录）。 */
+export interface ModIdentity {
+  slot: string;
+  variant: string;
+  path: string;
+  folder: string;
+  name: string;
+  version: string | null;
+  kind: string;
+  parts: number;
+}
+
+/** 独立模组库里的一个模组。 */
+export interface StandaloneMod {
+  id: string;
+  name: string;
+  /** modid：判定「同一个模组的新版本」靠它。 */
+  modid: string | null;
+  /** 内容指纹（SHA-256），用来判定「完全一样」。 */
+  fingerprint: string;
+  /** 铺进游戏目录时用的名字，原样保留。 */
+  folder: string;
+  /** 铺成文件还是目录。 */
+  kind: "file" | "folder";
+  author: string | null;
+  version: string | null;
+  description: string | null;
+  enabled: boolean;
+  imported_at: number;
+  size_bytes: number;
+  parts: number;
+}
+
+/** 修改模组信息；null / 不传表示这一项不动。 */
+export interface ModChanges {
+  name?: string | null;
+  author?: string | null;
+  version?: string | null;
+  description?: string | null;
+}
+
+/** 游戏目录 Mods/ 里的一个模组。 */
+export interface GameModEntry {
+  display: string;
+  name: string;
+  expanded: boolean;
+  size_bytes: number;
+}
+
+/** 一个可选外部工具的安装状态。 */
+export interface ToolStatus {
+  id: string;
+  name: string;
+  about: string;
+  repo: string;
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  size_bytes: number;
+  /** 自动安装失败过（启动时不再重试，可手动装）。 */
+  auto_failed: boolean;
+  /** 上次自动安装失败的原因。 */
+  auto_error: string | null;
+}
+
+/** 一个工具的可安装版本。 */
+export interface ToolRelease {
+  version: string;
+  tag: string;
+  published_at: string;
+  prerelease: boolean;
+  download_url: string;
+  size: number;
+  has_asset: boolean;
+}
+
+/** 自动安装可选工具的结果。 */
+export interface ToolEnsure {
+  id: string;
+  name: string;
+  /** 现在能不能用。 */
+  ready: boolean;
+  /** 这次干了什么。 */
+  action: "already_installed" | "skipped" | "installed" | "failed";
+  error: string | null;
+  /** 界面该怎么跟用户说；没问题时是 null。 */
+  message: string | null;
+}
+
+/** 导入模组的结果。 */
+export interface ModImport {
+  record: StandaloneMod;
+  /** 这次涉及的所有模组 —— 一个包的 Mods/ 下可能有好几个。 */
+  records: StandaloneMod[];
+  /** 这次怎么处理的。 */
+  action: "added" | "new_version" | "duplicate" | "renamed";
+  existing: StandaloneMod | null;
+  /** 界面该怎么说。 */
+  message: string;
+}
+
+/** 导入模组前的预检。 */
+export interface ModPreview {
+  name: string;
+  /** 铺进游戏目录时用的名字（原样保留）。 */
+  folder: string;
+  /** 这一包里有几个模组。 */
+  mod_count: number;
+  /** 认出来的 modid。 */
+  modid: string;
+  fingerprint: string;
+  /** 库里同 modid 的已有版本。 */
+  existing: StandaloneMod[];
+  /** 库里已有一份内容完全一样的。 */
+  duplicate: boolean;
+  suggested_version: string;
+}
+
+/** 导入时怎么处理与已有模组的关系。 */
+export type ModImportMode = "auto" | "version" | "separate";
+
+/** 两个模组版本的一个文件差异。 */
+export interface ModFileDiff {
+  path: string;
+  status: "same" | "changed" | "added" | "removed";
+  size_before: number;
+  size_after: number;
+}
+
+/** 一份文件的语义 diff。 */
+export interface ModSemanticDiff {
+  path: string;
+  text: string;
+}
+
+/** 两个模组版本的对比结果。 */
+export interface ModComparison {
+  before: StandaloneMod;
+  after: StandaloneMod;
+  identical: boolean;
+  files: ModFileDiff[];
+  semantic: ModSemanticDiff[];
+  semantic_note: string | null;
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -333,7 +559,13 @@ export interface LauncherApi {
   variantCover(slot: string, variantId: string): Promise<string | null>;
 
   /** 选完文件后的第一步：预检、判断归属、查冲突。不写任何文件。 */
-  prepareImport(path: string): Promise<ImportPreview>;
+  /**
+   * 预检一个包。
+   *
+   * `entry` 是**用户从哪个入口点的导入**：`custom` 表示站在「自制战役」页 ——
+   * 那就不再判断它属于哪部原版战役，直接按自制战役来。
+   */
+  prepareImport(path: string, entry?: "campaign" | "custom"): Promise<ImportPreview>;
   /** 按指定战役导入；传了 slot 就按传的来，覆盖自动判定。 */
   importPackageWith(
     path: string,
@@ -349,6 +581,8 @@ export interface LauncherApi {
       author?: string;
       registrationId?: string;
       description?: string;
+      /** 包内声明为依赖的模组键；不传表示这一项不动。 */
+      declaredMods?: string[];
     },
   ): Promise<Variant>;
 
@@ -402,6 +636,82 @@ export interface LauncherApi {
   openUrl(url: string): Promise<void>;
   /** 订阅下载进度，返回取消订阅的函数。 */
   onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<() => void>;
+  /** 列出版本里的地图。 */
+  variantMaps(slot: string, variantId: string): Promise<MapEntry[]>;
+  /** 列出版本里的模组与挂载状态。 */
+  variantMods(slot: string, variantId: string): Promise<ModEntry[]>;
+  /** 改挂载清单。 */
+  setMountedMods(slot: string, variantId: string, mods: string[]): Promise<Variant>;
+  /** 改主地图；传 null 清空。 */
+  setMainMap(slot: string, variantId: string, map: string | null): Promise<Variant>;
+  /** 这个版本该用哪张地图作为入口。 */
+  mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
+  /** 铺模组并用编辑器打开某张地图。 */
+  openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 版本自带的说明文档；没有就是 null。 */
+  variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
+  /** 读出说明文档的字节，交给 PDF 渲染器。 */
+  readDoc(slot: string, variantId: string): Promise<ArrayBuffer>;
+
+  /** 可选工具的清单与安装状态。 */
+  listTools(): Promise<ToolStatus[]>;
+  /** 最小化窗口。 */
+  windowMinimize(): Promise<void>;
+  /** 最大化 / 还原；返回操作后是不是最大化。 */
+  windowToggleMaximize(): Promise<boolean>;
+  /** 关窗口。 */
+  windowClose(): Promise<void>;
+  /** 现在是不是最大化。 */
+  windowIsMaximized(): Promise<boolean>;
+
+  /** 启动时调：没装就静默装上；之前失败过就不再试。 */
+  ensureTool(id: string): Promise<ToolEnsure>;
+  /** 某个工具有哪些版本可装。 */
+  toolReleases(id: string): Promise<ToolRelease[]>;
+  /** 装一个工具；version 传 null 表示装最新的。 */
+  installTool(id: string, version: string | null): Promise<ToolStatus>;
+  /** 卸载一个工具。 */
+  uninstallTool(id: string): Promise<void>;
+  /** 在浏览器里打开工具的仓库。 */
+  openToolRepo(id: string): Promise<void>;
+
+  /** 全库模组汇总。 */
+  listLibraryMods(): Promise<LibraryMod[]>;
+  /** 游戏目录 Mods/ 里实际放着的模组。 */
+  listGameMods(): Promise<GameModEntry[]>;
+  /** 独立模组库。 */
+  listStandaloneMods(): Promise<StandaloneMod[]>;
+  /** 选一个模组包：file（压缩包 / .SC2Mod）或 folder。 */
+  pickModSource(kind: "file" | "folder"): Promise<string | null>;
+  /** 导入前的预检：这个包是谁、库里有没有同族的。 */
+  previewMod(path: string): Promise<ModPreview>;
+  /** 导入模组包。 */
+  importMod(path: string, mode?: ModImportMode): Promise<ModImport>;
+  /** 改模组信息。 */
+  updateMod(id: string, changes: ModChanges): Promise<StandaloneMod>;
+  /**
+   * 改一个模组的元数据。
+   *
+   * 独立模组和战役包带来的模组走同一条路 —— 改的都是记录，不动包里的原始文件。
+   * 战役模组第一次编辑时会先建一条记录。
+   */
+  editMod(
+    recordId: string | null,
+    identity: ModIdentity | null,
+    changes: ModChanges,
+  ): Promise<StandaloneMod>;
+
+  /** 删掉模组。 */
+  removeMod(id: string): Promise<void>;
+  /** 比两个模组版本差在哪。 */
+  compareMods(before: string, after: string): Promise<ModComparison>;
+  /** 把选中的若干模组版本打包成一个 zip，返回结果说明。 */
+  exportMods(ids: string[]): Promise<string>;
+  /** 导出模组包，返回写到哪了。 */
+  exportMod(id: string): Promise<string>;
+  /** 启用 / 停用独立模组（启用会立刻铺进游戏目录）。 */
+  setModEnabled(id: string, enabled: boolean): Promise<StandaloneMod>;
+
   /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
   onUpdateLog(handler: (line: string) => void): Promise<() => void>;
 }

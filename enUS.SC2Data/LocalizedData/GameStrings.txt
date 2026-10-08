@@ -1,0 +1,190 @@
+﻿Button/Tooltip/Interceptor=<c val="#ColorAttackInfo">Combat drones that automatically strafe their Carrier's target. Carriers may not attack without Interceptors. Can attack ground and air units.</c><n/><n/>The maneuverable, computer-guided Interceptors tear through enemy flight formations and relentlessly strafe slower targets with potent plasma-charges. Manufactured and serviced inside of the Carrier bays, a number of prepped Interceptors can be launched in rapid succession.
+DOCSTR_Models=Models
+DocInfo/DescLong=Starcraft & Brood War campaign remake
+DocInfo/DescShort=1
+DocInfo/Name=Starcraft: Mass Recall
+LoadingScreen/Tip= 
+LoadingScreen/TipRestart= 
+MapInfo/Player01/Name=Player
+MapInfo/Player02/Name=Hostile
+Param/Expression/004B13DD=~A~ ~B~
+Param/Expression/075C0552=~A~ ~B~
+Param/Expression/0F58BAFA=~A~ ~B~
+Param/Expression/0F5D3C7E=~A~ ~B~
+Param/Expression/155D0B9F=~A~ ~B~
+Param/Expression/156C017D=~A~ ~B~
+Param/Expression/17C86B87=~A~ ~B~
+Param/Expression/25F6A157=~A~ ~B~
+Param/Expression/32686984=~A~ ~B~
+Param/Expression/3BB71380=~A~ ~B~
+Param/Expression/3D0A24F0=~A~ ~B~
+Param/Expression/3D9BF553=~A~ ~B~
+Param/Expression/3F60FCD7=~A~ %
+Param/Expression/442DE77C=~A~ ~B~
+Param/Expression/45D8FB25=~A~ ~B~
+Param/Expression/45E0F7D8=~A~ ~B~
+Param/Expression/466B97AA=~A~ %
+Param/Expression/4CDAA8E9=~A~ ~B~
+Param/Expression/4D143166=~A~ ~B~
+Param/Expression/50FDB649=~A~%
+Param/Expression/59E857D0=~A~ ~B~
+Param/Expression/5B8BA473=~A~ ~B~
+Param/Expression/5BA38141=~A~ ~B~
+Param/Expression/5C6C0DEF=~A~ ~B~
+Param/Expression/623DEBD7=~A~ %
+Param/Expression/625B61D7=~A~ ~B~
+Param/Expression/63CC6F4E=~A~ ~B~
+Param/Expression/6467891F=~A~ ~B~
+Param/Expression/696EC584=~A~ ~B~
+Param/Expression/6C91ECBF=~A~%
+Param/Expression/72CDE6AE=~A~ ~B~
+Param/Expression/7A254CCC=~A~ ~B~
+Param/Expression/7E21C0A2=~A~ ~B~
+Param/Expression/7ED3A4F5=<s val="SCR_Version">Version: ~A~</s>
+Param/Expression/80234FA5=~A~ ~B~
+Param/Expression/82A5BD2C=~A~ ~B~
+Param/Expression/8497ACA6=~A~ ~B~
+Param/Expression/875B9645=~A~ ~B~
+Param/Expression/8B30A739=~A~%
+Param/Expression/8BA35AA2=~A~ ~B~
+Param/Expression/98AFA3B1=~A~ ~B~
+Param/Expression/9A4906AE=~A~ ~B~
+Param/Expression/9B9A63A7=~A~ ~B~
+Param/Expression/9D283E00=~A~ ~B~
+Param/Expression/A46654DE=~A~%
+Param/Expression/A581CD91=~A~%
+Param/Expression/A67D8018=~A~ %
+Param/Expression/AC74CFE3=~A~ %
+Param/Expression/AD9F12FF=~A~ ~B~
+Param/Expression/B0106881=~A~ ~B~
+Param/Expression/B0B6FF5D=~A~ ~B~
+Param/Expression/B798E2FC=~A~ ~B~
+Param/Expression/BC04EBBD=~A~ ~B~
+Param/Expression/CA11AADC=~A~%
+Param/Expression/D0B0047F=~A~ ~B~
+Param/Expression/D1837928=~A~ ~B~
+Param/Expression/D8CD3776=~A~ %
+Param/Expression/DD4B0FEC=~A~ %
+Param/Expression/DE783A29=~A~ %
+Param/Expression/E1EB0E2F=~A~ ~B~
+Param/Expression/E305B09E=~A~ ~B~
+Param/Expression/E3D01F26=~A~%
+Param/Expression/E613A953=~A~ ~B~
+Param/Expression/E8357EFD=~A~ %
+Param/Expression/EB0375E2=~A~%
+Param/Expression/EC12D546=~A~ ~B~
+Param/Expression/EDF44EA6=~A~%
+Param/Expression/EF6D61B1=~A~ ~B~
+Param/Expression/F32D3345=~A~ ~B~
+Param/Expression/F41A42E6=~A~ ~B~
+Param/Expression/F45E2C89=~A~ ~B~
+Param/Expression/F60EACF4=~A~ %
+Param/Expression/F8E4E9C0=~A~ ~B~
+Param/Expression/F964CF66=~A~%
+Param/Expression/FA66D973=~A~%
+Param/Expression/FD35A17E=~A~ ~B~
+Param/Expression/FE658355=~A~ ~B~
+Param/Expression/FFF93E58=~A~ %
+Param/Value/0116981B=<n/>
+Param/Value/02AF2810=
+Param/Value/04E3BAD8=8.0
+Param/Value/07ADFD77=<n/>
+Param/Value/084C21D4=<n/>
+Param/Value/0ABA51BE=
+Param/Value/0BC8CCB8=<n/>
+Param/Value/0DE42C52=<s val="AA_CodexDescription">
+Param/Value/11A5CF02=<n/><n/>
+Param/Value/13448D20=<n/>
+Param/Value/1A5CA41F=<s val="AA_CodexDescription">
+Param/Value/1A89FAC3=<s val="StandardMediumButtonGreen">CLOSE</s>
+Param/Value/1C278962=
+Param/Value/1D0DB686=last played:  
+Param/Value/1DB5CDD7=
+Param/Value/1E04A9A0=Other Buildings
+Param/Value/22FB5B3C=<n/>
+Param/Value/23BC8F7F=
+Param/Value/280948AD= %<n/>
+Param/Value/28C29AB7=
+Param/Value/2D2D230E=Set all options closest to the original game.
+Param/Value/313B0CEA=
+Param/Value/35C8CCE4=<n/>
+Param/Value/35DDAB8C=[Game Speed]
+Param/Value/36A47F5F=<s val="SCR_OptionsLabelLeft">Default/SC2</s>
+Param/Value/3765266D=All BW
+Param/Value/401E0818=
+Param/Value/445F2084=[Weather]
+Param/Value/45B8B37C=Completed %<n/>Total Mission Time<n/>Average Mission Time<n/><n/>Units Produced<n/>Units Killed<n/>Units Lost<n/>Kill / Death Ratio<n/>Kills Per Unit<n/>Survival Rate<n/><n/>Resources Gathered<n/>Resources Gathered Per Minute<n/>Resources Spent<n/>Resources Spent Per Kill
+Param/Value/4623409C=
+Param/Value/46BD499C=
+Param/Value/52256BCA=SCV
+Param/Value/52ED6F4F=</c>
+Param/Value/536F6140=
+Param/Value/5502DB1F=<n/>
+Param/Value/58F436E3=<n/>
+Param/Value/5CE54D5A=
+Param/Value/5D4B757E=<n/>
+Param/Value/62AF3660= %<n/>
+Param/Value/6361C417=
+Param/Value/652DB6BE=1. Rebel Yell
+Param/Value/687CD9EF=<n/>
+Param/Value/69A8FD8F=Terran Units
+Param/Value/69FBFEB4=
+Param/Value/6D6153D1=Cerebrate (Alerts)
+Param/Value/6FEF92D4= %<n/>
+Param/Value/710AE604=
+Param/Value/71813BB6=
+Param/Value/76B56467=
+Param/Value/7B0C0963=
+Param/Value/7B41111F=<s val="AA_CampaignList">Episode VI<n/>Queen of Blades</s>
+Param/Value/7BBF5B17=<n/>
+Param/Value/7CF1D89D=
+Param/Value/7D32C10B=
+Param/Value/7E1E0E5C=
+Param/Value/844A631C=Other Buildings
+Param/Value/84E80301=<n/>
+Param/Value/87321AEB=
+Param/Value/8B6D1267=
+Param/Value/8B74C361=MODEL SETUP
+Param/Value/8BE62AA6=
+Param/Value/924866D3=
+Param/Value/92DD82D3=<s val="SCR_CampMenu">SELECT CAMPAIGN</s>
+Param/Value/979A755C=
+Param/Value/99C2464A=<n/>
+Param/Value/A040B462=
+Param/Value/A17040A6=Adjutant (Alerts)
+Param/Value/A5B40AED=</c>
+Param/Value/A9AA3F71=<s val="SCR_OptionsLabelLeft">Slower</s>
+Param/Value/AAB0B9CF=
+Param/Value/AF816F68=
+Param/Value/B1913C08=MR Totals
+Param/Value/B21F3B43=
+Param/Value/B269D06C=<s val="InfoPaneUnitNameCondensed"><c val="FFFFFF">Continue Campaign</c></s>
+Param/Value/B6D6EABD=<n/>
+Param/Value/B792F91F=<s val="AA_CodexDescription">
+Param/Value/B9FA3D71=
+Param/Value/BC22B980=<n/>
+Param/Value/BF965EF3=
+Param/Value/C0390709=
+Param/Value/C0F5CD25=
+Param/Value/C504D0A5=<n/><n/>
+Param/Value/C6FEEF27=Other Buildings
+Param/Value/C7C313A1=<s val="AA_CodexDescription">
+Param/Value/C84730E3=<s val="AA_CodexDescription">
+Param/Value/CBE23374=Judicator (Alerts)
+Param/Value/CC94ECD8=<n/>
+Param/Value/D784B14F=<s val="SCR_OptionsLabelLeft">Unique Faction</s>
+Param/Value/DAD06E13=<s val="AA_CodexDescription">
+Param/Value/DEE345C6=Rebel Yell
+Param/Value/E05433FE= %<n/>
+Param/Value/E43C1000=<s val="SCR_OptionsLabelLeft">Console Bar Skin:</s>
+Param/Value/E88F0115=<s val="AA_Header1"><c val="80FF80">Episode I</c></s>
+Param/Value/EBDE2FBD=<n/>
+Param/Value/EE789378=<n/>
+Param/Value/EE9AB84C=<n/>
+Param/Value/EFF84CB8=
+Param/Value/F351D4FB=
+Param/Value/F45B62B5=<n/>
+Param/Value/F664FE3C=<s val="SCR_OptionsLabelLeft">Classic/Starcraft:Remastered</s>
+Param/Value/F81FB71B=<n/>
+Param/Value/FB3DA134=<n/>
+Param/Value/FDF2E496=<n/>

@@ -128,6 +128,28 @@ pub struct PackageInspection {
     pub priority: Option<i64>,
     /// 载荷清单：地图与模组，以及各自的落点。
     pub payloads: Vec<Payload>,
+    /// 包内声明的**主地图**（自制战役的游玩入口），相对包根的路径。
+    ///
+    /// 只作参考：导入时会校验它是否真的存在，找不到只记一条警告，
+    /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
+    #[serde(default)]
+    pub main_map: Option<String>,
+    /// 包内声明的 **modid**：这个模组的身份。
+    ///
+    /// 判定「同一个模组的不同版本，还是另一个模组」全看它。
+    #[serde(default)]
+    pub modid: Option<String>,
+    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
+    ///
+    /// 空表示作者没声明 —— **不代表包不带模组**，界面上按「可选」处理。
+    #[serde(default)]
+    pub declared_mods: Vec<String>,
+    /// 包内声明的**说明文档（PDF）**，相对包根的路径。
+    ///
+    /// 导入时会连整个包一起解开，所以这份文档就在版本目录里，
+    /// 存下相对路径即可，之后直接读出来给界面渲染。
+    #[serde(default)]
+    pub doc: Option<String>,
     /// 归属判定的结论与依据；元数据已声明时是 `None`。
     pub identification: Option<Identification>,
     /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
@@ -176,6 +198,10 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         campaign_type: CampaignType::Other(String::new()),
         cover: None,
         tags: Vec::new(),
+        main_map: None,
+        doc: None,
+        declared_mods: Vec::new(),
+        modid: None,
         kind: PackageKind::Campaign,
         id: None,
         requires: Vec::new(),
@@ -272,11 +298,37 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
     })
 }
 
+/// 按**载荷**统计地图与模组数量。
+///
+/// 不能按文件扩展名数：真实样本里的地图是**解开的目录树**
+/// （`tarcade.SC2Map/Base.SC2Data/…`），里面的文件是 `.xml` / `.galaxy`，
+/// 按扩展名数会得到「0 张地图」。载荷是按「第一个 .SC2Map/.SC2Mod 组件」认出来的，
+/// 单文件和目录树都算一个。
+///
+/// 模组还要**按文件夹去重**：`Mods/Alenger/` 下面是 15 个 `.SC2Mod`，
+/// 那是**一个**模组，不是 15 个。
+pub fn count_payloads(payloads: &[Payload]) -> (usize, usize) {
+    let maps = payloads.iter().filter(|payload| !payload.is_mod).count();
+
+    let mut keys: Vec<String> = Vec::new();
+    for payload in payloads.iter().filter(|payload| payload.is_mod) {
+        if let Some(found) = crate::library::mod_identity(payload)
+            && !keys.contains(&found.key)
+        {
+            keys.push(found.key);
+        }
+    }
+
+    (maps, keys.len())
+}
+
 /// 从条目清单里找出所有载荷，并算出各自的落点。
 ///
 /// 取"根"的办法：一条路径里**第一个**以 `.SC2Map` / `.SC2Mod` 结尾的组件就是载荷根，
 /// 这样无论它是单文件还是解开的目录树都能正确识别。
 fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
+    // 这个包是不是按游戏根目录摆的（根上有 Mods/）—— 决定地图要不要保留目录结构
+    let mirrors = mirrors_game_root(entries);
     let mut roots: Vec<(String, bool)> = Vec::new();
 
     for entry in entries {
@@ -303,7 +355,7 @@ fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
                 strip_prefix(&entry.relative, content_root)
                     .is_some_and(|relative| is_under(&relative, &source))
             });
-            let target = payload_target(&source, is_mod, content_root);
+            let target = payload_target(&source, is_mod, content_root, mirrors);
             Payload {
                 source,
                 target,
@@ -355,23 +407,93 @@ fn is_under(candidate: &Path, root: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 这个包是不是**按游戏根目录摆的**。
+///
+/// 判据：包根直接有个 `Mods/`（不是包名目录下面的）。
+///
+/// 真实样本教我们的 —— 复刻战役 SCMR 长这样：
+///
+/// `@text
+/// Mods/SCMRassets.SC2Mod          <- 已经在游戏根的位置上了
+/// Mods/SCMRmod.SC2Mod
+/// Starcraft Mass Recall/          <- 那这个兄弟目录就是 Maps/ 底下的
+/// ├── 1. Rebel Yell/Terran01.SC2Map
+/// └── SCMR Campaign Launcher.SC2Map
+/// `@
+///
+/// 它的启动器地图里写的是 `GameSetNextMap("Starcraft Mass Recall/1. Rebel Yell/Terran01")`
+/// —— 这个路径**相对 Maps/**。所以装完必须长成
+/// `Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map`。
+///
+/// 踩过：这些地图被当成「作者的分类目录」拍平成 `Maps/Campaign/Terran01.SC2Map`，
+/// 层级一没，启动器地图就联动不了任何关卡 —— 用户看到的就是
+/// 「能打开启动器，但点哪一关都进不去」。
+///
+/// `Mods/` 是作者给出来的**信号**，不是我们在猜。
+fn mirrors_game_root(entries: &[Entry]) -> bool {
+    entries.iter().any(|entry| {
+        let path = entry.relative.to_string_lossy().replace('\\', "/");
+        path.len() > 4 && path.starts_with("Mods/")
+    })
+}
+
+/// 路径里第一段 `Maps` / `Mods`，从那里往后就是游戏目录内的相对路径。
+///
+/// **为什么不能只看开头**：包常常多一层「包名」目录 ——
+/// 真实样本是 `疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod`。
+/// 只判断 `starts_with("Mods/")` 的话这一层就把整个前缀吃掉了，
+/// 掉到下面按 `is_mod` 取「最后一段当名字」，
+/// 结果 `Mods/Alenger/1钢铁.SC2Mod` 变成 `Mods/1钢铁.SC2Mod` ——
+/// **`Alenger/` 这一层没了**，地图里声明的 `Mods\Alenger\…` 自然找不到。
+///
+/// 只认**规范拼写**：游戏目录就叫 `Maps` / `Mods`，而包作者拿小写 `maps/`
+/// 当普通分类目录用的情况很常见，一律按镜像处理会把它们误送到游戏根下。
+fn game_relative(source: &str) -> Option<String> {
+    let normalised = source.replace('\\', "/");
+    let parts: Vec<&str> = normalised.split('/').collect();
+
+    for (index, part) in parts.iter().enumerate() {
+        if *part == "Maps" || *part == "Mods" {
+            return Some(parts[index..].join("/"));
+        }
+    }
+
+    None
+}
+
 /// 决定载荷落到游戏目录的哪里。
-fn payload_target(source: &str, is_mod: bool, content_root: &str) -> PayloadTarget {
-    // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）。
+///
+/// 对 crate 内可见是为了能直接测：包名那层怎么剥，只有在这里才说得清。
+pub(crate) fn payload_target(
+    source: &str,
+    is_mod: bool,
+    content_root: &str,
+    mirrors_game_root: bool,
+) -> PayloadTarget {
+    // 包内已经摆好了游戏目录那一层（`Maps/…` 或 `Mods/…`）-> 按原路径落盘
+    if let Some(relative) = game_relative(source) {
+        return PayloadTarget::Mirror { path: relative };
+    }
+
+    // 包是**按游戏根目录摆的**（根上有 `Mods/`）：那其余顶层目录就是 `Maps/`
+    // 底下的，**结构和名字都要原样保留**。
     //
-    // 只认**规范拼写** `Maps/` / `Mods/`：游戏目录就叫这两个名字，
-    // 而包作者拿小写 `maps/` 当普通内容目录用的情况很常见，
-    // 一律按镜像处理会把它们误送到游戏根下。
-    if source.starts_with("Maps/") || source.starts_with("Mods/") {
+    // 判据来自作者自己：他既然把 `Mods/` 摆在根上，兄弟目录就是 `Maps/` 的内容。
+    // 这里**不能**拍平 —— 复刻战役的启动器地图按 `Starcraft Mass Recall/…`
+    // 这个相对 Maps/ 的路径联动下一关，拍平了它就找不到任何关卡。
+    if mirrors_game_root {
+        let path = source.replace('\\', "/");
         return PayloadTarget::Mirror {
-            path: source.replace('\\', "/"),
+            path: format!("Maps/{path}"),
         };
     }
 
     let path = source.replace('\\', "/");
 
     if is_mod {
-        // 模组一律落到 Mods/ 下，取最后一段当名字
+        // 走到这里说明路径里**没有** `Mods/` 这一段（比如包根光秃秃一个
+        // `X.SC2Mod`），那就当单文件模组，落到 `Mods/` 下。
+        // 有 `Mods/` 的情况上面已经按原路径处理掉了。
         let name = path.rsplit('/').next().unwrap_or(&path).to_string();
         return PayloadTarget::Mod { name };
     }
@@ -577,6 +699,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut version = None;
     let mut description = None;
     let mut campaign_raw = String::new();
+    let mut declared_main_map: Option<String> = None;
+    let mut declared_doc: Option<String> = None;
+    let mut declared_mods_raw: Vec<String> = Vec::new();
+    let mut declared_mod: Option<String> = None;
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
@@ -593,6 +719,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             match StandardMetadata::parse(&decode_text(&text)) {
                 Ok(meta) => {
                     // 先借走扩展信息，后面几个字段会被移出
+                    declared_main_map = meta.main_map_path();
+                    declared_doc = meta.doc_path();
+                    declared_mods_raw = meta.mods();
+                    declared_mod = meta.modid().map(str::to_string);
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
@@ -651,6 +781,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             version = clean(meta.version);
             description = clean(meta.description);
             campaign_raw = clean(meta.campaign).unwrap_or_default();
+            declared_main_map = clean(meta.main_map.clone());
+            declared_doc = clean(meta.doc.clone());
+            declared_mods_raw = meta.mods.clone();
+            declared_mod = clean(meta.modid.clone());
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
             declared_id = clean(meta.id.clone());
@@ -763,8 +897,8 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         }
     }
 
-    let map_count = payloads.iter().filter(|payload| !payload.is_mod).count();
-    let mod_count = payloads.iter().filter(|payload| payload.is_mod).count();
+    // 按**载荷**数（单文件和目录树都算一个），模组再按文件夹去重
+    let (map_count, mod_count) = count_payloads(&payloads);
 
     // 空包直接判为不可安装，而不是"可安装但没有内容" ——
     // 现实里这多半意味着包是坏的或下载不完整
@@ -779,6 +913,41 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     if format == CampaignFormat::Plain && author.is_none() {
         author = Some(UNKNOWN_AUTHOR.to_string());
     }
+
+    // 主地图：CCM 写 `mainmap=`，我们的 JSON 写 `main_map`
+    let main_map_claim = declared_main_map
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.replace('\\', "/"));
+
+    // 依赖模组：归一化成键（作者写不写 `Mods/` 前缀都认），
+    // 再核对包里是不是真有 —— 声明了却没有，几乎总是写错了名字
+    let declared_mods: Vec<String> = {
+        let mut keys: Vec<String> = declared_mods_raw
+            .iter()
+            .map(|raw| crate::library::normalize_mod_key(raw))
+            .filter(|key| !key.is_empty())
+            .collect();
+        keys.dedup();
+
+        for key in &keys {
+            let present = payloads.iter().any(|payload| {
+                crate::library::mod_identity(payload).is_some_and(|found| &found.key == key)
+            });
+            if !present {
+                issues.push(
+                    HealthIssue::warning(
+                        "MOD_MISSING",
+                        format!("元数据声明依赖模组「{key}」，但包里没有它"),
+                    )
+                    .with_hint("请确认模组打在包里，或者改掉元数据里的 mods"),
+                );
+            }
+        }
+
+        keys
+    };
 
     if declared_kind == PackageKind::Patch && declared_requires.is_empty() {
         issues.push(
@@ -841,6 +1010,10 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         requires: declared_requires,
         priority: declared_priority,
         payloads,
+        main_map: main_map_claim,
+        doc: declared_doc,
+        declared_mods,
+        modid: declared_mod,
         identification,
         suggested_slot,
         content_root,
@@ -869,6 +1042,36 @@ pub struct ExtractStats {
 pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Result<ExtractStats> {
     let mut archive = contents::Contents::open(package)?;
     let mut stats = ExtractStats::default();
+
+    // **外部格式一次解完**，别一个条目起一个进程。
+    //
+    // 逐条 `copy_to` 对 zip 是对的（流式，不用先整包落一遍盘），
+    // 但对 rar/7z 就是 164 个条目 = 164 次 tar —— 比整体解一次还慢。
+    //
+    // `strip` 用内容根有几段目录来算：包常常多套一层「包名」目录，
+    // 那一层不该出现在库目录里。
+    let strip = content_root
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .count();
+
+    if archive.unpack_all(destination, strip)? {
+        // 文件已经在盘上了，统计按条目清单算
+        for entry in archive.entries() {
+            if entry.is_dir {
+                continue;
+            }
+            stats.files += 1;
+            stats.bytes += entry.size;
+            match extension_of(Path::new(&entry.name)).as_str() {
+                "sc2map" => stats.maps += 1,
+                "sc2mod" => stats.mods += 1,
+                _ => {}
+            }
+        }
+        return Ok(stats);
+    }
 
     let listing: Vec<(String, bool)> = archive
         .entries()
@@ -1262,8 +1465,14 @@ mod payload_tests {
             "战役目录之内的相对结构要原样保留"
         );
         assert_eq!(
-            crate::library::compose::payload_target_path(&evolution.target, Some("swarm")),
-            "Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map"
+            crate::library::compose::payload_target_path(
+                &evolution.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("swarm".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map")
         );
     }
 
@@ -1283,8 +1492,14 @@ mod payload_tests {
             .find(|p| p.source == "paiur01.SC2Map")
             .expect("主线地图");
         assert_eq!(
-            crate::library::compose::payload_target_path(&main.target, Some("void")),
-            "Maps/Campaign/void/paiur01.SC2Map"
+            crate::library::compose::payload_target_path(
+                &main.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/paiur01.SC2Map")
         );
 
         let prologue = payloads
@@ -1292,8 +1507,14 @@ mod payload_tests {
             .find(|p| p.source.contains("voidprologue"))
             .expect("序章地图");
         assert_eq!(
-            crate::library::compose::payload_target_path(&prologue.target, Some("void")),
-            "Maps/Campaign/voidprologue/voidprologue01.SC2Map",
+            crate::library::compose::payload_target_path(
+                &prologue.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/voidprologue/voidprologue01.SC2Map"),
             "官方目录名要当绝对路径用，而不是塞进 void/ 下面"
         );
     }
@@ -1307,8 +1528,14 @@ mod payload_tests {
         assert_eq!(payloads.len(), 1);
         assert_eq!(payloads[0].target_name(), "01.SC2Map");
         assert_eq!(
-            crate::library::compose::payload_target_path(&payloads[0].target, Some("void")),
-            "Maps/Campaign/void/01.SC2Map"
+            crate::library::compose::payload_target_path(
+                &payloads[0].target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/01.SC2Map")
         );
     }
 }

@@ -46,6 +46,14 @@ pub enum Error {
     /// 底层 IO 错误。
     #[error("IO 错误：{0}")]
     Io(#[from] std::io::Error),
+
+    /// JSON 序列化 / 反序列化失败（索引、配置这些自家文件）。
+    #[error("JSON 处理失败：{0}")]
+    Json(#[from] serde_json::Error),
+
+    /// 压缩包读写失败。
+    #[error("压缩包处理失败：{0}")]
+    Zip(#[from] zip::result::ZipError),
 }
 
 /// 核心库统一的结果类型。

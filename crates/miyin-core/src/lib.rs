@@ -12,8 +12,10 @@
 pub mod campaign;
 pub mod error;
 pub mod library;
+pub mod platform;
 pub mod safety;
 pub mod sc2;
+pub mod tools;
 pub mod update;
 
 pub use error::{Error, Result};

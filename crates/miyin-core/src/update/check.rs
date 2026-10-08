@@ -166,6 +166,48 @@ fn failed(current: &str, via: Option<String>, reason: String) -> UpdateCheck {
     }
 }
 
+/// 拉**任意仓库**的发行列表 —— 给可选工具用（比如 SC2Diff）。
+///
+/// 与 `check()` 一样的两条底线：网络失败不算错误（返回 `Err(说明)` 让界面显示
+/// "检查失败"）；代理被限流时自动改直连重试一次。
+pub fn releases_for(
+    repo: &str,
+    settings: &NetworkSettings,
+    reporter: Reporter<'_>,
+) -> std::result::Result<Vec<ReleaseInfo>, String> {
+    let api = format!("https://api.github.com/repos/{repo}/releases?per_page=30");
+    let proxy = net::detect_proxy(settings);
+
+    let read =
+        |proxy: &Option<net::DetectedProxy>| -> std::result::Result<String, net::HttpFailure> {
+            let client = net::build_client(proxy.as_ref(), &user_agent()).map_err(|error| {
+                net::HttpFailure {
+                    message: error.to_string(),
+                    rate_limited: false,
+                }
+            })?;
+            net::get_text(&client, &api)
+        };
+
+    let body = match read(&proxy) {
+        Ok(body) => body,
+        Err(failure) if failure.rate_limited && proxy.is_some() => {
+            reporter.say("代理被限流，改用直连重试…");
+            read(&None).map_err(|error| error.message)?
+        }
+        Err(failure) => return Err(failure.message),
+    };
+
+    let parsed: Vec<GhRelease> =
+        serde_json::from_str(&body).map_err(|error| format!("发行列表解析失败：{error}"))?;
+
+    Ok(parsed
+        .into_iter()
+        .filter(|release| !release.draft)
+        .map(to_release)
+        .collect())
+}
+
 /// 拉一次发行列表。
 fn fetch(
     proxy: &Option<net::DetectedProxy>,

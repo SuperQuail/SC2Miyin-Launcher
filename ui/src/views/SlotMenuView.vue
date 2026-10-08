@@ -3,14 +3,102 @@ import { computed, onMounted, ref } from "vue";
 
 import { api } from "../api/bridge";
 import { slotArt } from "../api/art";
-import type { BoundPatch, SlotView, Variant } from "../api/types";
+import type { ModEntry, DocInfo, BoundPatch, SlotView, Variant } from "../api/types";
 import { errorText, useLauncher } from "../composables/useLauncher";
 import VariantCard from "../components/VariantCard.vue";
+import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
+import DocViewer from "../components/DocViewer.vue";
+import { useContextMenu } from "../composables/useContextMenu";
 
 const props = defineProps<{ slot: SlotView }>();
 const emit = defineEmits<{ back: [] }>();
 
-const { activate, removeVariant, launch, busy, refresh, notify } = useLauncher();
+/**
+ * 版本卡片上的右键菜单。
+ *
+ * 动作和页面底部的操作条一致，只是多给了个更顺手的入口 ——
+ * 卡片上直接右键，不用先选中再去找按钮。
+ */
+function showVariantMenu(event: MouseEvent, variant: Variant | null): void {
+  const entries = variant
+    ? [
+        { id: "pick", label: "选中这个版本" },
+        { id: "activate", label: "启用这个版本" },
+        { id: "play", label: "启用并开始游戏" },
+        { id: "edit", label: "编辑信息…", separatorBefore: true },
+        { id: "export", label: "导出这个包…" },
+        {
+          id: "copy",
+          label: "复制版本目录路径",
+          separatorBefore: true,
+        },
+        { id: "drop", label: "删除这个版本", danger: true },
+      ]
+    : [
+        { id: "pick", label: "选中「原版战役」" },
+        { id: "activate", label: "切回原版战役" },
+        { id: "play", label: "开始游戏" },
+      ];
+
+  menu.show(event, entries, (id) => {
+    if (id === "pick") {
+      pickVariant(variant?.id ?? "__vanilla__");
+      return;
+    }
+    if (id === "activate") {
+      void guard(() => activate(props.slot.slug, variant?.id ?? null));
+      return;
+    }
+    if (id === "play") {
+      void applyAndPlay();
+      return;
+    }
+    if (!variant) return;
+    if (id === "edit") openEdit(variant);
+    if (id === "export") void doExport(false);
+    if (id === "drop") void drop(variant);
+    if (id === "copy") void copyVariantPath(variant);
+  });
+}
+
+/** 把版本目录路径塞进剪贴板，方便用户自己去翻地图 / 动手改。 */
+async function copyVariantPath(variant: Variant): Promise<void> {
+  const path = libraryRoot.value + "\\campaigns\\" + props.slot.slug + "\\" + variant.id;
+  try {
+    await navigator.clipboard.writeText(path);
+    notify("success", "已复制：" + path);
+  } catch {
+    notify("info", path);
+  }
+}
+
+/** 选中一个版本；自制战役顺便把地图面板切过去。 */
+function pickVariant(id: string): void {
+  // 原版战役没有 id，用哨兵值表示
+  const isVanilla = id === "__vanilla__";
+  selected.value = isVanilla ? null : id;
+  inspecting.value = isCustom.value && !isVanilla ? id : null;
+}
+
+/**
+ * 自制战役走另一套交互：**不装进游戏目录**，地图躺在库里用编辑器打开。
+ * 所以它的菜单页多一块「地图与模组」面板，「开始游戏」按钮也没意义。
+ */
+const isCustom = computed(() => props.slot.slug === "custom");
+
+/** 自制战役：正在看哪个版本的地图与模组。 */
+const inspecting = ref<string | null>(null);
+const inspectedVariant = computed(
+  () => props.slot.variants.find((item) => item.id === inspecting.value) ?? null,
+);
+
+/** 正在读的说明文档。 */
+const openedDoc = ref<DocInfo | null>(null);
+/** 等待确认删除的那个版本 —— 删战役不可逆，先问一句。 */
+const confirming = ref<Variant | null>(null);
+
+const { activate, removeVariant, launch, busy, refresh, notify, libraryRoot } = useLauncher();
+const menu = useContextMenu();
 
 /** 当前选中的版本；null 表示原版战役。 */
 const selected = ref<string | null>(props.slot.active);
@@ -34,8 +122,21 @@ async function applyAndPlay(): Promise<void> {
   if (ok) await launch();
 }
 
-/** 删除一个已导入的版本。 */
-async function drop(variant: Variant): Promise<void> {
+/**
+ * 删一个已导入的版本。
+ *
+ * **先弹确认** —— 这是整部战役，删了就得重新导入，不该一次点击就没了。
+ */
+function drop(variant: Variant): void {
+  confirming.value = variant;
+}
+
+/** 用户在确认框里点了「删除」。 */
+async function confirmDrop(): Promise<void> {
+  const variant = confirming.value;
+  if (!variant) return;
+  confirming.value = null;
+
   const ok = await removeVariant(props.slot.slug, variant.id);
   if (ok && selected.value === variant.id) selected.value = null;
 }
@@ -175,6 +276,14 @@ async function exportPatchItem(item: BoundPatch): Promise<void> {
 
 const editing = ref<Variant | null>(null);
 const form = ref({ name: "", author: "", registrationId: "", description: "" });
+/**
+ * 这个版本带的模组 —— 作者可以勾出**哪些是地图依赖的**。
+ *
+ * 勾上的会记进 `declared_mods`，导出时一并带上；
+ * 模组管理页也会给它们打「依赖」标。
+ */
+const editMods = ref<ModEntry[]>([]);
+const editRequired = ref<Set<string>>(new Set());
 
 function openEdit(variant: Variant): void {
   editing.value = variant;
@@ -184,6 +293,24 @@ function openEdit(variant: Variant): void {
     registrationId: variant.registration_id ?? "",
     description: variant.description ?? "",
   };
+
+  editMods.value = [];
+  editRequired.value = new Set(variant.declared_mods ?? []);
+  void (async () => {
+    try {
+      editMods.value = await api.variantMods(props.slot.slug, variant.id);
+    } catch {
+      editMods.value = [];
+    }
+  })();
+}
+
+/** 勾 / 取消一个依赖模组。 */
+function toggleRequired(path: string): void {
+  const next = new Set(editRequired.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  editRequired.value = next;
 }
 
 async function saveEdit(): Promise<void> {
@@ -196,6 +323,7 @@ async function saveEdit(): Promise<void> {
       author: form.value.author,
       registrationId: form.value.registrationId,
       description: form.value.description,
+      declaredMods: [...editRequired.value],
     });
     editing.value = null;
     await refresh();
@@ -253,10 +381,17 @@ async function doExport(mergePatches: boolean): Promise<void> {
       <div class="banner__body">
         <h2 class="banner__title">{{ slot.display_name }}</h2>
         <p class="banner__sub">
-          选择要游玩的版本 —— 原版战役，或导入的玩家版本
+          {{ isCustom
+            ? "挑一部战役，用编辑器打开它的地图来玩"
+            : "选择要游玩的版本 —— 原版战役，或导入的玩家版本" }}
         </p>
       </div>
-      <button class="btn btn-primary banner__play" type="button" @click="launch">
+      <button
+        v-if="!isCustom"
+        class="btn btn-primary banner__play"
+        type="button"
+        @click="launch"
+      >
         开始游戏
       </button>
     </header>
@@ -277,6 +412,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
         :active="slot.active === null"
         :selected="selected === null"
         @pick="selected = null"
+        @menu="showVariantMenu($event, null)"
       />
       <VariantCard
         v-for="item in slot.variants"
@@ -285,10 +421,24 @@ async function doExport(mergePatches: boolean): Promise<void> {
         :variant="item"
         :active="slot.active === item.id"
         :selected="selected === item.id"
-        @pick="selected = item.id"
+        @pick="pickVariant(item.id)"
         @drop="drop(item)"
+        @menu="showVariantMenu($event, item)"
       />
     </div>
+
+    <!-- 自制战役：地图 + 挂载模组 + 启动 -->
+    <CustomCampaignPanel
+      v-if="isCustom && inspectedVariant"
+      :slot="slot.slug"
+      :variant="inspectedVariant"
+      :active="slot.active === inspectedVariant.id"
+      @open-doc="openedDoc = $event"
+    />
+
+    <p v-if="isCustom && !inspectedVariant" class="hint">
+      点上面任意一部战役，这里会出现它的地图列表与模组挂载。
+    </p>
 
     <p v-if="!slot.variants.length" class="hint">
       还没有导入任何玩家版本。回到战役列表页点「导入战役包」，
@@ -459,9 +609,55 @@ async function doExport(mergePatches: boolean): Promise<void> {
           <textarea v-model="form.description" class="field__input" rows="3"></textarea>
         </label>
 
+        <!-- 依赖模组：包作者在这里说清「地图需要哪几个模组」 -->
+        <div v-if="editMods.length" class="field">
+          <span class="field__label">
+            依赖模组（{{ editRequired.size }} / {{ editMods.length }}）
+          </span>
+          <p class="field__hint">
+            勾上的表示<strong>地图需要它才能正常打开</strong>。导出这个包时会一并带上，
+            模组管理页也会给它打「依赖」标。
+          </p>
+          <ul class="reqmods">
+            <li v-for="mod in editMods" :key="mod.path" class="reqmod">
+              <label class="reqmod__label">
+                <input
+                  type="checkbox"
+                  :checked="editRequired.has(mod.path)"
+                  @change="toggleRequired(mod.path)"
+                />
+                <span class="reqmod__name">{{ mod.name }}</span>
+              </label>
+              <span class="reqmod__parts">{{ mod.parts }} 个文件</span>
+            </li>
+          </ul>
+        </div>
+
         <div class="sheet__actions">
           <button class="btn btn-text" type="button" @click="editing = null">取消</button>
           <button class="btn btn-primary" type="button" @click="saveEdit">保存</button>
+        </div>
+      </div>
+    </div>
+    <DocViewer
+      v-if="openedDoc && inspectedVariant"
+      :slot="slot.slug"
+      :variant-id="inspectedVariant.id"
+      :doc="openedDoc"
+      @close="openedDoc = null"
+    />
+
+    <!-- 删版本：先确认 -->
+    <div v-if="confirming" class="sheet" @click.self="confirming = null">
+      <div class="sheet__card">
+        <h3 class="sheet__title">删除「{{ confirming.name }}」？</h3>
+        <p class="sheet__text">
+          会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
+          <strong>删了就得重新导入。</strong>
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="confirming = null">取消</button>
+          <button class="btn btn-primary" type="button" @click="confirmDrop()">删除</button>
         </div>
       </div>
     </div>
@@ -765,4 +961,50 @@ async function doExport(mergePatches: boolean): Promise<void> {
 .actions__spacer {
   flex: 1;
 }
+/* 依赖模组勾选 */
+.field__hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.reqmods {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.reqmod {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.reqmod__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.reqmod__name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.reqmod__parts {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
 </style>

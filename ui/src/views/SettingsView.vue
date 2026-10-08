@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
+import ToolsPanel from "../components/ToolsPanel.vue";
 import UpdatePanel from "../components/UpdatePanel.vue";
 
 const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
@@ -59,7 +60,7 @@ const rows = computed(() => {
       <p class="path">{{ libraryRoot || "（未初始化）" }}</p>
       <p class="hint">
         导入的每个玩家版本都完整保存在这里（软件同级的 data 目录），与游戏目录解耦。
-        同一个战役可以并存多个版本，切换时只把选中的那一份铺进游戏目录。
+        同一个战役可以并存多个版本，切换时只启用选中的那一份。
       </p>
     </section>
 
@@ -69,31 +70,31 @@ const rows = computed(() => {
       </header>
       <ul class="notes">
         <li>
-          <strong>导入前先核对。</strong>
-          压缩包会先被完整读一遍：确认格式、解析元数据、检查是否存在越界路径条目
-          （zip-slip）、统计解压后体积。这一步不写入任何文件。
+          <strong>导入前先看一遍。</strong>
+          打开压缩包时只做检查 —— 确认里面是不是战役包、有没有危险的文件路径、
+          解开后有多大。这一步不写任何文件。
         </li>
         <li>
-          <strong>事务化落盘。</strong>
-          内容先解压到暂存目录，校验通过后整体改名进库；失败自动清理，
-          不会留下半个版本。
+          <strong>出错不会留下半成品。</strong>
+          内容先解到临时目录，确认完整了才正式入库；中途失败会自动清理干净。
         </li>
         <li>
           <strong>切换只动自己放的文件。</strong>
-          启用某个版本时，我们放进去的每个文件都被记账；切回原版时只删这些文件。
-          遇到同名官方文件会先挪进备份区，切回时原样还原 —— 全程不对官方目录做递归删除。
+          启用某个版本时，放进去的每个文件都会记账；切回原版时只删这些文件。
+          遇到同名的官方文件会先备份，切回时原样还原 —— 不会去删官方目录。
         </li>
         <li>
-          <strong>路径白名单。</strong>
-          所有写操作都要求目标位于游戏目录之内，并会解析符号链接后再校验一次。
+          <strong>只往游戏目录里写。</strong>
+          所有写入都限制在游戏的 Maps / Mods 等目录之内，不会碰别的地方。
         </li>
         <li>
-          <strong>编码兼容。</strong>
-          元数据优先按 UTF-8 解码，失败自动退回 GBK，中文战役包不会变成乱码。
+          <strong>中文不会乱码。</strong>
+          包里的说明文字会自动识别编码，简繁中文的战役包都能正常显示。
         </li>
       </ul>
     </section>
 
+    <ToolsPanel />
     <UpdatePanel />
 
     <section class="card panel about">

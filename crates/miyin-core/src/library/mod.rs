@@ -8,7 +8,7 @@
 //! ```text
 //! <启动器目录>/data/
 //! ├── library.json      # 索引：每个槽位下有哪些版本、当前启用哪个
-//! ├── active.json       # 激活清单：我们往游戏目录放了什么、挪走了什么
+//! ├── installed.json    # 安装清单：游戏目录里哪些东西是我们放的、谁放的
 //! ├── campaigns/
 //! │   └── wol/
 //! │       ├── 自由之翼：重生 v1.4.2/
@@ -29,12 +29,19 @@ use serde::{Deserialize, Serialize};
 use crate::campaign::CampaignFormat;
 use crate::campaign::metadata::CampaignType;
 use crate::campaign::metadata::PackageKind;
-use crate::campaign::package::Payload;
+use crate::campaign::package::{Payload, PayloadTarget};
 use crate::error::{Error, Result};
+use crate::safety;
 use crate::sc2::Installation;
 
 pub mod activation;
 pub mod compose;
+pub mod install;
+pub mod known;
+pub mod mods;
+pub mod naming;
+
+pub use mods::{ModChanges, StandaloneMod};
 pub mod export;
 pub mod patch;
 pub mod store;
@@ -42,7 +49,8 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
-pub use activation::{ActivationState, activate, deactivate};
+pub use activation::{activate, deactivate};
+pub use install::{Installed, Item, Manifest, Owner, Plan};
 pub use store::{VariantChanges, import, remove_variant, update_variant};
 
 /// 索引文件的格式版本，便于以后迁移。
@@ -89,6 +97,413 @@ pub struct Variant {
     /// 靠扫目录去猜落点会摆错位置。
     #[serde(default)]
     pub payloads: Vec<Payload>,
+    /// **主地图**：自制战役的游玩入口，相对版本根目录的路径。
+    ///
+    /// 有些自制战役有一张总入口地图，打开它就能一路玩到底；也有的只能一张一张打。
+    /// 这里存的是**相对路径**（`1. Rebel Yell/Terran01.SC2Map`）——
+    /// 只存文件名的话，不同章节里重名的地图会撞车。
+    ///
+    /// 导入时用包内声明的值填充，之后用户可以在界面上改。
+    #[serde(default)]
+    pub main_map: Option<String>,
+    /// **挂载到游戏目录的模组**，存载荷的 source（相对版本目录的路径）。
+    ///
+    /// 地图可能依赖包里的模组，模组不铺进 `<游戏>/Mods/` 就打不开；
+    /// 但不同战役的模组之间会互相打架，所以让用户自己选挂哪几个。
+    ///
+    /// - `None` = **还没配过**，按「全挂」处理（老记录也是这种）
+    /// - `Some([])` = 用户**明确**一个都不挂
+    ///
+    /// 用 `Option` 而不是空 `Vec` 就是为了区分这两种情况 ——
+    /// 否则早先导入的记录（当时还没有这个字段）会被当成"用户取消了一切"，
+    /// 官方战役包里的模组会突然不铺了。
+    #[serde(default)]
+    pub mounted_mods: Option<Vec<String>>,
+    /// **说明文档（PDF）**，相对版本目录的路径。
+    ///
+    /// 导入时按包内声明解析；没声明就按文件名特征找（说明 / readme / manual…）。
+    /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
+    #[serde(default)]
+    pub doc: Option<String>,
+    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
+    ///
+    /// 与 `mounted_mods` 不是一回事：这个说的是「作者要求必须有」，
+    /// 那个说的是「用户当前挂了哪些」。界面拿它标出哪些是必需的。
+    #[serde(default)]
+    pub declared_mods: Vec<String>,
+}
+
+/// 模组是从哪来的。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModOrigin {
+    /// 跟着**原版战役**的改版包进来的。
+    OfficialCampaign,
+    /// 跟着**自制战役**包进来的。
+    CustomCampaign,
+    /// **单独导入**的，不属于任何战役。
+    Standalone,
+}
+
+impl ModOrigin {
+    /// 界面上的说法。
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::OfficialCampaign => "原版战役包",
+            Self::CustomCampaign => "自制战役包",
+            Self::Standalone => "单独导入",
+        }
+    }
+}
+
+/// 库里的一个模组，带着它属于哪个版本的上下文。
+#[derive(Debug, Clone, Serialize)]
+pub struct LibraryMod {
+    /// 所属槽位。
+    pub slot: String,
+    /// 槽位显示名（「自由之翼」「自制战役」…）。
+    pub slot_name: String,
+    /// 所属版本。
+    pub variant_id: String,
+    pub variant_name: String,
+    /// 挂载键：载荷的 source，同时是相对版本目录的路径。
+    pub path: String,
+    /// 显示名（去掉 .SC2Mod 后缀）。
+    pub name: String,
+    pub mounted: bool,
+    /// 这个模组由几个文件组成。
+    pub parts: usize,
+    /// 从哪来的。
+    pub origin: ModOrigin,
+    /// 是不是包内**声明为依赖**的模组。
+    pub required: bool,
+    /// 单独导入的模组才有：库里的 id。界面靠它决定能不能改信息 / 导出 / 删除。
+    #[serde(default)]
+    pub standalone_id: Option<String>,
+    /// **modid**：同一个模组的多个版本靠它归到一起。
+    #[serde(default)]
+    pub modid: Option<String>,
+    /// 版本号。
+    #[serde(default)]
+    pub version: Option<String>,
+    /// **铺进游戏目录时用的名字**（原样保留的那个）。
+    ///
+    /// 显示出来是有意义的：地图里写的就是这个名字，用户一眼能看出对不对。
+    #[serde(default)]
+    pub folder: Option<String>,
+    /// 铺成文件还是目录。
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// **模组记录的 id** —— 有它就能改信息、导出。
+    ///
+    /// 独立模组天然有；跟着战役包来的会在第一次编辑时建一条。
+    #[serde(default)]
+    pub mod_record_id: Option<String>,
+    /// 这个模组的内容在哪（独立库 / 某个战役版本）。
+    #[serde(default)]
+    pub source_kind: String,
+}
+
+/// 版本自带的说明文档。
+#[derive(Debug, Clone, Serialize)]
+pub struct DocInfo {
+    /// 相对版本目录的路径。
+    pub path: String,
+    /// 显示用的文件名。
+    pub name: String,
+    pub size: u64,
+}
+
+/// 版本里的一个模组。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModEntry {
+    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
+    pub path: String,
+    /// 显示名（去掉 .SC2Mod 后缀）。
+    pub name: String,
+    /// 是不是已经挂上了。
+    pub mounted: bool,
+    /// 这个模组由几个文件组成 —— `Alenger` 那种文件夹会有十几个。
+    pub parts: usize,
+}
+
+/// 这个版本**实际**会铺哪些模组。
+///
+/// 没配过（`None`）时按「全挂」算 —— 保证老记录和刚导入的包都能正常跑。
+pub fn effective_mounted_mods(variant: &Variant) -> Vec<String> {
+    if let Some(list) = &variant.mounted_mods {
+        return list.clone();
+    }
+
+    variant
+        .payloads
+        .iter()
+        .filter_map(|payload| mod_identity(payload).map(|found| found.key))
+        .collect()
+}
+
+/// 把一堆载荷按模组归并 —— **按文件夹去重**。
+///
+/// `Alenger/1钢铁.SC2Mod` 和 `Alenger/2贝希摩斯虫群.SC2Mod` 归成一行「Alenger」，
+/// 并记下它由几个文件组成。地图载荷会被忽略。
+pub fn group_mods(payloads: &[Payload], mounted: &[String]) -> Vec<ModEntry> {
+    let mut rows: Vec<ModEntry> = Vec::new();
+
+    for payload in payloads {
+        let Some(found) = mod_identity(payload) else {
+            continue;
+        };
+
+        match rows.iter_mut().find(|row| row.path == found.key) {
+            Some(row) => row.parts += 1,
+            None => rows.push(ModEntry {
+                mounted: mounted.contains(&found.key),
+                path: found.key,
+                name: found.name,
+                parts: 1,
+            }),
+        }
+    }
+
+    rows
+}
+
+/// 一个模组的身份。
+///
+/// **模组按文件夹分，不按单个文件分** —— 这是从真实样本学到的：
+///
+/// `@text
+/// Mods/
+/// ├── 3疯批帝国之翼.SC2Mod        单文件         -> 一个模组
+/// ├── Alenger/                    普通文件夹     -> 一个模组
+/// │   ├── 1钢铁.SC2Mod                            （里面 18 个 .SC2Mod）
+/// │   └── …
+/// └── kit_liberty_story.SC2Mod/   解开目录树     -> 一个模组
+/// `@
+///
+/// 判定办法：取落点里 `Mods/` 之后**第一段**。
+/// `Alenger/1钢铁.SC2Mod` 与 `Alenger/2贝希摩斯虫群.SC2Mod`
+/// 是同一个模组「Alenger」的两部分，不是两个模组。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModKey {
+    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
+    pub key: String,
+    /// 显示名：去掉 .SC2Mod 后缀。
+    pub name: String,
+}
+
+/// 认出一个载荷属于哪个模组；地图返回 `None`。
+///
+/// 两种写法都算模组：
+/// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
+/// - `PayloadTarget::Mirror` 且落在 `Mods/` 下 —— 包内是游戏目录镜像
+///   （真实样本几乎都是这种）
+pub fn mod_identity(payload: &Payload) -> Option<ModKey> {
+    match &payload.target {
+        // 裸的 .SC2Mod：落点是 `Mods/{name}`，名字本身就是键
+        // （名字里可能还带子目录，所以拼上前缀交给统一的解析）
+        PayloadTarget::Mod { name } => mod_key_of(&format!("Mods/{name}")),
+        // 游戏目录镜像：路径已经带 Mods/ 前缀了
+        PayloadTarget::Mirror { path } => mod_key_of(path),
+        PayloadTarget::Map { .. } => None,
+    }
+}
+
+/// 把作者写的依赖模组名字归一化成键（**不认识 `Mods/` 前缀也认**）。
+///
+/// `@text
+/// Mods/Alenger/          -> Alenger
+/// Mods/Alenger           -> Alenger
+/// Alenger                -> Alenger
+/// Alenger.SC2Mod         -> Alenger
+/// 3疯批帝国之翼.SC2Mod    -> 3疯批帝国之翼
+/// `@
+///
+/// 包作者写依赖时偷懒不写前缀是很常见的，不能因此就当没声明。
+pub fn normalize_mod_key(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/').replace('\\', "/");
+    let without_prefix = trimmed
+        .strip_prefix("Mods/")
+        .or_else(|| trimmed.strip_prefix("mods/"))
+        .unwrap_or(&trimmed);
+    let first = without_prefix.split('/').next().unwrap_or(without_prefix);
+
+    if first.to_ascii_lowercase().ends_with(".sc2mod") {
+        first[..first.len() - ".SC2Mod".len()].to_string()
+    } else {
+        first.to_string()
+    }
+}
+
+/// 从一条 `Mods/` 下的相对路径推出模组身份。
+pub fn mod_key_of(relative: &str) -> Option<ModKey> {
+    let normalised = relative.replace('\\', "/");
+    let rest = normalised
+        .strip_prefix("Mods/")
+        .or_else(|| normalised.strip_prefix("mods/"))?;
+    let first = rest.split('/').next().filter(|part| !part.is_empty())?;
+
+    // 显示名去掉 .SC2Mod 后缀（大小写不敏感）
+    let lower = first.to_ascii_lowercase();
+    let name = if lower.ends_with(".sc2mod") {
+        first[..first.len() - ".SC2Mod".len()].to_string()
+    } else {
+        first.to_string()
+    };
+
+    Some(ModKey {
+        key: first.to_string(),
+        name,
+    })
+}
+
+/// 版本里的一张地图。
+#[derive(Debug, Clone, Serialize)]
+pub struct MapEntry {
+    /// 相对版本根目录的路径，用 `/` 分隔 —— 主地图存的就是这个形式。
+    pub path: String,
+    /// 显示名（文件名去掉扩展名）。
+    pub name: String,
+    /// 所属章节：版本根下的第一层目录；地图直接躺在根下时是 `None`。
+    pub chapter: Option<String>,
+    pub size: u64,
+    /// 是不是当前设为主地图的那张。
+    pub is_main: bool,
+}
+
+/// 主地图的解析结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct MainMapChoice {
+    /// 选中的地图（相对路径）。
+    pub path: Option<String>,
+    /// 是不是「只有一张地图，替你选了」。
+    pub automatic: bool,
+    /// 声明了却找不到时的提示 —— **只警告，不阻断**。
+    pub warning: Option<String>,
+}
+
+impl MainMapChoice {
+    /// 没定主地图。
+    pub fn unset() -> Self {
+        Self {
+            path: None,
+            automatic: false,
+            warning: None,
+        }
+    }
+
+    /// 有没有能直接启动的入口。
+    pub fn is_ready(&self) -> bool {
+        self.path.is_some()
+    }
+}
+
+/// 从地图列表里挑出该用哪张作为入口。
+///
+/// 规则（**不确定就不猜**）：
+///
+/// | 情况 | 结果 |
+/// | --- | --- |
+/// | 设了主地图，且**确实存在** | 用它 |
+/// | 设了，但找不到 | 给个警告，退回「没定」 |
+/// | 是**知名复刻战役**（见 `known`） | 用它表里的入口地图 |
+/// | 没设，且整个版本只有一张地图 | 自动用它（省用户一次点击） |
+/// | 没设，但包根有一张 **入口地图** | 自动用它（见下） |
+/// | 其余 | 没定，让用户自己挑 |
+///
+/// **打表排在启发式前面** —— 知名复刻的入口是固定的，表比猜可靠。
+/// 实测教训：SCMR 那种包里躺着第三方战役的启动器
+/// （`Enslavers Redux Campaign Launcher`，在 `8. Enslavers Redux/` 里），
+/// 用户在列表里挑很容易挑错那个；表直接点名自己的入口。
+///
+/// 「入口地图」的判定很窄：**放在包根**（不在章节子目录里）**且名字里带
+/// launcher / 启动 / 入口**。真实样本教我们的 —— 复刻战役（SCMR）会在包根放一张
+/// `SCMR Campaign Launcher.SC2Map`，那就是它的入口，不认出来用户就得在
+/// 138 张地图里自己翻。
+///
+/// 这里敢猜是因为**猜错很便宜**：界面上一次点击就能改，不像「这个包属于哪部战役」
+/// 那种猜错了整个装错地方。
+/// 路径比较**忽略大小写与斜杠方向** —— 作者在包里写 `1. Rebel Yell\a.SC2Map`
+/// 还是 `1. Rebel Yell/a.SC2Map` 都得认。
+pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapChoice {
+    let normalize = |value: &str| value.replace('\\', "/").to_lowercase();
+
+    if let Some(wanted) = declared.map(str::trim).filter(|value| !value.is_empty()) {
+        let wanted_key = normalize(wanted);
+        // 先按完整相对路径比；再退一步只按文件名比（作者可能只写了文件名）
+        let hit = maps
+            .iter()
+            .find(|map| normalize(&map.path) == wanted_key)
+            .or_else(|| {
+                maps.iter().find(|map| {
+                    normalize(&map.name) == wanted_key
+                        || normalize(map.path.rsplit('/').next().unwrap_or("")) == wanted_key
+                })
+            });
+
+        return match hit {
+            Some(map) => MainMapChoice {
+                path: Some(map.path.clone()),
+                automatic: false,
+                warning: None,
+            },
+            None => MainMapChoice {
+                path: None,
+                automatic: false,
+                warning: Some(format!(
+                    "找不到「{wanted}」这张地图，请自己挑一张作为启动入口"
+                )),
+            },
+        };
+    }
+
+    // **知名复刻战役：打表认它的入口。**
+    //
+    // 排在启发式前面 —— 这些战役的入口是固定的，表比猜可靠。
+    // 而且表能处理启发式处理不了的：一个知名复刻包里往往还躺着**别的**
+    // 战役（SCMR 包里就有 Enslavers Redux 的启动器），用户很容易挑错。
+    if let Some((path, remake)) = known::find_launcher(maps) {
+        let _ = remake;
+        return MainMapChoice {
+            path: Some(path),
+            automatic: true,
+            warning: None,
+        };
+    }
+
+    // 没声明：只有一张的话直接用它，省用户一次点击
+    if maps.len() == 1 {
+        return MainMapChoice {
+            path: Some(maps[0].path.clone()),
+            automatic: true,
+            warning: None,
+        };
+    }
+
+    // 没声明，但包根摆了一张「入口地图」—— 多半就是它
+    if let Some(map) = maps.iter().find(|map| looks_like_entry_map(map)) {
+        return MainMapChoice {
+            path: Some(map.path.clone()),
+            automatic: true,
+            warning: None,
+        };
+    }
+
+    MainMapChoice::unset()
+}
+
+/// 这张地图看起来是不是整部战役的**入口**。
+///
+/// 两条都满足才算：**在包根**（路径里没有子目录）**且名字里有入口字样**。
+/// 条件收得这么窄，是因为放宽一点点就会把普通关卡认成入口。
+fn looks_like_entry_map(map: &MapEntry) -> bool {
+    let name = map.name.to_lowercase();
+    let at_root = !map.path.contains('/') && !map.path.contains('\\');
+    at_root
+        && (name.contains("launcher")
+            || name.contains("启动")
+            || name.contains("入口")
+            || name.contains("entry"))
 }
 
 /// 一个官方资料片槽位。
@@ -270,8 +685,8 @@ impl Library {
     pub fn slots(&self, installation: Option<&Installation>) -> Vec<SlotView> {
         let index = self.index();
 
-        // 主菜单只列四大战役（进化归虫群之心、序章归虚空之遗）
-        CampaignType::MAIN
+        // 主菜单列五个条目：四大原版战役（进化归虫群之心、序章归虚空之遗）+ 自制战役
+        CampaignType::MENU
             .iter()
             .map(|kind| {
                 let slug = kind.slug();
@@ -300,6 +715,290 @@ impl Library {
                 }
             })
             .collect()
+    }
+
+    /// 列出某个版本里的模组，并标出各自挂没挂载。
+    ///
+    /// **按文件夹去重**：一个模组可能由十几个 `.SC2Mod` 组成，
+    /// 界面上一行就够了（见 `mod_identity`）。
+    pub fn variant_mods(&self, slot_slug: &str, variant_id: &str) -> Vec<ModEntry> {
+        let Some(variant) = self.variant(slot_slug, variant_id) else {
+            return Vec::new();
+        };
+
+        let mounted_list = effective_mounted_mods(&variant);
+        group_mods(&variant.payloads, &mounted_list)
+    }
+
+    /// **全库的模组汇总**：模组管理菜单用。
+    ///
+    /// 每一行都带着它属于谁 —— 用户看的是「自由之翼 · 重生 v1.4 的 Alenger」，
+    /// 而不是一堆孤零零的文件名。
+    pub fn all_mods(&self) -> Vec<LibraryMod> {
+        let index = self.index();
+        let mut rows = Vec::new();
+
+        for (slug, slot) in &index.slots {
+            let slot_name = CampaignType::from_slug(slug)
+                .map(|kind| kind.display_name())
+                .unwrap_or_else(|| slug.clone());
+            let is_custom = CampaignType::from_slug(slug).is_some_and(|kind| kind.is_custom());
+
+            for variant in &slot.variants {
+                let mounted_list = effective_mounted_mods(variant);
+                let declared = &variant.declared_mods;
+
+                for entry in group_mods(&variant.payloads, &mounted_list) {
+                    // 有模组记录的话**以记录为准** —— 用户可能改过名字和版本，
+                    // 改的是记录（覆盖包内声明），不动包本身。
+                    let record = crate::library::mods::find_campaign(
+                        self.root(),
+                        slug,
+                        &variant.id,
+                        &entry.path,
+                    );
+
+                    rows.push(LibraryMod {
+                        slot: slug.clone(),
+                        slot_name: slot_name.clone(),
+                        variant_id: variant.id.clone(),
+                        variant_name: variant.name.clone(),
+                        origin: if is_custom {
+                            ModOrigin::CustomCampaign
+                        } else {
+                            ModOrigin::OfficialCampaign
+                        },
+                        required: declared.iter().any(|item| item == &entry.path),
+                        path: entry.path,
+                        name: record
+                            .as_ref()
+                            .map(|item| item.name.clone())
+                            .unwrap_or(entry.name),
+                        mounted: entry.mounted,
+                        parts: entry.parts,
+                        standalone_id: record.as_ref().map(|item| item.id.clone()),
+                        modid: None,
+                        version: record
+                            .as_ref()
+                            .and_then(|item| item.version.clone())
+                            .or_else(|| variant.version.clone()),
+                        folder: None,
+                        kind: None,
+                        mod_record_id: record.map(|item| item.id),
+                        source_kind: "campaign".to_string(),
+                    });
+                }
+            }
+        }
+
+        // 稳定顺序：先按战役，再按版本，最后按名字
+        rows.sort_by(|left, right| {
+            left.slot_name
+                .cmp(&right.slot_name)
+                .then_with(|| left.variant_name.cmp(&right.variant_name))
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        rows
+    }
+
+    /// 改某个版本的挂载模组清单。
+    ///
+    /// 传进来的键会被**过滤成这个版本里真实存在的模组** —— 免得界面上传来一个
+    /// 手改的路径，白白在激活时失败。
+    pub fn set_mounted_mods(
+        &self,
+        slot_slug: &str,
+        variant_id: &str,
+        mods: &[String],
+    ) -> Result<Variant> {
+        let mut index = self.index();
+        let slot = index
+            .slots
+            .get_mut(slot_slug)
+            .ok_or_else(|| Error::CampaignNotFound(slot_slug.to_string()))?;
+        let variant = slot
+            .variants
+            .iter_mut()
+            .find(|item| item.id == variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+        let known: Vec<String> = variant
+            .payloads
+            .iter()
+            .filter_map(|payload| mod_identity(payload).map(|found| found.key))
+            .collect();
+
+        // 写 Some 而不是空 Vec：这样「一个都不挂」才是用户的意思，
+        // 而不是"没配过"
+        variant.mounted_mods = Some(
+            mods.iter()
+                .filter(|wanted| known.contains(wanted))
+                .cloned()
+                .collect(),
+        );
+
+        let updated = variant.clone();
+        self.save_index(&index)?;
+        Ok(updated)
+    }
+
+    /// 改某个版本的主地图；传 `None` 表示清空。
+    pub fn set_main_map(
+        &self,
+        slot_slug: &str,
+        variant_id: &str,
+        map: Option<&str>,
+    ) -> Result<Variant> {
+        let mut index = self.index();
+        let slot = index
+            .slots
+            .get_mut(slot_slug)
+            .ok_or_else(|| Error::CampaignNotFound(slot_slug.to_string()))?;
+        let variant = slot
+            .variants
+            .iter_mut()
+            .find(|item| item.id == variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+        variant.main_map = map
+            .map(|value| value.replace('\\', "/"))
+            .filter(|value| !value.trim().is_empty());
+
+        let updated = variant.clone();
+        self.save_index(&index)?;
+        Ok(updated)
+    }
+
+    /// 取一个版本。
+    pub fn variant(&self, slot_slug: &str, variant_id: &str) -> Option<Variant> {
+        self.index()
+            .slots
+            .get(slot_slug)?
+            .variants
+            .iter()
+            .find(|item| item.id == variant_id)
+            .cloned()
+    }
+
+    /// 取某个版本自带的说明文档信息；没有就是 `None`。
+    pub fn variant_doc(&self, slot_slug: &str, variant_id: &str) -> Option<DocInfo> {
+        let variant = self.variant(slot_slug, variant_id)?;
+        let relative = variant.doc?;
+        let path = self.slot_dir(slot_slug).join(variant_id).join(&relative);
+        if !path.is_file() {
+            return None;
+        }
+        let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| relative.clone());
+
+        Some(DocInfo {
+            path: relative,
+            name,
+            size,
+        })
+    }
+
+    /// 读出说明文档的字节；路径越界或文件不在都报错。
+    ///
+    /// 界面拿它交给 PDF 渲染器 —— 走 IPC 传字节而不是让 WebView 去读文件，
+    /// 好处是不用放开文件系统访问，也省掉 asset 协议的配置。
+    pub fn doc_bytes(&self, slot_slug: &str, variant_id: &str) -> Result<Vec<u8>> {
+        let variant = self
+            .variant(slot_slug, variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+        let relative = variant
+            .doc
+            .ok_or_else(|| Error::PackageRejected("这个版本没有自带的说明文档".to_string()))?;
+
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        let path = safety::ensure_within(&root, &root.join(relative.replace('`', "/")))?;
+        if !path.is_file() {
+            return Err(Error::PackageRejected(
+                "说明文档在库里的文件已经不在了".to_string(),
+            ));
+        }
+        Ok(std::fs::read(&path)?)
+    }
+
+    /// 某张地图在库里的绝对路径；越界或不存在都报错。
+    ///
+    /// 编辑器启动要用它 —— 自制战役的地图不进游戏目录，得直接把库里的路径递给编辑器。
+    pub fn map_path(&self, slot_slug: &str, variant_id: &str, map: &str) -> Result<PathBuf> {
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        let path = safety::ensure_within(&root, &root.join(map.replace('`', "/")))?;
+        if !path.is_file() {
+            return Err(Error::PackageRejected(format!("找不到地图文件：{map}")));
+        }
+        Ok(path)
+    }
+
+    /// 列出某个版本里的所有地图。
+    ///
+    /// 按**相对路径的自然顺序**排 —— 章节 `1. Rebel Yell` 排在 `2. Overmind` 前面，
+    /// `Terran2` 排在 `Terran10` 前面（普通字符串排序会把 10 排到 2 前面）。
+    pub fn variant_maps(&self, slot_slug: &str, variant_id: &str) -> Vec<MapEntry> {
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        if !root.is_dir() {
+            return Vec::new();
+        }
+
+        let declared = self
+            .index()
+            .slots
+            .get(slot_slug)
+            .and_then(|slot| slot.variants.iter().find(|item| item.id == variant_id))
+            .and_then(|variant| variant.main_map.clone());
+
+        let mut maps: Vec<MapEntry> = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("sc2map"))
+            })
+            .filter_map(|entry| {
+                let relative = entry.path().strip_prefix(&root).ok()?;
+                // 统一用 / 分隔，跨平台且与包内写法一致
+                let path = relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let name = entry
+                    .path()
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let chapter = path.split_once('/').map(|(folder, _)| folder.to_string());
+                let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+
+                Some(MapEntry {
+                    path,
+                    name,
+                    chapter,
+                    size,
+                    is_main: false,
+                })
+            })
+            .collect();
+
+        maps.sort_by(|left, right| natural_cmp(&left.path, &right.path));
+
+        if let Some(main) = declared {
+            for map in &mut maps {
+                if map.path.eq_ignore_ascii_case(&main) {
+                    map.is_main = true;
+                }
+            }
+        }
+
+        maps
     }
 }
 
@@ -447,9 +1146,13 @@ pub fn conflict_for(
 }
 
 /// 校验槽位标识，返回对应的资料片。
+///
+/// **自制战役（`custom`）也是合法槽位** —— 以前这里多加了 `is_main()` 过滤，
+/// 结果导入自制战役会直接报「未知的战役槽位：custom」。
+/// 落盘位置本来就由 `Placement` 分开管（官方改版进 `Maps/Campaign`，
+/// 自制战役进 `Maps/CustomCampaigns`），校验这一层不该再判断它属于哪部原版战役。
 pub fn require_slot(slug: &str) -> Result<CampaignType> {
     CampaignType::from_slug(slug)
-        .filter(CampaignType::is_main)
         .ok_or_else(|| Error::PackageRejected(format!("未知的战役槽位：{slug}")))
 }
 
@@ -484,4 +1187,45 @@ pub(crate) fn now_seconds() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+/// 自然顺序比较：把连续数字当数值比，而不是按字符比。
+///
+/// 否则 `Terran10` 会排到 `Terran2` 前面。
+fn natural_cmp(left: &str, right: &str) -> std::cmp::Ordering {
+    let mut a = left.chars().peekable();
+    let mut b = right.chars().peekable();
+
+    loop {
+        match (a.peek().copied(), b.peek().copied()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(x), Some(y)) => {
+                if x.is_ascii_digit() && y.is_ascii_digit() {
+                    let mut num_a = String::new();
+                    while a.peek().is_some_and(char::is_ascii_digit) {
+                        num_a.push(a.next().unwrap_or_default());
+                    }
+                    let mut num_b = String::new();
+                    while b.peek().is_some_and(char::is_ascii_digit) {
+                        num_b.push(b.next().unwrap_or_default());
+                    }
+                    let va: u64 = num_a.parse().unwrap_or(0);
+                    let vb: u64 = num_b.parse().unwrap_or(0);
+                    match va.cmp(&vb) {
+                        std::cmp::Ordering::Equal => {}
+                        other => return other,
+                    }
+                } else {
+                    a.next();
+                    b.next();
+                    match x.to_ascii_lowercase().cmp(&y.to_ascii_lowercase()) {
+                        std::cmp::Ordering::Equal => {}
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
 }
