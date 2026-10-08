@@ -493,15 +493,41 @@ StarCraft II/
 └── backup/<槽位>/              # 被挪走的官方文件，切回原版时原样还原
 ```
 
-### 14.2 四大战役与归并
+### 14.2 五个菜单项：原版战役 + 自制战役
 
-主菜单**只列四大战役**：自由之翼 → 虫群之心 → 虚空之遗 → 诺娃隐秘行动。
-顺序由 `CampaignType::MAIN` 固定，**不要**改成按名字排序（那样虚空之遗会排到诺娃后面）。
+主菜单分**两组**：
 
-「虫群之心 · 进化」与「虚空之遗 · 序章」**不作为独立条目**：
-`CampaignType::parent()` 把它们归并到父战役。包内声明 `campaign=HOTSEVO` 的包
-导入到「虫群之心」槽位，但 `Variant::target_sub` 记为 `swarm/evolution`，
-启用时地图落到正确位置 —— **目标子目录属于版本，而不是槽位**，这是关键设计。
+| 组 | 内容 | 说明 |
+| --- | --- | --- |
+| **原版战役** | 自由之翼 / 虫群之心 / 虚空之遗 / 诺娃 | 对官方四部的**改版**（重制、换单位、加关卡） |
+| **自制战役** | `CampaignType::Custom` | 独立做的**整部**战役，不依附任何官方战役 |
+
+两者不是一类，所以分成两个选单 —— 界面按 `is_custom()` 分组
+（五个菜单项的固定顺序见 `CampaignType::MENU`）。
+
+顺序由 `CampaignType::MAIN` / `MENU` 固定，**不要**改成按名字排序
+（那样虚空之遗会排到诺娃后面）。
+
+#### 落盘位置也不一样
+
+```text
+原版战役（含改版）   Maps/Campaign[/子目录]/…      子目录见 §14.5
+自制战役            Maps/CustomCampaigns/<名字>/…  SC2 给自制内容留的位置
+```
+
+规则写在 `library::compose::Placement`：
+
+- `Placement::of(slot_slug, variant_id, target_sub)` 由槽位推出落点
+- `payload_target_path(target, placement)` 展开成最终路径
+
+**搞混的后果**：自制战役被塞进 `Maps/Campaign` 会污染官方目录，
+而且游戏压根不会把它当自制战役列出来。
+`activation::allowed_target` 已把 `Maps/CustomCampaigns` 加进白名单。
+
+#### 版本管理
+
+自制战役与官方改版一样，**每个版本都带 `version`**，冲突时按 §14.6 处理
+（覆盖更新 / 重命名后导入）。包内声明 `campaign=custom` 即归入自制战役。
 
 ### 14.3 交互约定
 

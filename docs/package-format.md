@@ -230,6 +230,34 @@ bnet:Void Story (Campaign)/0.0/999,file:Mods\LotV-Fight with ally!.SC2Mod
 
 **不要把 `inferred` 说成确定的** —— 见 `CampaignEvidence::is_exact()`。
 
+
+### 战役类型：原版改版 vs 自制战役
+
+`campaign` 字段现在接受第四类取值：
+
+| 写法 | 归入 | 落盘位置 |
+| --- | --- | --- |
+| `WOL` / `wings` / `liberty` | 自由之翼 | `Maps/Campaign/…` |
+| `HOTS` / `swarm` | 虫群之心 | `Maps/Campaign/swarm/…` |
+| `HOTSEVO` / `evolution` | 虫群之心 · 进化 | `Maps/Campaign/swarm/evolution/…` |
+| `LOTV` / `void` | 虚空之遗 | `Maps/Campaign/void/…` |
+| `LOTVPROLOGUE` / `prologue` | 虚空之遗 · 序章 | `Maps/Campaign/voidprologue/…` |
+| `NCO` / `nova` | 诺娃隐秘行动 | `Maps/Campaign/nova/…` |
+| **`custom` / `自制`** | **自制战役** | **`Maps/CustomCampaigns/<包名>/…`** |
+
+前六类是**对官方战役的改版**，界面上归在「原版战役」组；
+`custom` 是**独立做的整部战役**，归在「自制战役」组。两者不是一类，别混。
+
+写了 `custom` 之后建议把版本也写上，便于版本管理：
+
+`@text
+campaign=custom
+version=1.2          # 冲突时可选「覆盖更新」或「重命名后导入」
+`@
+
+没写 `campaign` 时启动器会按 §1.7 的证据链去猜；**认出来也不影响你手动改**，
+但高置信度被强改时会弹窗提醒一句（装错地方多半玩不了）。
+
 ## 2. 补丁包
 
 ### 2.1 什么是补丁
