@@ -1262,7 +1262,12 @@ mod payload_tests {
             "战役目录之内的相对结构要原样保留"
         );
         assert_eq!(
-            crate::library::compose::payload_target_path(&evolution.target, Some("swarm")),
+            crate::library::compose::payload_target_path(
+                &evolution.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("swarm".into())
+                },
+            ),
             "Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map"
         );
     }
@@ -1283,7 +1288,12 @@ mod payload_tests {
             .find(|p| p.source == "paiur01.SC2Map")
             .expect("主线地图");
         assert_eq!(
-            crate::library::compose::payload_target_path(&main.target, Some("void")),
+            crate::library::compose::payload_target_path(
+                &main.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            ),
             "Maps/Campaign/void/paiur01.SC2Map"
         );
 
@@ -1292,7 +1302,12 @@ mod payload_tests {
             .find(|p| p.source.contains("voidprologue"))
             .expect("序章地图");
         assert_eq!(
-            crate::library::compose::payload_target_path(&prologue.target, Some("void")),
+            crate::library::compose::payload_target_path(
+                &prologue.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            ),
             "Maps/Campaign/voidprologue/voidprologue01.SC2Map",
             "官方目录名要当绝对路径用，而不是塞进 void/ 下面"
         );
@@ -1307,7 +1322,12 @@ mod payload_tests {
         assert_eq!(payloads.len(), 1);
         assert_eq!(payloads[0].target_name(), "01.SC2Map");
         assert_eq!(
-            crate::library::compose::payload_target_path(&payloads[0].target, Some("void")),
+            crate::library::compose::payload_target_path(
+                &payloads[0].target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            ),
             "Maps/Campaign/void/01.SC2Map"
         );
     }

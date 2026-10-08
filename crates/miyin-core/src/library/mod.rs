@@ -270,8 +270,8 @@ impl Library {
     pub fn slots(&self, installation: Option<&Installation>) -> Vec<SlotView> {
         let index = self.index();
 
-        // 主菜单只列四大战役（进化归虫群之心、序章归虚空之遗）
-        CampaignType::MAIN
+        // 主菜单列五个条目：四大原版战役（进化归虫群之心、序章归虚空之遗）+ 自制战役
+        CampaignType::MENU
             .iter()
             .map(|kind| {
                 let slug = kind.slug();

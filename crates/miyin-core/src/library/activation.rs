@@ -236,8 +236,12 @@ fn copy_entry(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-/// 校验目标位于官方战役目录或模组目录之内。
+/// 校验目标位于**官方战役目录 / 自制战役目录 / 模组目录**之内。
+///
+/// 自制战役单独放行 `Maps/CustomCampaigns`：那是 SC2 给自制内容留的位置，
+/// 也是 CCM 一直以来的约定（见 `compose::Placement`）。
 fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
     safety::ensure_within(&installation.campaign_maps_root, path)
         .or_else(|_| safety::ensure_within(&installation.mods_root, path))
+        .or_else(|_| safety::ensure_within(&installation.custom_campaigns_root, path))
 }

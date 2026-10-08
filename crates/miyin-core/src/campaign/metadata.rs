@@ -300,6 +300,12 @@ pub enum CampaignType {
     Lotv,
     LotvPrologue,
     Nova,
+    /// **自制战役**：不是对某个官方战役的改版，而是独立做的一部战役。
+    ///
+    /// 落盘位置与官方战役不同（见 `compose::Placement`）：
+    /// 官方进 `Maps/Campaign/…`，自制进 `Maps/CustomCampaigns/<名字>/…`，
+    /// 这也是 CCM 一直以来的约定。
+    Custom,
     /// 未识别（或缺失）的取值，原样保留便于排查。
     Other(String),
 }
@@ -328,6 +334,8 @@ impl CampaignType {
             Self::Lotv
         } else if value.contains("nco") || value.contains("nova") {
             Self::Nova
+        } else if value.contains("custom") || value.contains("自制") {
+            Self::Custom
         } else {
             Self::Other(raw.trim().to_string())
         }
@@ -344,6 +352,7 @@ impl CampaignType {
             Self::Lotv => 3,
             Self::LotvPrologue => 4,
             Self::Nova => 5,
+            Self::Custom => 6,
             Self::Other(_) => u8::MAX,
         }
     }
@@ -357,6 +366,7 @@ impl CampaignType {
             Self::Lotv => "lotv",
             Self::LotvPrologue => "lotvprologue",
             Self::Nova => "nova",
+            Self::Custom => "custom",
             Self::Other(_) => "other",
         }
     }
@@ -370,6 +380,7 @@ impl CampaignType {
             "lotv" => Some(Self::Lotv),
             "lotvprologue" => Some(Self::LotvPrologue),
             "nova" => Some(Self::Nova),
+            "custom" => Some(Self::Custom),
             _ => None,
         }
     }
@@ -391,6 +402,10 @@ impl CampaignType {
     /// 这是「自动判断是哪个战役」的唯一规则来源：
     /// 进化包 -> `hots`、序章包 -> `lotv`，认不出来就交给界面问用户。
     pub fn main_slot(&self) -> Option<&'static str> {
+        // 自制战役自己就是一个槽位，不需要归并
+        if matches!(self, Self::Custom) {
+            return Some(Self::Custom.slug());
+        }
         let main = self.parent();
         main.is_main().then(|| main.slug())
     }
@@ -400,17 +415,29 @@ impl CampaignType {
         matches!(self, Self::Wol | Self::Hots | Self::Lotv | Self::Nova)
     }
 
-    /// 主菜单上的四大战役。
+    /// 主菜单上的四大**官方**战役。
     pub const MAIN: [Self; 4] = [Self::Wol, Self::Hots, Self::Lotv, Self::Nova];
 
+    /// 主菜单上的全部条目：四大原版战役 + 自制战役。
+    ///
+    /// 「原版战役」指的是**对这四部的改版**（重制、换单位、加关卡都算）；
+    /// 「自制战役」是独立做的一部，两者不是一类，所以分成两个选单。
+    pub const MENU: [Self; 5] = [Self::Wol, Self::Hots, Self::Lotv, Self::Nova, Self::Custom];
+
+    /// 是不是自制战役。
+    pub fn is_custom(&self) -> bool {
+        matches!(self, Self::Custom)
+    }
+
     /// 全部官方槽位，按发布顺序。
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Wol,
         Self::Hots,
         Self::HotsEvolution,
         Self::Lotv,
         Self::LotvPrologue,
         Self::Nova,
+        Self::Custom,
     ];
 
     /// 启用时地图应复制到的 `Maps/Campaign` 子目录。
@@ -424,6 +451,9 @@ impl CampaignType {
             Self::Lotv => Some("void"),
             Self::LotvPrologue => Some("voidprologue"),
             Self::Nova => Some("nova"),
+            // 自制战役不在这套子目录体系里：它整包落到 Maps/CustomCampaigns/<名字>/
+            // 具体落点由 compose::Placement 决定
+            Self::Custom => None,
             Self::Other(_) => None,
         }
     }
@@ -442,6 +472,7 @@ impl CampaignType {
             Self::Lotv => "虚空之遗".to_string(),
             Self::LotvPrologue => "虚空之遗 · 序章".to_string(),
             Self::Nova => "诺娃隐秘行动".to_string(),
+            Self::Custom => "自制战役".to_string(),
             Self::Other(raw) if raw.is_empty() => "未标注资料片".to_string(),
             Self::Other(raw) => format!("未知资料片（{raw}）"),
         }
@@ -529,9 +560,36 @@ mod tests {
                 "hotsevolution",
                 "lotv",
                 "lotvprologue",
-                "nova"
+                "nova",
+                "custom"
             ]
         );
+    }
+
+    #[test]
+    fn custom_campaign_is_its_own_menu_entry() {
+        // 自制战役：独立一类，不是对官方战役的改版
+        assert_eq!(CampaignType::parse("custom"), CampaignType::Custom);
+        assert_eq!(CampaignType::parse("自制"), CampaignType::Custom);
+        assert_eq!(CampaignType::parse("CustomCampaign"), CampaignType::Custom);
+
+        assert!(CampaignType::Custom.is_custom());
+        assert!(!CampaignType::Custom.is_main());
+        assert!(CampaignType::Custom.is_actionable());
+        assert_eq!(CampaignType::Custom.display_name(), "自制战役");
+
+        // 它自己就是一个槽位，不归并到任何官方战役
+        assert_eq!(CampaignType::Custom.parent(), CampaignType::Custom);
+        assert_eq!(CampaignType::Custom.main_slot(), Some("custom"));
+        assert_eq!(
+            CampaignType::from_slug("custom"),
+            Some(CampaignType::Custom)
+        );
+
+        // 主菜单 = 四大原版 + 自制
+        let menu: Vec<&str> = CampaignType::MENU.iter().map(CampaignType::slug).collect();
+        assert_eq!(menu, vec!["wol", "hots", "lotv", "nova", "custom"]);
+        assert_eq!(CampaignType::MAIN.len(), 4, "原版战役仍然只有四部");
     }
 
     #[test]

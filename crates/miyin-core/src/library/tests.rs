@@ -98,8 +98,8 @@ fn slots_follow_official_release_order() {
         .map(|slot| slot.slug)
         .collect();
 
-    // 主菜单只有四大战役（进化归虫群之心、序章归虚空之遗）
-    assert_eq!(slugs, vec!["wol", "hots", "lotv", "nova"]);
+    // 主菜单 = 四大原版战役 + 自制战役（进化归虫群之心、序章归虚空之遗）
+    assert_eq!(slugs, vec!["wol", "hots", "lotv", "nova", "custom"]);
 
     // 用户提的问题：虚空之遗必须排在诺娃前面
     let lotv = slugs.iter().position(|slug| slug == "lotv").expect("lotv");
