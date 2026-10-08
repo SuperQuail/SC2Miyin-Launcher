@@ -1572,3 +1572,92 @@ fn a_package_with_several_mods_imports_all_of_them() {
         "战役地图绝不能跟着模组铺进游戏 Mods 目录"
     );
 }
+#[test]
+fn mods_inside_a_named_package_keep_their_folder() {
+    use crate::campaign::package::payload_target;
+    use crate::library::compose::{Placement, payload_target_path};
+
+    // 真实样本的摆法：包根多一层「包名」目录，模组在它下面的 Mods/ 里。
+    //
+    // 踩过的坑：payload_target 原来只判断「开头是不是 Mods/」，
+    // 这一层包名目录把前缀吃掉了，于是掉进「模组取最后一段当名字」那条路，
+    // Mods/Alenger/1钢铁.SC2Mod 变成 Mods/1钢铁.SC2Mod ——
+    // **Alenger/ 这一层没了**，地图里声明的 Mods\Alenger\… 自然找不到。
+    let campaign = Placement::Campaign { sub: None };
+
+    let nested = payload_target("疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod", true, "");
+    assert_eq!(
+        payload_target_path(&nested, &campaign).as_deref(),
+        Some("Mods/Alenger/1钢铁.SC2Mod"),
+        "包名下面那一层也要原样保留"
+    );
+
+    let expanded = payload_target(
+        "疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/x.dds",
+        true,
+        "",
+    );
+    assert_eq!(
+        payload_target_path(&expanded, &campaign).as_deref(),
+        Some("Mods/kit_liberty_story.SC2Mod/Assets/x.dds")
+    );
+
+    // 地图同理
+    let map = payload_target(
+        "疯批帝国军械库2.3/Maps/Campaign/thanson01.SC2Map",
+        false,
+        "",
+    );
+    assert_eq!(
+        payload_target_path(&map, &campaign).as_deref(),
+        Some("Maps/Campaign/thanson01.SC2Map")
+    );
+
+    // 顶层就是 Mods/ 的老写法照样对
+    let plain = payload_target("Mods/SCMRmod.SC2Mod", true, "");
+    assert_eq!(
+        payload_target_path(&plain, &campaign).as_deref(),
+        Some("Mods/SCMRmod.SC2Mod")
+    );
+
+    // 小写 maps/ 是作者的**分类习惯**，不是游戏目录名 ——
+    // 不能当镜像（那会送到游戏根下），而是拍平到战役目录里。
+    let lowercase = payload_target("maps/a.SC2Map", false, "");
+    assert_eq!(
+        payload_target_path(&lowercase, &campaign).as_deref(),
+        Some("Maps/Campaign/a.SC2Map"),
+        "分类目录只取文件名，落到游戏真正会扫的位置"
+    );
+}
+
+#[test]
+fn payload_counts_use_payload_roots_not_file_extensions() {
+    use crate::campaign::package::{Payload, PayloadTarget, count_payloads};
+
+    // 真实样本：地图是**解开的目录树**，里面全是 .xml / .galaxy。
+    // 按文件扩展名数会得到「0 张地图」。
+    //
+    // 喂进来的是**归一化之后**的落点（payload_target 已经把包名那层剥掉了），
+    // 这正是 count_payloads 实际会看到的东西。
+    let make = |path: &str, is_mod: bool| Payload {
+        source: path.to_string(),
+        target: PayloadTarget::Mirror {
+            path: path.to_string(),
+        },
+        expanded: !is_mod,
+        is_mod,
+    };
+
+    let payloads = vec![
+        make("Maps/Campaign/tarcade.SC2Map", false),
+        make("Maps/Campaign/thanson01.SC2Map", false),
+        // Alenger 下面 15 个 .SC2Mod —— 那是**一个**模组
+        make("Mods/Alenger/1钢铁.SC2Mod", true),
+        make("Mods/Alenger/2贝希摩斯虫群.SC2Mod", true),
+        make("Mods/3疯批帝国之翼.SC2Mod", true),
+    ];
+
+    let (maps, mods) = count_payloads(&payloads);
+    assert_eq!(maps, 2, "两张地图（解开的目录树也算）");
+    assert_eq!(mods, 2, "两个模组 —— Alenger 那些文件要归成一个");
+}

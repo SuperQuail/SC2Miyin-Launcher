@@ -298,6 +298,30 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
     })
 }
 
+/// 按**载荷**统计地图与模组数量。
+///
+/// 不能按文件扩展名数：真实样本里的地图是**解开的目录树**
+/// （`tarcade.SC2Map/Base.SC2Data/…`），里面的文件是 `.xml` / `.galaxy`，
+/// 按扩展名数会得到「0 张地图」。载荷是按「第一个 .SC2Map/.SC2Mod 组件」认出来的，
+/// 单文件和目录树都算一个。
+///
+/// 模组还要**按文件夹去重**：`Mods/Alenger/` 下面是 15 个 `.SC2Mod`，
+/// 那是**一个**模组，不是 15 个。
+pub fn count_payloads(payloads: &[Payload]) -> (usize, usize) {
+    let maps = payloads.iter().filter(|payload| !payload.is_mod).count();
+
+    let mut keys: Vec<String> = Vec::new();
+    for payload in payloads.iter().filter(|payload| payload.is_mod) {
+        if let Some(found) = crate::library::mod_identity(payload)
+            && !keys.contains(&found.key)
+        {
+            keys.push(found.key);
+        }
+    }
+
+    (maps, keys.len())
+}
+
 /// 从条目清单里找出所有载荷，并算出各自的落点。
 ///
 /// 取"根"的办法：一条路径里**第一个**以 `.SC2Map` / `.SC2Mod` 结尾的组件就是载荷根，
@@ -381,23 +405,45 @@ fn is_under(candidate: &Path, root: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 路径里第一段 `Maps` / `Mods`，从那里往后就是游戏目录内的相对路径。
+///
+/// **为什么不能只看开头**：包常常多一层「包名」目录 ——
+/// 真实样本是 `疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod`。
+/// 只判断 `starts_with("Mods/")` 的话这一层就把整个前缀吃掉了，
+/// 掉到下面按 `is_mod` 取「最后一段当名字」，
+/// 结果 `Mods/Alenger/1钢铁.SC2Mod` 变成 `Mods/1钢铁.SC2Mod` ——
+/// **`Alenger/` 这一层没了**，地图里声明的 `Mods\Alenger\…` 自然找不到。
+///
+/// 只认**规范拼写**：游戏目录就叫 `Maps` / `Mods`，而包作者拿小写 `maps/`
+/// 当普通分类目录用的情况很常见，一律按镜像处理会把它们误送到游戏根下。
+fn game_relative(source: &str) -> Option<String> {
+    let normalised = source.replace('\\', "/");
+    let parts: Vec<&str> = normalised.split('/').collect();
+
+    for (index, part) in parts.iter().enumerate() {
+        if *part == "Maps" || *part == "Mods" {
+            return Some(parts[index..].join("/"));
+        }
+    }
+
+    None
+}
+
 /// 决定载荷落到游戏目录的哪里。
-fn payload_target(source: &str, is_mod: bool, content_root: &str) -> PayloadTarget {
+///
+/// 对 crate 内可见是为了能直接测：包名那层怎么剥，只有在这里才说得清。
+pub(crate) fn payload_target(source: &str, is_mod: bool, content_root: &str) -> PayloadTarget {
     // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）。
-    //
-    // 只认**规范拼写** `Maps/` / `Mods/`：游戏目录就叫这两个名字，
-    // 而包作者拿小写 `maps/` 当普通内容目录用的情况很常见，
-    // 一律按镜像处理会把它们误送到游戏根下。
-    if source.starts_with("Maps/") || source.starts_with("Mods/") {
-        return PayloadTarget::Mirror {
-            path: source.replace('\\', "/"),
-        };
+    if let Some(relative) = game_relative(source) {
+        return PayloadTarget::Mirror { path: relative };
     }
 
     let path = source.replace('\\', "/");
 
     if is_mod {
-        // 模组一律落到 Mods/ 下，取最后一段当名字
+        // 走到这里说明路径里**没有** `Mods/` 这一段（比如包根光秃秃一个
+        // `X.SC2Mod`），那就当单文件模组，落到 `Mods/` 下。
+        // 有 `Mods/` 的情况上面已经按原路径处理掉了。
         let name = path.rsplit('/').next().unwrap_or(&path).to_string();
         return PayloadTarget::Mod { name };
     }
@@ -801,8 +847,8 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         }
     }
 
-    let map_count = payloads.iter().filter(|payload| !payload.is_mod).count();
-    let mod_count = payloads.iter().filter(|payload| payload.is_mod).count();
+    // 按**载荷**数（单文件和目录树都算一个），模组再按文件夹去重
+    let (map_count, mod_count) = count_payloads(&payloads);
 
     // 空包直接判为不可安装，而不是"可安装但没有内容" ——
     // 现实里这多半意味着包是坏的或下载不完整

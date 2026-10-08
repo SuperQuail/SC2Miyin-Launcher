@@ -141,8 +141,11 @@ pub fn import(
         source: package
             .file_name()
             .map(|name| name.to_string_lossy().into_owned()),
-        map_count: stats.maps,
-        mod_count: stats.mods,
+        // 用预检算好的 —— 它按**载荷**数（解开的目录树也算一个），
+        // 而不是 extract_to 那个按文件扩展名数的（目录树里全是 xml，
+        // 那样会得到「0 张地图」）。
+        map_count: inspection.map_count,
+        mod_count: inspection.mod_count,
         size_bytes: stats.bytes,
         main_map: inspection.main_map.clone(),
         // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
