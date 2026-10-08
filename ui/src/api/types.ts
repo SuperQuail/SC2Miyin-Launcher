@@ -412,6 +412,29 @@ export interface GameModEntry {
   size_bytes: number;
 }
 
+/** 一个可选外部工具的安装状态。 */
+export interface ToolStatus {
+  id: string;
+  name: string;
+  about: string;
+  repo: string;
+  installed: boolean;
+  version: string | null;
+  path: string | null;
+  size_bytes: number;
+}
+
+/** 一个工具的可安装版本。 */
+export interface ToolRelease {
+  version: string;
+  tag: string;
+  published_at: string;
+  prerelease: boolean;
+  download_url: string;
+  size: number;
+  has_asset: boolean;
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -519,6 +542,17 @@ export interface LauncherApi {
   variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
   /** 读出说明文档的字节，交给 PDF 渲染器。 */
   readDoc(slot: string, variantId: string): Promise<ArrayBuffer>;
+
+  /** 可选工具的清单与安装状态。 */
+  listTools(): Promise<ToolStatus[]>;
+  /** 某个工具有哪些版本可装。 */
+  toolReleases(id: string): Promise<ToolRelease[]>;
+  /** 装一个工具；version 传 null 表示装最新的。 */
+  installTool(id: string, version: string | null): Promise<ToolStatus>;
+  /** 卸载一个工具。 */
+  uninstallTool(id: string): Promise<void>;
+  /** 在浏览器里打开工具的仓库。 */
+  openToolRepo(id: string): Promise<void>;
 
   /** 全库模组汇总。 */
   listLibraryMods(): Promise<LibraryMod[]>;

@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
+import ToolsPanel from "../components/ToolsPanel.vue";
 import UpdatePanel from "../components/UpdatePanel.vue";
 
 const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
@@ -93,6 +94,7 @@ const rows = computed(() => {
       </ul>
     </section>
 
+    <ToolsPanel />
     <UpdatePanel />
 
     <section class="card panel about">

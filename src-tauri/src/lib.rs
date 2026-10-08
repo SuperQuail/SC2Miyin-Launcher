@@ -16,6 +16,7 @@ use miyin_core::library::{
     ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
 };
 use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
+use miyin_core::tools::{self, ToolRelease, ToolStatus};
 use miyin_core::update::Reporter;
 use miyin_core::update::apply::Staged;
 use miyin_core::update::check::UpdateCheck;
@@ -455,6 +456,87 @@ fn open_map_in_editor(
         map,
         guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
     })
+}
+
+/// 可选工具的清单与安装状态。
+#[tauri::command(async)]
+fn list_tools(state: State<'_, AppState>) -> Result<Vec<ToolStatus>, String> {
+    let data = state.library.root();
+    Ok(tools::ALL
+        .iter()
+        .map(|spec| tools::status(data, spec))
+        .collect())
+}
+
+/// 找一个工具定义。
+fn find_tool(id: &str) -> Result<tools::ToolSpec, String> {
+    tools::ALL
+        .iter()
+        .copied()
+        .find(|spec| spec.id == id)
+        .ok_or_else(|| format!("不认识这个工具：{id}"))
+}
+
+/// 某个工具有哪些版本可装。
+#[tauri::command(async)]
+fn tool_releases(id: String, state: State<'_, AppState>) -> Result<Vec<ToolRelease>, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    tools::releases(&spec, &settings, miyin_core::update::Reporter::silent())
+}
+
+/// 装一个工具。version 传 null 表示装最新的。
+///
+/// **静默安装**：不弹浏览器、不用用户解压，点了就下、下完就位。
+#[tauri::command(async)]
+fn install_tool(
+    id: String,
+    version: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ToolStatus, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    let reporter = miyin_core::update::Reporter::silent();
+    let list = tools::releases(&spec, &settings, reporter)?;
+
+    let picked = match &version {
+        Some(wanted) => list
+            .iter()
+            .find(|release| &release.version == wanted || &release.tag == wanted)
+            .ok_or_else(|| format!("没找到 {wanted} 这个版本"))?,
+        None => list
+            .iter()
+            .find(|release| release.has_asset)
+            .ok_or_else(|| format!("{} 还没有可下载的版本", spec.name))?,
+    };
+
+    tools::install(state.library.root(), &spec, picked, &settings, reporter)
+        .map_err(|error| error.to_string())
+}
+
+/// 卸载一个工具。
+#[tauri::command(async)]
+fn uninstall_tool(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let spec = find_tool(&id)?;
+    tools::uninstall(state.library.root(), &spec).map_err(|error| error.to_string())
+}
+
+/// 在系统浏览器里打开工具的仓库。
+#[tauri::command(async)]
+fn open_tool_repo(id: String) -> Result<(), String> {
+    let spec = find_tool(&id)?;
+    let url = format!("https://github.com/{}", spec.repo);
+    open_in_browser(&url).map_err(|error| format!("打不开浏览器：{error}"))
 }
 
 /// 独立模组库：列表。
@@ -1235,6 +1317,11 @@ pub fn run() {
             variant_doc,
             list_library_mods,
             list_standalone_mods,
+            list_tools,
+            tool_releases,
+            install_tool,
+            uninstall_tool,
+            open_tool_repo,
             pick_mod_source,
             import_mod,
             update_mod,
