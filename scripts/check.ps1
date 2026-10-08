@@ -64,20 +64,17 @@ Step '前端单元测试（组件接线）' {
     pnpm -C ui test
 }
 
-# 真实包的端到端测试。没有 reference/ 目录就跳过 —— 那些包是版权内容，不进仓库。
-$reference = Join-Path $root 'reference'
-if (Test-Path $reference) {
-    Step '真实包端到端（快）' {
-        cargo test -p miyin-core --test real_packages
+Step '包端到端（自己造的测试包）' {
+    cargo test -p miyin-core --test packages
+}
+
+# 拿 reference/ 里的**真实战役包**再跑一遍冒烟。
+# 那些是游戏版权内容，不进仓库，所以这一步是**可选**的：
+# 自己机器上验证用，CI 和别人的机器上没有这个目录。
+if ($Full -and (Test-Path (Join-Path $root 'reference'))) {
+    Step '真实包冒烟（可选，需 reference/）' {
+        cargo run --release -p miyin-core --example verify-mod-deploy -- 'reference/战役与补丁/疯批帝国军械库2.4.zip'
     }
-    if ($Full) {
-        Step '真实包端到端（含 1.4G 大包）' {
-            cargo test -p miyin-core --test real_packages -- --ignored
-        }
-    }
-} else {
-    Write-Host ""
-    Write-Host "（没有 reference/ 目录，跳过真实包测试）" -ForegroundColor Yellow
 }
 
 Write-Host ""

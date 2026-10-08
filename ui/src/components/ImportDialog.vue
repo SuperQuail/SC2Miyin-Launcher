@@ -58,6 +58,25 @@ const needsTarget = computed(
     () => !isCustomEntry.value && pending.value !== null && pending.value.preview.slot === null,
   );
 
+/**
+ * 要显示给用户看的预检提示。
+ *
+ * **自制战役入口要把「归属」相关的几条滤掉** —— 在那一页，归属是用户自己定的，
+ * 再说「包内没有声明归属，已按地图文件名判定为自由之翼」纯属误导：
+ * 那套判定根本没参与决定，用户已经在自制战役页点了导入。
+ */
+const shownIssues = computed(() => {
+  const all = inspection.value?.issues ?? [];
+  if (!isCustomEntry.value) return all;
+
+  const aboutBelonging = new Set([
+    "NO_METADATA",
+    "CAMPAIGN_IDENTIFIED",
+    "CAMPAIGN_UNKNOWN",
+  ]);
+  return all.filter((issue) => !aboutBelonging.has(issue.code));
+});
+
 const pendingName = computed(
   () => inspection.value?.name ?? inspection.value?.suggested_dir_name ?? "未命名战役",
 );
@@ -368,9 +387,9 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
       </div>
     </template>
 
-    <ul v-if="inspection?.issues.length" class="issues">
+    <ul v-if="shownIssues.length" class="issues">
       <li
-        v-for="issue in inspection.issues"
+        v-for="issue in shownIssues"
         :key="issue.code"
         class="issue"
         :class="'issue--' + issue.level"

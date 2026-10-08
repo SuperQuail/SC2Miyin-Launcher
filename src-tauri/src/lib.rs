@@ -460,10 +460,21 @@ fn open_map_in_editor(
     library::activate(&state.library, &installation, &slot, Some(&variant_id))
         .map_err(|error| error.to_string())?;
 
-    let path = state
+    let library_path = state
         .library
         .map_path(&slot, &variant_id, &map)
         .map_err(|error| error.to_string())?;
+
+    // **打开游戏目录里那一份**，不是库里那一份。
+    //
+    // 库里那份只是留底（切回原版时能还原）。游戏和编辑器要读的是装好的那份 ——
+    // 而且复刻战役的启动器地图里写的是 GameSetNextMap("Starcraft Mass Recall/…")，
+    // 这种路径**相对 Maps/**，只有装好的那份才处在正确的位置上。
+    // 实测从库里打开会报「无法打开地图」。
+    let path = miyin_core::library::Manifest::load(state.library.root())
+        .target_of(&installation, &library_path)
+        .filter(|candidate| candidate.exists())
+        .unwrap_or(library_path);
 
     std::process::Command::new(&editor)
         .arg(&path)

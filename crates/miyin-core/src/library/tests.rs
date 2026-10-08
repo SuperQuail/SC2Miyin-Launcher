@@ -2108,3 +2108,59 @@ fn maps_outside_the_campaign_subdirs_are_allowed() {
         "越界路径必须拒绝"
     );
 }
+
+#[test]
+fn opening_a_map_uses_the_installed_copy() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    // 打开地图必须用**游戏目录里那一份**，不是库里那一份。
+    //
+    // 库里那份只是留底（切回原版时能还原）。而游戏和编辑器读的是装好的那份 ——
+    // 复刻战役的启动器地图里写的是 GameSetNextMap("Starcraft Mass Recall/…")，
+    // 这种路径**相对 Maps/**，只有装好的那份才在正确的位置上。
+    // 实测从库里打开会报「无法打开地图」。
+    let fixture = fixture();
+    let data = fixture.library.root();
+
+    let source = fixture.work.path().join("Terran01.SC2Map");
+    std::fs::write(&source, b"map").expect("写");
+
+    let mut plan = Plan::new(Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "remake".to_string(),
+    });
+    plan.push(
+        &source,
+        "Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+    );
+
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+    manifest
+        .apply(data, &fixture.installation, &plan)
+        .expect("装");
+
+    let installed = manifest
+        .target_of(&fixture.installation, &source)
+        .expect("该能反查到装到哪了");
+
+    assert_eq!(
+        installed,
+        fixture
+            .installation
+            .maps_root
+            .join("Starcraft Mass Recall")
+            .join("1. Rebel Yell")
+            .join("Terran01.SC2Map"),
+        "要指向游戏目录里那一份"
+    );
+
+    // 没装过的路径反查不出来 —— 调用方会退回用库里那份
+    assert!(
+        manifest
+            .target_of(
+                &fixture.installation,
+                &fixture.work.path().join("没有这个.SC2Map")
+            )
+            .is_none()
+    );
+}

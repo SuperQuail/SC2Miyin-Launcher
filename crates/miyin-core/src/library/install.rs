@@ -104,6 +104,12 @@ pub struct Installed {
     /// 装之前那个位置原本有东西的话，原件备份在哪（相对 `data/backup`）。
     #[serde(default)]
     pub backup: Option<String>,
+    /// 内容是从库里哪个文件/目录拷来的。
+    ///
+    /// 记它是为了能反查「库里这份东西装到游戏目录之后在哪」——
+    /// 打开地图时必须用**游戏目录里那一份**，见 `Manifest::target_of`。
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 /// 安装清单：游戏目录里现在有哪些是我们放的。
@@ -247,6 +253,8 @@ impl Manifest {
                         target: relative,
                         owner: owner.clone(),
                         backup,
+                        // 老清单没记来源 —— 打开地图时会退回用库里那一份
+                        source: None,
                     });
                 }
             }
@@ -268,6 +276,8 @@ impl Manifest {
                         id: "legacy".to_string(),
                     },
                     backup: None,
+                    // 老格式没记来源
+                    source: None,
                 });
             }
         }
@@ -278,6 +288,22 @@ impl Manifest {
         let _ = manifest.save(data);
 
         manifest
+    }
+
+    /// 库里这个路径的东西，装到游戏目录之后在哪 —— 没装就 `None`。
+    ///
+    /// **打开地图必须用这个**：库里那份只是留底（切回原版时能还原），
+    /// 而游戏和编辑器要读的是装好的那一份。实测从库里打开会报「无法打开地图」——
+    /// 库里那份不在游戏目录下，地图里 `GameSetNextMap("Starcraft Mass Recall/…")`
+    /// 这种相对 `Maps/` 的串联路径也就落空了。
+    pub fn target_of(&self, installation: &Installation, source: &Path) -> Option<PathBuf> {
+        let wanted = source.to_string_lossy().to_string();
+        let item = self
+            .files
+            .iter()
+            .find(|item| item.source.as_deref() == Some(wanted.as_str()))?;
+
+        resolve(installation, &item.target).ok()
     }
 
     /// 游戏目录里这个位置是谁装的。
@@ -348,6 +374,7 @@ impl Manifest {
                 target: item.target.clone(),
                 owner: plan.owner.clone(),
                 backup,
+                source: Some(item.source.to_string_lossy().to_string()),
             });
         }
 
