@@ -7,8 +7,18 @@ import { useLauncher } from "./composables/useLauncher";
 import CampaignsView from "./views/CampaignsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
-const { installation, toast, bootstrap, isDesktop, droppedPackage, updateAvailable, refreshUpdateBadge } =
-  useLauncher();
+const {
+  installation,
+  toast,
+  bootstrap,
+  isDesktop,
+  droppedPackage,
+  updateAvailable,
+  updateStaged,
+  showRestartPrompt,
+  autoCheckUpdate,
+  applyUpdateNow,
+} = useLauncher();
 
 type ViewId = "campaigns" | "settings";
 
@@ -35,9 +45,9 @@ let stopWatching: (() => void) | null = null;
 onMounted(async () => {
   void bootstrap();
 
-  // 静默检查一次更新：失败也不打扰用户，只是没有提示而已。
+  // **启动就自动扫描更新**，不需要用户手点。
   // 稍微延后，别和启动时的战役库读取抢时间。
-  setTimeout(() => void refreshUpdateBadge(), 1500);
+  setTimeout(() => void autoCheckUpdate(), 1200);
 
   // 浏览器演示模式没有这个 API，静默跳过
   if (!isDesktop) return;
@@ -101,9 +111,16 @@ onUnmounted(() => stopWatching?.());
           v-if="updateAvailable"
           class="update-badge"
           type="button"
+          title="有新版本可用，点开设置页查看"
           @click="view = 'settings'"
         >
-          有新版本 {{ updateAvailable }}
+          <!-- 下载图标：向下箭头落进托盘，用户一眼就知道是"可以下载新版本" -->
+          <svg class="update-badge__icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 1.5v7.5" />
+            <path d="M5 6.5 8 9.5l3-3" />
+            <path d="M2.5 11v1.5A2 2 0 0 0 4.5 14.5h7a2 2 0 0 0 2-2V11" />
+          </svg>
+          <span>新版本 {{ updateAvailable }}</span>
         </button>
         <span v-if="!isDesktop" class="tag tag--demo">演示模式</span>
         <span v-if="installation" class="tag">{{ installation.version }}</span>
@@ -131,6 +148,33 @@ onUnmounted(() => stopWatching?.());
         {{ toast.message }}
       </div>
     </Transition>
+    <!-- 更新下载完成后提示重启 -->
+    <div v-if="showRestartPrompt" class="sheet">
+      <div class="sheet__card">
+        <div class="sheet__badge">
+          <svg class="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v10" />
+            <path d="M8 9l4 4 4-4" />
+            <path d="M4 16v2a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2" />
+          </svg>
+        </div>
+        <h3 class="sheet__title">更新已下载完成</h3>
+        <p class="sheet__text">
+          需要重启启动器才能完成安装 —— Windows 上没法覆盖正在运行的程序。
+          <br />
+          重启后版本会变成 <strong>{{ updateStaged?.version }}</strong>，
+          你导入的战役、补丁和设置都不会受影响。
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="showRestartPrompt = false">
+            稍后
+          </button>
+          <button class="btn btn-primary" type="button" @click="applyUpdateNow">
+            立即重启并安装
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -286,7 +330,10 @@ onUnmounted(() => stopWatching?.());
 }
 
 .update-badge {
-  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 13px 5px 10px;
   border-radius: var(--radius-pill);
   border: none;
   background: #fff;
@@ -295,7 +342,37 @@ onUnmounted(() => stopWatching?.());
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  /* 轻轻呼吸一下，把注意力引过来 */
+  animation: update-pulse 2.4s ease-in-out infinite;
 }
+
+.update-badge__icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-badge {
+    animation: none;
+  }
+}
+
+
 
 .update-badge:hover {
   background: var(--accent-soft);

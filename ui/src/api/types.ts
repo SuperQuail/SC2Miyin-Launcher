@@ -402,4 +402,6 @@ export interface LauncherApi {
   openUrl(url: string): Promise<void>;
   /** 订阅下载进度，返回取消订阅的函数。 */
   onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<() => void>;
+  /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
+  onUpdateLog(handler: (line: string) => void): Promise<() => void>;
 }

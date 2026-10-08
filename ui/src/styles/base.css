@@ -193,3 +193,72 @@ textarea {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------- 遮罩弹窗 ----------
+ *
+ * 放在全局而不是某个组件里：这几个类被 App.vue 与多个视图共用。
+ * 之前它们写在 SlotMenuView 的 <style scoped> 里，App.vue 用同名类时**完全没有样式**
+ * （弹窗会变成一个堆在页面末尾的普通方块），踩过一次。
+ */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 18, 32, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.sheet__card {
+  width: min(460px, 92vw);
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+}
+
+.sheet__title {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.sheet__note,
+.sheet__text {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--on-surface-variant);
+}
+
+.sheet__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* 圆标 + 图标：更新完成提示用 */
+.sheet__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+
+.sheet__icon {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

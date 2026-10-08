@@ -35,6 +35,47 @@ pub fn semver_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// 更新过程的实时反馈：**把"正在做什么"报给界面**。
+///
+/// 界面靠它渲染那个内嵌终端与进度条。两个回调都是可选的 ——
+/// 命令行工具（`examples/check-update`）不传就什么都不显示。
+#[derive(Clone, Copy, Default)]
+pub struct Reporter<'a> {
+    /// 写一行日志。
+    pub log: Option<&'a (dyn Fn(&str) + Sync)>,
+    /// 报下载进度（已下载字节, 总字节或 `None`）。
+    pub progress: Option<&'a (dyn Fn(u64, Option<u64>) + Sync)>,
+}
+
+impl<'a> Reporter<'a> {
+    /// 不报任何东西（给不需要反馈的调用方）。
+    pub fn silent() -> Self {
+        Self::default()
+    }
+
+    /// 只写日志。
+    pub fn with_log(log: &'a (dyn Fn(&str) + Sync)) -> Self {
+        Self {
+            log: Some(log),
+            progress: None,
+        }
+    }
+
+    /// 写一行日志。
+    pub fn say(&self, message: impl AsRef<str>) {
+        if let Some(log) = self.log {
+            log(message.as_ref());
+        }
+    }
+
+    /// 报一次进度。
+    pub fn tell_progress(&self, done: u64, total: Option<u64>) {
+        if let Some(progress) = self.progress {
+            progress(done, total);
+        }
+    }
+}
+
 pub use apply::{Staged, apply, stage};
 pub use check::{ReleaseAsset, ReleaseInfo, UpdateCheck};
 pub use net::{NetworkSettings, ProxyMode};

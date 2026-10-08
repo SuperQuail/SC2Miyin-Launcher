@@ -707,37 +707,6 @@ async function doExport(mergePatches: boolean): Promise<void> {
 
 /* ---------- 编辑对话框 ---------- */
 
-.sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(12, 18, 32, 0.45);
-  backdrop-filter: blur(3px);
-}
-
-.sheet__card {
-  width: min(460px, 92vw);
-  padding: 20px 22px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-3);
-}
-
-.sheet__title {
-  margin: 0 0 6px;
-  font-size: 17px;
-}
-
-.sheet__note {
-  margin: 0 0 14px;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--on-surface-variant);
-}
-
 .field {
   display: block;
   margin-bottom: 10px;
@@ -760,13 +729,6 @@ async function doExport(mergePatches: boolean): Promise<void> {
   font-family: inherit;
   font-size: 13px;
   resize: vertical;
-}
-
-.sheet__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
 }
 
 .tag {

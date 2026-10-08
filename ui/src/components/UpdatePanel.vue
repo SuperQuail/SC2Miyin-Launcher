@@ -1,29 +1,30 @@
 <script setup lang="ts">
 /**
- * 更新面板：检查 GitHub Release、下载、换上新版本。
+ * 更新面板：检查 / 下载 / 安装，外加一个**内嵌终端**告诉用户正在发生什么。
  *
- * 两条原则写在界面上：
- * - **网络失败不算错误** —— 检查失败只提示一下，不弹红字
- * - **不确定就不动** —— 版本号认不出来 / 摘要对不上，一律不提示"有新版本"
+ * 状态放在 useLauncher 里（顶栏也要读），这里只负责渲染。
  */
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 import { api } from "../api/bridge";
 import { formatBytes } from "../api/art";
-import type { NetworkSettings, Staged, UpdateCheck, UpdateProgress } from "../api/types";
+import type { NetworkSettings } from "../api/types";
 import { errorText, useLauncher } from "../composables/useLauncher";
 
-const { notify, refreshUpdateBadge } = useLauncher();
+const {
+  notify,
+  updateLogs,
+  updateCheck,
+  updateStaged,
+  updateProgress,
+  updateChecking,
+  updateDownloading,
+  checkUpdateNow,
+  downloadUpdateNow,
+  applyUpdateNow,
+} = useLauncher();
 
 const current = ref("");
-const checking = ref(false);
-const result = ref<UpdateCheck | null>(null);
-const staged = ref<Staged | null>(null);
-const progress = ref<UpdateProgress | null>(null);
-const downloading = ref(false);
-const applying = ref(false);
-const showNotes = ref(false);
-
 const network = ref<NetworkSettings>({
   proxy_mode: "auto",
   proxy_url: null,
@@ -32,8 +33,8 @@ const network = ref<NetworkSettings>({
 });
 const proxy = ref<{ url: string; source: string } | null>(null);
 const savingNetwork = ref(false);
-
-let unsubscribe: (() => void) | null = null;
+const showNotes = ref(false);
+const logBox = ref<HTMLElement | null>(null);
 
 onMounted(async () => {
   try {
@@ -43,27 +44,41 @@ onMounted(async () => {
   } catch (error) {
     notify("error", errorText(error));
   }
-
-  if (api.onUpdateProgress) {
-    unsubscribe = await api.onUpdateProgress((payload) => {
-      progress.value = payload;
-    });
-  }
 });
 
-onUnmounted(() => unsubscribe?.());
+// 终端自动滚到底：用户进来看到的是最新一行，而不是最老的
+watch(
+  () => updateLogs.value.length,
+  async () => {
+    await nextTick();
+    if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
+  },
+);
 
-const latest = computed(() => result.value?.latest ?? null);
+const latest = computed(() => updateCheck.value?.latest ?? null);
+const staged = computed(() => updateStaged.value);
+const progress = computed(() => updateProgress.value);
+const logs = computed(() => updateLogs.value);
 
-const progressText = computed(() => {
+const networkLabel = computed(() => {
+  if (updateCheck.value?.via) return updateCheck.value.via;
+  if (proxy.value) return proxy.value.url + "（" + proxy.value.source + "）";
+  return "直连";
+});
+
+/** 进度条百分比；总长度未知时给个不确定态的宽度。 */
+const percent = computed(() => progress.value?.percent ?? 0);
+const hasPercent = computed(() => progress.value?.percent != null);
+
+function progressText(): string {
   const value = progress.value;
   if (!value) return "";
-  const done = formatBytes(value.done);
-  if (value.total) return done + " / " + formatBytes(value.total);
-  return done;
-});
+  if (value.total) {
+    return formatBytes(value.done) + " / " + formatBytes(value.total);
+  }
+  return formatBytes(value.done);
+}
 
-/** 保存网络设置；改完立刻生效（下一次检查就用新设置）。 */
 async function saveNetwork(): Promise<void> {
   savingNetwork.value = true;
   try {
@@ -77,61 +92,13 @@ async function saveNetwork(): Promise<void> {
   }
 }
 
-async function check(): Promise<void> {
-  checking.value = true;
-  staged.value = null;
-  progress.value = null;
-  try {
-    result.value = await api.checkUpdate();
-    await refreshUpdateBadge();
-
-    if (result.value.error) {
-      notify("info", "检查更新失败：" + result.value.error);
-    } else if (result.value.available && result.value.latest) {
-      notify("success", "发现新版本 " + result.value.latest.version);
-    } else {
-      notify("info", "已经是最新版本");
-    }
-  } catch (error) {
-    notify("error", errorText(error));
-  } finally {
-    checking.value = false;
-  }
-}
-
-async function download(): Promise<void> {
-  const release = latest.value;
-  if (!release) return;
-
-  downloading.value = true;
-  progress.value = null;
-  try {
-    staged.value = await api.downloadUpdate(release.version);
-    notify("success", "已下载 " + release.version + "，可以安装了");
-  } catch (error) {
-    notify("error", errorText(error));
-  } finally {
-    downloading.value = false;
-  }
-}
-
-async function apply(): Promise<void> {
-  applying.value = true;
-  try {
-    await api.applyUpdate();
-    notify("info", "正在替换程序，启动器会自己重启…");
-  } catch (error) {
-    notify("error", errorText(error));
-    applying.value = false;
-  }
-}
-
 function openRelease(): void {
-  const url = latest.value?.html_url || "https://github.com/SuperQuail/SC2Miyin-Launcher/releases";
+  const url =
+    latest.value?.html_url ||
+    "https://github.com/SuperQuail/SC2Miyin-Launcher/releases";
   void api.openUrl(url).catch((error) => notify("error", errorText(error)));
 }
 
-/** 更新说明通常很长，截断显示。 */
 const notes = computed(() => latest.value?.notes?.trim() ?? "");
 </script>
 
@@ -143,22 +110,25 @@ const notes = computed(() => latest.value?.notes?.trim() ?? "");
     </header>
 
     <p class="panel__note">
-      更新来自 GitHub Release。国内直连较慢时会<strong>自动并发试多个镜像</strong>，谁先下完用谁；
-      代理默认按「环境变量 → Windows 系统代理 → 直连」自动挑。
+      启动时会<strong>自动检查</strong>一次更新，有新版本会在右上角显示下载标记。
+      国内直连较慢时会自动并发试多个镜像；代理被限流时会自动改直连重试。
     </p>
 
     <div class="row">
-      <button class="btn btn-tonal" type="button" :disabled="checking" @click="check">
-        {{ checking ? "检查中…" : "检查更新" }}
+      <button
+        class="btn btn-tonal"
+        type="button"
+        :disabled="updateChecking"
+        @click="checkUpdateNow(false)"
+      >
+        {{ updateChecking ? "检查中…" : "重新检查" }}
       </button>
       <button class="btn btn-text" type="button" @click="openRelease">打开发行页面</button>
-      <span v-if="result?.via" class="row__hint">网络：{{ result.via }}</span>
-      <span v-else-if="proxy" class="row__hint">网络：{{ proxy.url }}（{{ proxy.source }}）</span>
-      <span v-else class="row__hint">网络：直连</span>
+      <span class="row__hint">网络：{{ networkLabel }}</span>
     </div>
 
     <!-- 有更新 -->
-    <div v-if="latest && result?.available" class="release">
+    <div v-if="latest && updateCheck?.available" class="release">
       <div class="release__head">
         <span class="release__version">{{ latest.version }}</span>
         <span v-if="latest.prerelease" class="tag tag--warn">预发行</span>
@@ -168,44 +138,64 @@ const notes = computed(() => latest.value?.notes?.trim() ?? "");
       <div v-if="notes" class="release__notes" :class="{ 'release__notes--folded': !showNotes }">
         {{ notes }}
       </div>
-      <button v-if="notes.length > 160" class="btn btn-text" type="button" @click="showNotes = !showNotes">
+      <button
+        v-if="notes.length > 160"
+        class="btn btn-text"
+        type="button"
+        @click="showNotes = !showNotes"
+      >
         {{ showNotes ? "收起说明" : "展开说明" }}
       </button>
+
+      <!-- 进度条 -->
+      <div v-if="updateDownloading || progress" class="progress">
+        <div class="progress__track">
+          <div
+            class="progress__fill"
+            :class="{ 'progress__fill--unknown': !hasPercent }"
+            :style="hasPercent ? { width: percent + '%' } : undefined"
+          ></div>
+        </div>
+        <div class="progress__meta">
+          <span v-if="hasPercent" class="progress__percent">{{ Math.round(percent) }}%</span>
+          <span class="progress__bytes">{{ progressText() }}</span>
+        </div>
+      </div>
 
       <div class="row">
         <button
           class="btn btn-primary"
           type="button"
-          :disabled="downloading || applying"
-          @click="download"
+          :disabled="updateDownloading"
+          @click="downloadUpdateNow"
         >
-          {{ downloading ? "下载中…" : staged ? "重新下载" : "下载" }}
+          {{ updateDownloading ? "下载中…" : staged ? "重新下载" : "下载" }}
         </button>
-        <button
-          class="btn btn-primary"
-          type="button"
-          :disabled="!staged || applying"
-          @click="apply"
-        >
-          {{ applying ? "正在替换…" : "安装并重启" }}
+        <button class="btn btn-primary" type="button" :disabled="!staged" @click="applyUpdateNow">
+          安装并重启
         </button>
-        <span v-if="staged" class="row__hint">
-          已下载到 {{ staged.root }}（来自 {{ staged.url.includes("github.com") ? "GitHub 直连" : "镜像" }}）
-        </span>
+        <span v-if="staged" class="row__hint">已就绪：{{ staged.version }}</span>
       </div>
-
-      <!-- 进度条 -->
-      <div v-if="downloading || progress" class="bar">
-        <div class="bar__fill" :style="{ width: (progress?.percent ?? 0) + '%' }"></div>
-      </div>
-      <div v-if="progress" class="bar__text">{{ progressText }}</div>
     </div>
 
-    <!-- 已是最新 / 检查失败 -->
-    <p v-else-if="result && !result.error && !result.available" class="panel__ok">
+    <p v-else-if="updateCheck && !updateCheck.error && !updateCheck.available" class="panel__ok">
       已经是最新版本。
     </p>
-    <p v-else-if="result?.error" class="panel__warn">{{ result.error }}</p>
+    <p v-else-if="updateCheck?.error" class="panel__warn">{{ updateCheck.error }}</p>
+
+    <!-- 内嵌终端 -->
+    <div class="console">
+      <div class="console__head">
+        <span class="console__title">更新日志</span>
+        <span class="console__hint">这里能看到刚才到底做了什么</span>
+      </div>
+      <div ref="logBox" class="console__body">
+        <p v-if="!logs.length" class="console__empty">
+          还没有日志。启动时的自动检查跑完就会有内容。
+        </p>
+        <p v-for="(line, index) in logs" :key="index" class="console__line">{{ line }}</p>
+      </div>
+    </div>
 
     <hr class="divider" />
 
@@ -354,22 +344,103 @@ const notes = computed(() => latest.value?.notes?.trim() ?? "");
   mask-image: linear-gradient(#000 60%, transparent);
 }
 
-.bar {
-  height: 6px;
+/* ---------- 进度条 ---------- */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.progress__track {
+  height: 8px;
   border-radius: var(--radius-pill);
-  background: var(--surface-3);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
   overflow: hidden;
 }
 
-.bar__fill {
+.progress__fill {
   height: 100%;
+  border-radius: var(--radius-pill);
   background: var(--accent);
-  transition: width 0.2s ease;
+  transition: width 0.25s ease;
 }
 
-.bar__text {
+/* 总长度未知时来回扫，表示"在动但不知道还有多久" */
+.progress__fill--unknown {
+  width: 35%;
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.progress__meta {
+  display: flex;
+  gap: 10px;
   font-size: 11.5px;
   color: var(--on-surface-variant);
+}
+
+.progress__percent {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---------- 内嵌终端 ---------- */
+
+.console {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--outline) 65%, transparent);
+}
+
+.console__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 11px;
+  background: var(--surface-3);
+}
+
+.console__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.console__hint {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.console__body {
+  height: 168px;
+  overflow-y: auto;
+  padding: 8px 11px;
+  background: #10141c;
+}
+
+.console__empty {
+  margin: 0;
+  font-size: 11.5px;
+  color: #7c8798;
+}
+
+.console__line {
+  margin: 0 0 2px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #c8d2e0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .divider {

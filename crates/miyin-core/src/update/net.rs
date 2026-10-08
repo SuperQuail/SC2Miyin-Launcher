@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::update::Reporter;
 
 /// 连接超时。**不设总超时** —— 国内下几十 MB 的包，总超时会把正常下载掐断。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -197,9 +198,6 @@ pub struct DownloadOutcome {
     pub bytes: u64,
 }
 
-/// 进度回调：(已下载字节, 总字节或 None)。
-pub type Progress<'a> = &'a (dyn Fn(u64, Option<u64>) + Sync);
-
 /// **并发竞速**下载：所有候选同时开跑，第一个成功的胜出，其余立刻放弃。
 ///
 /// 失败信息会一并返回，方便界面告诉用户"直连超时、镜像 403"之类。
@@ -207,7 +205,7 @@ pub fn race_download(
     client: &reqwest::blocking::Client,
     urls: &[String],
     destination: &Path,
-    on_progress: Progress<'_>,
+    reporter: Reporter<'_>,
 ) -> Result<DownloadOutcome> {
     if urls.is_empty() {
         return Err(Error::PackageRejected("没有可用的下载地址".to_string()));
@@ -224,7 +222,7 @@ pub fn race_download(
             .map(|(index, url)| {
                 let finished = &finished;
                 scope.spawn(move || {
-                    download_one(client, url, destination, index, finished, on_progress)
+                    download_one(client, url, destination, index, finished, reporter)
                 })
             })
             .collect();
@@ -255,7 +253,7 @@ fn download_one(
     destination: &Path,
     index: usize,
     finished: &AtomicBool,
-    on_progress: Progress<'_>,
+    reporter: Reporter<'_>,
 ) -> std::result::Result<DownloadOutcome, String> {
     let part = part_path(destination, index);
 
@@ -291,7 +289,7 @@ fn download_one(
             file.write_all(&buffer[..read])
                 .map_err(|error| format!("{url} -> 写入失败: {error}"))?;
             written += read as u64;
-            on_progress(written, total);
+            reporter.tell_progress(written, total);
         }
 
         file.flush()

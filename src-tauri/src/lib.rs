@@ -15,6 +15,7 @@ use miyin_core::library::{
     self, Binding, Conflict, ImportMode, Library, Patch, SlotView, Variant, VariantChanges,
 };
 use miyin_core::sc2::{DiscoverySource, Installation};
+use miyin_core::update::Reporter;
 use miyin_core::update::apply::Staged;
 use miyin_core::update::check::UpdateCheck;
 use miyin_core::update::net::NetworkSettings;
@@ -369,16 +370,24 @@ fn detected_proxy(state: State<'_, AppState>) -> Option<miyin_core::update::net:
 }
 
 /// 检查更新。**网络失败不算错误**：包在返回值里，界面照常显示"检查失败"。
+///
+/// 过程会通过 `update://log` 事件实时发给界面，渲染成那个内嵌终端。
 #[tauri::command]
-fn check_update(state: State<'_, AppState>) -> Result<UpdateCheck, String> {
+fn check_update(window: tauri::Window, state: State<'_, AppState>) -> Result<UpdateCheck, String> {
     let settings = state
         .network
         .lock()
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
+
+    let emit = |message: &str| {
+        let _ = window.emit("update://log", message.to_string());
+    };
+
     Ok(miyin_core::update::check::check(
         &miyin_core::update::current_version(),
         &settings,
+        Reporter::with_log(&emit),
     ))
 }
 
@@ -396,7 +405,12 @@ fn download_update(
         .map_err(lock_error)?;
 
     // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
-    let found = miyin_core::update::check::check(&miyin_core::update::current_version(), &settings);
+    let quiet = |_: &str| {};
+    let found = miyin_core::update::check::check(
+        &miyin_core::update::current_version(),
+        &settings,
+        Reporter::with_log(&quiet),
+    );
     let release = found
         .latest
         .filter(|release| release.version == version)
@@ -407,7 +421,12 @@ fn download_update(
         .clone();
 
     let data_dir = state.library.root().to_path_buf();
-    let progress = move |done: u64, total: Option<u64>| {
+
+    // 日志与进度都实时发给界面：日志渲染成内嵌终端，进度画进度条
+    let emit = |message: &str| {
+        let _ = window.emit("update://log", message.to_string());
+    };
+    let progress = |done: u64, total: Option<u64>| {
         let _ = window.emit(
             "update://progress",
             ProgressPayload {
@@ -420,8 +439,17 @@ fn download_update(
         );
     };
 
-    let staged = miyin_core::update::stage(&asset, &settings, &data_dir, &version, &progress)
-        .map_err(|error| error.to_string())?;
+    let staged = miyin_core::update::stage(
+        &asset,
+        &settings,
+        &data_dir,
+        &version,
+        Reporter {
+            log: Some(&emit),
+            progress: Some(&progress),
+        },
+    )
+    .map_err(|error| error.to_string())?;
 
     if let Ok(mut guard) = state.staged.lock() {
         *guard = Some(staged.clone());
@@ -443,7 +471,12 @@ fn apply_update(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(),
     let current = std::env::current_exe().map_err(|error| error.to_string())?;
     let data_dir = state.library.root().to_path_buf();
 
-    miyin_core::update::apply(&staged, &current, &data_dir).map_err(|error| error.to_string())?;
+    let emit = |message: &str| {
+        let _ = app.emit("update://log", message.to_string());
+    };
+
+    miyin_core::update::apply(&staged, &current, &data_dir, Reporter::with_log(&emit))
+        .map_err(|error| error.to_string())?;
 
     // 给脚本一点时间起来，然后让出 exe
     std::thread::spawn(move || {

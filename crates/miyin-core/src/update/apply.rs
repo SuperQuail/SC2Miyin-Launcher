@@ -12,8 +12,9 @@ use serde::Serialize;
 
 use crate::error::{Error, Result};
 use crate::safety;
+use crate::update::Reporter;
 use crate::update::check::{self, ReleaseAsset};
-use crate::update::net::{self, NetworkSettings};
+use crate::update::net::NetworkSettings;
 
 /// 下载并解开好的更新，等用户点头就能换上去。
 #[derive(Debug, Clone, Serialize)]
@@ -48,7 +49,7 @@ pub fn stage(
     settings: &NetworkSettings,
     data_dir: &Path,
     version: &str,
-    on_progress: net::Progress<'_>,
+    reporter: Reporter<'_>,
 ) -> Result<Staged> {
     let root = updates_dir(data_dir).join(sanitize_version(version));
     if root.exists() {
@@ -57,13 +58,16 @@ pub fn stage(
     std::fs::create_dir_all(&root)?;
 
     let archive = root.join("package.zip");
-    let outcome = check::download(asset, settings, &archive, on_progress)?;
+    let outcome = check::download(asset, settings, &archive, reporter)?;
 
+    reporter.say(format!("解开更新包到 {}", root.display()));
     let unpacked = root.join("unpacked");
     std::fs::create_dir_all(&unpacked)?;
     extract_zip(&archive, &unpacked)?;
 
     let (executable, extras) = find_payload(&unpacked)?;
+    reporter.say(format!("准备就绪：{}", executable.display()));
+    reporter.say(format!("包内还有 {} 个附带文件会一起更新", extras.len()));
 
     Ok(Staged {
         version: version.to_string(),
@@ -161,10 +165,17 @@ fn find_payload(root: &Path) -> Result<(PathBuf, Vec<PathBuf>)> {
 /// 生成并启动替换脚本，返回脚本路径。
 ///
 /// 调用方拿到返回值后**应当立刻退出程序** —— 脚本在等我们让出 exe 的文件锁。
-pub fn apply(staged: &Staged, current_exe: &Path, data_dir: &Path) -> Result<PathBuf> {
+pub fn apply(
+    staged: &Staged,
+    current_exe: &Path,
+    data_dir: &Path,
+    reporter: Reporter<'_>,
+) -> Result<PathBuf> {
     let script = updates_dir(data_dir).join("apply-update.cmd");
     let content = build_script(staged, current_exe)?;
     std::fs::write(&script, content)?;
+    reporter.say(format!("已生成替换脚本 {}", script.display()));
+    reporter.say("启动器即将退出，由脚本完成替换并重启");
 
     // 用 cmd /c 起一个独立进程：主程序退出后它继续跑
     std::process::Command::new("cmd")

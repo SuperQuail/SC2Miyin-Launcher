@@ -6,7 +6,14 @@
 import { computed, ref } from "vue";
 
 import { api, isDesktop } from "../api/bridge";
-import type { Installation, SlotView, Variant } from "../api/types";
+import type {
+  Installation,
+  SlotView,
+  Staged,
+  UpdateCheck,
+  UpdateProgress,
+  Variant,
+} from "../api/types";
 
 export type ToastKind = "info" | "success" | "error";
 
@@ -21,21 +28,132 @@ const libraryRoot = ref("");
 const loading = ref(false);
 const busy = ref(false);
 const ready = ref(false);
-/** 被拖进窗口的压缩包路径；战役页取走后会清空。 */
-const droppedPackage = ref<string | null>(null);
+/* ---------------- 自动更新 ----------------
+ *
+ * 状态放在这里而不是组件里，因为**顶栏与设置页都要读它**：
+ * 顶栏显示"有新版本"的角标，设置页显示终端与进度条。
+ */
+
+/** 更新过程的日志（内嵌终端的内容），最多留 400 行。 */
+const updateLogs = ref<string[]>([]);
+/** 最近一次检查结果。 */
+const updateCheck = ref<UpdateCheck | null>(null);
+/** 下载好、等着装的东西。 */
+const updateStaged = ref<Staged | null>(null);
+const updateProgress = ref<UpdateProgress | null>(null);
+const updateChecking = ref(false);
+const updateDownloading = ref(false);
+/** 下载完成后弹的那个"要重启了"对话框。 */
+const showRestartPrompt = ref(false);
 
 /** 有可用更新时存版本号，供顶栏提示；null 表示没有。 */
-const updateAvailable = ref<string | null>(null);
+const updateAvailable = computed(() => {
+  const result = updateCheck.value;
+  return result?.available ? (result.latest?.version ?? null) : null;
+});
 
-/** 静默检查一次更新：**失败不打扰用户**，悄悄把提示清掉就行。 */
-async function refreshUpdateBadge(): Promise<void> {
+function pushUpdateLog(line: string): void {
+  const stamp = new Date().toTimeString().slice(0, 8);
+  updateLogs.value = [...updateLogs.value.slice(-399), "[" + stamp + "] " + line];
+}
+
+let updateEventsBound = false;
+
+/** 订阅后端推来的日志与进度（只订阅一次）。
+ *
+ * **不要在这里判断 isDesktop** —— 浏览器演示模式的桥接也提供了这两个订阅，
+ * 加了判断的话演示模式就收不到任何日志（终端永远只有一行），踩过一次。
+ */
+async function bindUpdateEvents(): Promise<void> {
+  if (updateEventsBound) return;
+  updateEventsBound = true;
   try {
-    const result = await api.checkUpdate();
-    updateAvailable.value = result.available ? (result.latest?.version ?? null) : null;
+    await api.onUpdateLog((line) => pushUpdateLog(line));
+    await api.onUpdateProgress((progress) => {
+      updateProgress.value = progress;
+    });
   } catch {
-    updateAvailable.value = null;
+    updateEventsBound = false;
   }
 }
+
+/** 跑一次检查。quiet=true 时不弹提示（启动时自动扫描用）。 */
+async function checkUpdateNow(quiet = false): Promise<void> {
+  if (updateChecking.value) return;
+  updateChecking.value = true;
+  updateProgress.value = null;
+  updateStaged.value = null;
+
+  try {
+    await bindUpdateEvents();
+    pushUpdateLog("—— 开始检查更新 ——");
+    const result = await api.checkUpdate();
+    updateCheck.value = result;
+
+    if (result.error) {
+      pushUpdateLog("检查失败：" + result.error);
+      if (!quiet) notify("info", "检查更新失败：" + result.error);
+    } else if (result.available && result.latest) {
+      if (!quiet) notify("success", "发现新版本 " + result.latest.version);
+    } else if (!quiet) {
+      notify("info", "已经是最新版本");
+    }
+  } catch (error) {
+    pushUpdateLog("检查出错：" + errorText(error));
+    if (!quiet) notify("error", errorText(error));
+  } finally {
+    updateChecking.value = false;
+  }
+}
+
+/** 启动时自动扫一次：**不需要用户手点**。 */
+async function autoCheckUpdate(): Promise<void> {
+  await checkUpdateNow(true);
+
+  // 浏览器演示模式：接着把下载流程也演一遍，
+  // 好让开发与截图能看到进度条与重启弹窗的实际样子（真实运行不会这样）。
+  if (!isDesktop && updateCheck.value?.available) {
+    setTimeout(() => void downloadUpdateNow(), 2600);
+  }
+}
+
+/** 下载更新包。 */
+async function downloadUpdateNow(): Promise<void> {
+  const release = updateCheck.value?.latest;
+  if (!release || updateDownloading.value) return;
+
+  updateDownloading.value = true;
+  updateProgress.value = null;
+  pushUpdateLog("—— 开始下载 " + release.version + " ——");
+
+  try {
+    const staged = await api.downloadUpdate(release.version);
+    updateStaged.value = staged;
+    pushUpdateLog("下载完成，点「安装并重启」即可换上 " + staged.version);
+    // 下载完成 → 弹窗告诉用户需要重启
+    showRestartPrompt.value = true;
+  } catch (error) {
+    pushUpdateLog("下载失败：" + errorText(error));
+    notify("error", errorText(error));
+  } finally {
+    updateDownloading.value = false;
+  }
+}
+
+/** 换上新版本（程序会退出，由替换脚本接管）。 */
+async function applyUpdateNow(): Promise<void> {
+  try {
+    pushUpdateLog("正在准备替换，启动器即将退出…");
+    await api.applyUpdate();
+  } catch (error) {
+    pushUpdateLog("替换失败：" + errorText(error));
+    notify("error", errorText(error));
+    showRestartPrompt.value = false;
+  }
+}
+
+/** 被拖进窗口的压缩包路径；战役页取走后会清空。 */
+const droppedPackage = ref<string | null>(null);
 
 const toast = ref<Toast | null>(null);
 
@@ -174,7 +292,17 @@ async function reveal(path: string): Promise<void> {
 export function useLauncher() {
   return {
     updateAvailable,
-    refreshUpdateBadge,
+    updateLogs,
+    updateCheck,
+    updateStaged,
+    updateProgress,
+    updateChecking,
+    updateDownloading,
+    showRestartPrompt,
+    checkUpdateNow,
+    autoCheckUpdate,
+    downloadUpdateNow,
+    applyUpdateNow,
     droppedPackage,
     isDesktop,
     installation: computed(() => installation.value),

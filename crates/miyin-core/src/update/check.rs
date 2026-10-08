@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::update::Reporter;
 use crate::update::mirror;
 use crate::update::net::{self, NetworkSettings};
 use crate::update::version;
@@ -185,29 +186,50 @@ fn fetch(
 /// 1. **网络失败不算错误** —— 包成 [`UpdateCheck::error`] 返回，界面显示"检查失败"就行，
 ///    不该因为一次网络抖动弹一堆红字。
 /// 2. **代理被限流时自动改直连重试** —— GitHub 的 API 额度是按出口 IP 算的，
-///    国内用的代理往往是共享 IP，额度早被别人用光了（实测就差 403）。
+///    国内用的代理往往是共享 IP，额度早被别人用光（实测就差 403）。
 ///    直连用的是另一个 IP，多半还有额度，所以值得再试一次。
-pub fn check(current: &str, settings: &NetworkSettings) -> UpdateCheck {
-    let proxy = net::detect_proxy(settings);
-    let describe = |found: &net::DetectedProxy| format!("{}（{}）", found.url, found.source);
-    let via = proxy.as_ref().map(&describe);
+pub fn check(current: &str, settings: &NetworkSettings, reporter: Reporter<'_>) -> UpdateCheck {
+    reporter.say(format!("开始检查更新（当前版本 {current}）"));
 
+    let proxy = net::detect_proxy(settings);
+    let via = proxy
+        .as_ref()
+        .map(|found| format!("{}（{}）", found.url, found.source));
+    match &via {
+        Some(via) => reporter.say(format!("网络：{via}")),
+        None => reporter.say("网络：直连（没有检测到代理）"),
+    }
+
+    reporter.say("查询 GitHub Releases…");
     let body = match fetch(&proxy, &user_agent()) {
         Ok(body) => body,
         Err(failure) if failure.rate_limited && proxy.is_some() => {
-            // 代理出口 IP 没额度了，换直连再试一次
+            reporter.say(format!("代理被限流：{}", failure.message));
+            reporter.say("改用直连重试…");
             match fetch(&None, &user_agent()) {
                 Ok(body) => {
-                    let note = Some("直连（代理被限流）".to_string());
-                    return parse_and_pick(current, &body, note, settings.include_prerelease);
+                    reporter.say("直连成功");
+                    return parse_and_pick(
+                        current,
+                        &body,
+                        Some("直连（代理被限流）".to_string()),
+                        settings,
+                        reporter,
+                    );
                 }
-                Err(_) => return failed(current, via, failure.message),
+                Err(_) => {
+                    reporter.say(format!("直连也失败了：{}", failure.message));
+                    return failed(current, via, failure.message);
+                }
             }
         }
-        Err(failure) => return failed(current, via, failure.message),
+        Err(failure) => {
+            reporter.say(format!("查询失败：{}", failure.message));
+            return failed(current, via, failure.message);
+        }
     };
 
-    parse_and_pick(current, &body, via, settings.include_prerelease)
+    parse_and_pick(current, &body, via, settings, reporter)
 }
 
 /// 解析响应并挑出版本。
@@ -215,27 +237,67 @@ fn parse_and_pick(
     current: &str,
     body: &str,
     via: Option<String>,
-    include_prerelease: bool,
+    settings: &NetworkSettings,
+    reporter: Reporter<'_>,
 ) -> UpdateCheck {
     let parsed: Vec<GhRelease> = match serde_json::from_str(body) {
         Ok(parsed) => parsed,
         Err(error) => {
+            reporter.say(format!("返回内容解析失败：{error}"));
             return failed(current, via, format!("GitHub 返回的内容解析失败：{error}"));
         }
     };
 
+    let total = parsed.len();
     let latest = pick_latest(
         parsed
             .into_iter()
             .filter(|release| !release.draft)
             .map(to_release)
             .collect(),
-        include_prerelease,
+        settings.include_prerelease,
     );
+
+    reporter.say(format!(
+        "读到 {total} 个发行版本（{}）",
+        if settings.include_prerelease {
+            "含预发行"
+        } else {
+            "不含预发行"
+        }
+    ));
 
     let available = latest
         .as_ref()
         .is_some_and(|release| version::is_newer(&release.version, current));
+
+    match &latest {
+        Some(release) if available => {
+            reporter.say(format!(
+                "发现新版本 {}（{}{}）",
+                release.version,
+                if release.prerelease {
+                    "预发行，"
+                } else {
+                    ""
+                },
+                release.published_at.get(0..10).unwrap_or("")
+            ));
+            match release.platform_asset() {
+                Some(asset) => reporter.say(format!(
+                    "可下载：{}（{}）",
+                    asset.name,
+                    human_size(asset.size)
+                )),
+                None => reporter.say("这个发行版没有适合 Windows 的包"),
+            }
+        }
+        Some(release) => reporter.say(format!(
+            "已经是最新版本（仓库里最新是 {}）",
+            release.version
+        )),
+        None => reporter.say("没有找到任何可用的发行版本"),
+    }
 
     UpdateCheck {
         current: current.to_string(),
@@ -243,6 +305,22 @@ fn parse_and_pick(
         available,
         via,
         error: None,
+    }
+}
+
+/// 把字节数说成人话。
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
     }
 }
 
@@ -264,26 +342,57 @@ pub fn download(
     asset: &ReleaseAsset,
     settings: &NetworkSettings,
     destination: &std::path::Path,
-    on_progress: net::Progress<'_>,
+    reporter: Reporter<'_>,
 ) -> Result<net::DownloadOutcome> {
+    reporter.say(format!(
+        "开始下载 {}（{}）",
+        asset.name,
+        human_size(asset.size)
+    ));
+
     let proxy = net::detect_proxy(settings);
     let client = net::build_client(proxy.as_ref(), &user_agent())?;
     let urls = asset_urls(asset, settings);
+    reporter.say(format!(
+        "候选地址 {} 个（直连 + 镜像），并发竞速，谁先完成用谁",
+        urls.len()
+    ));
 
-    let outcome = net::race_download(&client, &urls, destination, on_progress)?;
+    let outcome = net::race_download(&client, &urls, destination, reporter)?;
+    reporter.say(format!(
+        "下载完成：{}，来自 {}",
+        human_size(outcome.bytes),
+        short_source(&outcome.url)
+    ));
 
     // 有摘要就校验：镜像毕竟是第三方，下歪了要能发现
     if let Some(expected) = &asset.sha256 {
+        reporter.say("校验 SHA-256…");
         let actual = sha256_file(destination)?;
         if !actual.eq_ignore_ascii_case(expected) {
             let _ = std::fs::remove_file(destination);
+            reporter.say("校验失败，文件已删除");
             return Err(Error::PackageRejected(format!(
                 "校验失败：期望 {expected}，实际 {actual}。文件已删除，请重试"
             )));
         }
+        reporter.say("校验通过 ✓");
+    } else {
+        reporter.say("这个发行版没提供摘要，跳过校验");
     }
 
     Ok(outcome)
+}
+
+/// 把下载地址说短一点（镜像前缀很长，刷屏）。
+fn short_source(url: &str) -> String {
+    match url.split_once("https://") {
+        Some((prefix, _)) if !prefix.is_empty() => {
+            let host = prefix.trim_end_matches('/');
+            format!("{host}（镜像）")
+        }
+        _ => "GitHub 直连".to_string(),
+    }
 }
 
 /// 算文件的 SHA-256。

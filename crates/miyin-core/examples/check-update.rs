@@ -4,6 +4,7 @@
 //! cargo run -p miyin-core --example check-update
 //! `@
 
+use miyin_core::update::Reporter;
 use miyin_core::update::check;
 use miyin_core::update::net::{self, NetworkSettings, ProxyMode};
 
@@ -22,7 +23,12 @@ fn main() {
     println!("探测代理 : {:?}", net::detect_proxy(&settings));
     println!("--------------------------------------------");
 
-    let result = check::check(&miyin_core::update::current_version(), &settings);
+    let say = |message: &str| println!("  [日志] {message}");
+    let result = check::check(
+        &miyin_core::update::current_version(),
+        &settings,
+        Reporter::with_log(&say),
+    );
 
     println!("查询走的路: {:?}", result.via);
     match (&result.error, &result.latest) {
