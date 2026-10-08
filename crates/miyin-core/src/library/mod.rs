@@ -31,6 +31,7 @@ use crate::campaign::metadata::CampaignType;
 use crate::campaign::metadata::PackageKind;
 use crate::campaign::package::{Payload, PayloadTarget};
 use crate::error::{Error, Result};
+use crate::safety;
 use crate::sc2::Installation;
 
 pub mod activation;
@@ -108,6 +109,22 @@ pub struct Variant {
     /// 得看 `variant_mods()` 才知道包里有哪些。
     #[serde(default)]
     pub mounted_mods: Vec<String>,
+    /// **说明文档（PDF）**，相对版本目录的路径。
+    ///
+    /// 导入时按包内声明解析；没声明就按文件名特征找（说明 / readme / manual…）。
+    /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+/// 版本自带的说明文档。
+#[derive(Debug, Clone, Serialize)]
+pub struct DocInfo {
+    /// 相对版本目录的路径。
+    pub path: String,
+    /// 显示用的文件名。
+    pub name: String,
+    pub size: u64,
 }
 
 /// 版本里的一个模组。
@@ -553,6 +570,61 @@ impl Library {
             .iter()
             .find(|item| item.id == variant_id)
             .cloned()
+    }
+
+    /// 取某个版本自带的说明文档信息；没有就是 `None`。
+    pub fn variant_doc(&self, slot_slug: &str, variant_id: &str) -> Option<DocInfo> {
+        let variant = self.variant(slot_slug, variant_id)?;
+        let relative = variant.doc?;
+        let path = self.slot_dir(slot_slug).join(variant_id).join(&relative);
+        if !path.is_file() {
+            return None;
+        }
+        let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| relative.clone());
+
+        Some(DocInfo {
+            path: relative,
+            name,
+            size,
+        })
+    }
+
+    /// 读出说明文档的字节；路径越界或文件不在都报错。
+    ///
+    /// 界面拿它交给 PDF 渲染器 —— 走 IPC 传字节而不是让 WebView 去读文件，
+    /// 好处是不用放开文件系统访问，也省掉 asset 协议的配置。
+    pub fn doc_bytes(&self, slot_slug: &str, variant_id: &str) -> Result<Vec<u8>> {
+        let variant = self
+            .variant(slot_slug, variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+        let relative = variant
+            .doc
+            .ok_or_else(|| Error::PackageRejected("这个版本没有自带的说明文档".to_string()))?;
+
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        let path = safety::ensure_within(&root, &root.join(relative.replace('`', "/")))?;
+        if !path.is_file() {
+            return Err(Error::PackageRejected(
+                "说明文档在库里的文件已经不在了".to_string(),
+            ));
+        }
+        Ok(std::fs::read(&path)?)
+    }
+
+    /// 某张地图在库里的绝对路径；越界或不存在都报错。
+    ///
+    /// 编辑器启动要用它 —— 自制战役的地图不进游戏目录，得直接把库里的路径递给编辑器。
+    pub fn map_path(&self, slot_slug: &str, variant_id: &str, map: &str) -> Result<PathBuf> {
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        let path = safety::ensure_within(&root, &root.join(map.replace('`', "/")))?;
+        if !path.is_file() {
+            return Err(Error::PackageRejected(format!("找不到地图文件：{map}")));
+        }
+        Ok(path)
     }
 
     /// 列出某个版本里的所有地图。

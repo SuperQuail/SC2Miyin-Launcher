@@ -12,6 +12,7 @@
     "@tauri-apps/api": "^2.12.1",
     "dompurify": "^3.4.16",
     "marked": "^18.1.0",
+    "pdfjs-dist": "^6.4.299",
     "vue": "^3.5.43"
   },
   "devDependencies": {

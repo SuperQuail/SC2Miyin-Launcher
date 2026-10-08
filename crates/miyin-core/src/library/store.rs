@@ -146,6 +146,7 @@ pub fn import(
         size_bytes: stats.bytes,
         main_map: inspection.main_map.clone(),
         mounted_mods: default_mounted_mods(&inspection),
+        doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,
         cover,
         tags: inspection.tags.clone(),
@@ -341,6 +342,57 @@ fn resolve_cover(root: &Path, declared: Option<&str>) -> Option<String> {
         return Some(found);
     }
     find_cover(root)
+}
+
+/// 决定版本的说明文档：包自报的优先，其次按文件名特征找。
+fn resolve_doc(root: &Path, declared: Option<&str>) -> Option<String> {
+    if let Some(declared) = declared
+        && let Some(found) = relative_file(root, declared)
+    {
+        return Some(found);
+    }
+    find_doc(root)
+}
+
+/// 按文件名特征在版本目录里找说明文档。
+///
+/// 认这些名字（不分大小写）：说明 / readme / manual / doc / 攻略 / guide。
+/// 都没有时退回根目录下的第一份 PDF。
+fn find_doc(root: &Path) -> Option<String> {
+    const STEMS: &[&str] = &["说明", "readme", "manual", "doc", "guide", "攻略"];
+
+    let mut fallback: Option<PathBuf> = None;
+
+    for entry in WalkDir::new(root)
+        .max_depth(2)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            continue;
+        }
+
+        let stem = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        if STEMS.iter().any(|wanted| stem.contains(wanted)) {
+            return relative_to(root, path);
+        }
+        if fallback.is_none() {
+            fallback = Some(path.to_path_buf());
+        }
+    }
+
+    fallback.and_then(|path| relative_to(root, &path))
 }
 
 /// 把包内声明的相对路径解析成版本目录内的相对路径；越界或不存在都返回 `None`。

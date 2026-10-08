@@ -12,6 +12,11 @@ import type {
   BoundPatch,
   DetectedProxy,
   NetworkSettings,
+  DocInfo,
+  EditorLaunch,
+  MainMapChoice,
+  MapEntry,
+  ModEntry,
   Staged,
   UpdateCheck,
   UpdateProgress,
@@ -72,6 +77,20 @@ const desktop: LauncherApi = {
   exportVariant: (slot, variantId, destination, mergePatches) =>
     invoke<ExportReport>("export_variant", { slot, variantId, destination, mergePatches }),
   pickExportPath: (defaultName) => invoke<string | null>("pick_export_path", { defaultName }),
+
+  variantMaps: (slot, variantId) => invoke<MapEntry[]>("variant_maps", { slot, variantId }),
+  variantMods: (slot, variantId) => invoke<ModEntry[]>("variant_mods", { slot, variantId }),
+  setMountedMods: (slot, variantId, mods) =>
+    invoke<Variant>("set_mounted_mods", { slot, variantId, mods }),
+  setMainMap: (slot, variantId, map) =>
+    invoke<Variant>("set_main_map", { slot, variantId, map }),
+  mainMapChoice: (slot, variantId) =>
+    invoke<MainMapChoice>("main_map_choice", { slot, variantId }),
+  openMapInEditor: (slot, variantId, map) =>
+    invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
+  variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
+  readDoc: (slot, variantId) =>
+    invoke<ArrayBuffer>("read_doc", { slot, variantId }),
 
   appVersion: () => invoke<string>("app_version"),
   networkSettings: () => invoke<NetworkSettings>("network_settings"),
@@ -269,6 +288,37 @@ const demoslots: SlotView[] = [
 ];
 
 /** 让演示模式也有「正在处理」的观感。 */
+/** 演示模式的地图列表 —— 照 SCMR 的样子来。 */
+function demoMaps(): MapEntry[] {
+  const chapters: [string, string[]][] = [
+    ["1. Rebel Yell", ["Terran00t", "Terran01", "Terran02", "Terran10"]],
+    ["2. Overmind", ["Zerg01", "Zerg02", "Zerg10"]],
+    ["3. The Fall", ["Protoss01", "Protoss02"]],
+  ];
+  const maps: MapEntry[] = [];
+  for (const [chapter, names] of chapters) {
+    for (const name of names) {
+      maps.push({
+        path: chapter + "/" + name + ".SC2Map",
+        name,
+        chapter,
+        size: 961_100,
+        is_main: name === "Terran01",
+      });
+    }
+  }
+  return maps;
+}
+
+/** 演示模式的模组列表。 */
+function demoMods(): ModEntry[] {
+  return ["SCMRmod", "SCMRlocal", "SCMRassets", "SCMRcinematics"].map((name) => ({
+    path: "Mods/" + name + ".SC2Mod",
+    name,
+    mounted: true,
+  }));
+}
+
 function delay<T>(value: T, ms = 220): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
@@ -514,6 +564,21 @@ const demo: LauncherApi = {
       ],
       overridden: [],
     }),
+
+  variantMaps: (_slot, _variantId) => delay(demoMaps()),
+  variantMods: (_slot, _variantId) => delay(demoMods()),
+  setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
+  setMainMap: (_slot, _variantId, _map) => delay({} as never),
+  mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  openMapInEditor: (_slot, _variantId, map) =>
+    delay({
+      editor: "D:\\Game\\BLZ\\StarCraft II\\Support64\\SC2Editor_x64.exe",
+      map,
+      guidance:
+        "编辑器已经打开这张地图。接下来请按 Ctrl+F9（菜单「测试文档」）进入游戏 —— 这一步得你自己点。",
+    }),
+  variantDoc: () => delay(null),
+  readDoc: () => delay(new ArrayBuffer(0)),
 
   appVersion: () => delay("0.1.0a3"),
   networkSettings: () =>

@@ -57,6 +57,11 @@ pub struct CcmMetadata {
     ///
     /// 这是弥音扩展键，CCM 本身没有。键名写 `mainmap` / `main_map` / `main` 都认。
     pub main_map: Option<String>,
+    /// **说明文档（PDF）**，相对内容根的路径。
+    ///
+    /// 自制战役的作者常常写一份长篇说明（怎么装、怎么玩、有哪些改动），
+    /// 以前只能在压缩包里翻。现在把它绑到包上，启动器里直接能读。
+    pub doc: Option<String>,
     /// 标签（逗号 / 顿号 / 空格分隔）。这是弥音扩展键，CCM 本身没有。
     pub tags: Vec<String>,
     /// **注册 ID**：补丁靠它引用战役，更新靠它认出同一个战役。
@@ -112,6 +117,9 @@ impl CcmMetadata {
                     meta.requires = split_list(value);
                 }
                 "priority" => meta.priority = value.parse().ok(),
+                "doc" | "document" | "manual" | "说明" => {
+                    meta.doc = Some(value.replace('\\', "/"));
+                }
                 "tags" | "tag" => meta.tags = split_list(value),
                 _ => {}
             }
@@ -129,6 +137,7 @@ impl CcmMetadata {
             && self.version.is_none()
             && self.cover.is_none()
             && self.main_map.is_none()
+            && self.doc.is_none()
             && self.tags.is_empty()
             && self.id.is_none()
             && self.kind.is_none()
@@ -171,6 +180,9 @@ pub struct StandardMetadata {
     /// 自制战役得告诉启动器「该打开哪一张」。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// **说明文档（PDF）**，相对包根的路径。
+    #[serde(default)]
+    pub doc: Option<String>,
     /// 注册 ID（顶层写法；`miyin.id` 优先）。
     #[serde(default)]
     pub id: Option<String>,
@@ -180,6 +192,16 @@ pub struct StandardMetadata {
 }
 
 impl StandardMetadata {
+    /// 取说明文档路径：命名空间写法优先，其次顶层。
+    pub fn doc_path(&self) -> Option<String> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.doc.as_deref())
+            .or(self.doc.as_deref())
+            .map(|value| value.replace('\\', "/"))
+            .filter(|value| !value.trim().is_empty())
+    }
+
     /// 取主地图路径：命名空间写法 `miyin.main_map` 优先，其次顶层的 `main_map`。
     pub fn main_map_path(&self) -> Option<String> {
         self.miyin
@@ -264,6 +286,9 @@ pub struct MiyinExtensions {
     /// **主地图**（自制战役的游玩入口），相对包根的路径。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// **说明文档（PDF）**，相对包根的路径。
+    #[serde(default)]
+    pub doc: Option<String>,
     /// 标签，显示在版本卡片上。
     #[serde(default)]
     pub tags: Vec<String>,

@@ -1,0 +1,62 @@
+
+/* ---------- 点击波纹 ----------
+ *
+ * 由 App.vue 的全局 mousedown 监听插入 <span class="ripple">。
+ * 这里只负责画，位置和尺寸由 JS 按落点算。
+ *
+ * 注意 overflow: hidden —— 波纹要裁在元素圆角里，否则会溢出成方块。
+ * 卡片和大按钮本来就有圆角，裁掉正好；列在这里的元素内部都不放下拉菜单，
+ * 所以不会被裁坏。
+ */
+
+.btn,
+.chip,
+.tab,
+.variant,
+.slot-card,
+.map,
+.target,
+.ctx__item,
+.group__head,
+.update-badge {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.22;
+  transform: scale(0);
+  pointer-events: none;
+  animation: ripple-out 0.6s ease-out forwards;
+}
+
+@keyframes ripple-out {
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* 卡片悬停时轻轻抬一下，让「可点」这件事更明显 */
+.variant,
+.slot-card {
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.variant:hover,
+.slot-card:hover {
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ripple {
+    display: none;
+  }
+  .variant:hover,
+  .slot-card:hover {
+    transform: none;
+  }
+}

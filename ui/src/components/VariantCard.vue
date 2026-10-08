@@ -13,7 +13,7 @@ const props = defineProps<{
   selected: boolean;
 }>();
 
-const emit = defineEmits<{ pick: []; drop: [] }>();
+const emit = defineEmits<{ pick: []; drop: []; menu: [MouseEvent] }>();
 
 /** 包内自带的封面（data URL）；没有就用该战役的官方美术。 */
 const customCover = ref<string | null>(null);
@@ -62,6 +62,7 @@ const usingOwnCover = computed(() => customCover.value !== null);
     tabindex="0"
     @click="emit('pick')"
     @keydown.enter="emit('pick')"
+    @contextmenu="emit('menu', $event)"
   >
     <div class="variant__cover" :style="coverStyle">
       <div class="variant__scrim"></div>

@@ -3,9 +3,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::campaign::package;
+use crate::campaign::package::{Payload, PayloadTarget};
 use crate::library::{
-    ImportMode, Library, VariantChanges, VersionRelation, activate, compare_versions, compose,
-    conflict_for, import, patch, remove_variant, update_variant,
+    ImportMode, Library, MapEntry, VariantChanges, VersionRelation, activate, compare_versions,
+    compose, conflict_for, import, mod_identity, patch, remove_variant, resolve_main_map,
+    update_variant,
 };
 use crate::sc2::{DiscoverySource, Installation};
 
@@ -1039,4 +1041,120 @@ fn patch_metadata_can_be_edited() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn recognises_mods_in_both_packagings() {
+    // 裸的 .SC2Mod
+    let bare = Payload {
+        source: "SCMRmod.SC2Mod".to_string(),
+        target: PayloadTarget::Mod {
+            name: "SCMRmod.SC2Mod".to_string(),
+        },
+        expanded: false,
+        is_mod: true,
+    };
+    assert_eq!(
+        mod_identity(&bare),
+        Some(("SCMRmod.SC2Mod".to_string(), "SCMRmod".to_string()))
+    );
+
+    // 游戏目录镜像：SCMR 就是这种，包根一个 Mods/ 目录
+    let mirrored = Payload {
+        source: "Mods/SCMRassets.SC2Mod".to_string(),
+        target: PayloadTarget::Mirror {
+            path: "Mods/SCMRassets.SC2Mod".to_string(),
+        },
+        expanded: false,
+        is_mod: true,
+    };
+    assert_eq!(
+        mod_identity(&mirrored),
+        Some((
+            "Mods/SCMRassets.SC2Mod".to_string(),
+            "SCMRassets".to_string()
+        ))
+    );
+
+    // 地图不是模组
+    let map = Payload {
+        source: "1. Rebel Yell/Terran01.SC2Map".to_string(),
+        target: PayloadTarget::Map {
+            name: "Terran01.SC2Map".to_string(),
+        },
+        expanded: false,
+        is_mod: false,
+    };
+    assert_eq!(mod_identity(&map), None);
+
+    // 镜像里的地图也不是模组
+    let mirror_map = Payload {
+        source: "Maps/Campaign/void/a.SC2Map".to_string(),
+        target: PayloadTarget::Mirror {
+            path: "Maps/Campaign/void/a.SC2Map".to_string(),
+        },
+        expanded: false,
+        is_mod: false,
+    };
+    assert_eq!(mod_identity(&mirror_map), None);
+}
+
+#[test]
+fn main_map_resolution_never_guesses() {
+    let maps = vec![
+        MapEntry {
+            path: "1. Rebel Yell/Terran01.SC2Map".to_string(),
+            name: "Terran01".to_string(),
+            chapter: Some("1. Rebel Yell".to_string()),
+            size: 0,
+            is_main: false,
+        },
+        MapEntry {
+            path: "2. Overmind/Zerg01.SC2Map".to_string(),
+            name: "Zerg01".to_string(),
+            chapter: Some("2. Overmind".to_string()),
+            size: 0,
+            is_main: false,
+        },
+    ];
+
+    // 声明了且存在 -> 用它
+    let hit = resolve_main_map(&maps, Some("1. Rebel Yell/Terran01.SC2Map"));
+    assert_eq!(hit.path.as_deref(), Some("1. Rebel Yell/Terran01.SC2Map"));
+    assert!(hit.warning.is_none());
+
+    // 大小写与斜杠方向都该认
+    let loose = resolve_main_map(&maps, Some("1. rebel yell\\terran01.sc2map"));
+    assert_eq!(loose.path.as_deref(), Some("1. Rebel Yell/Terran01.SC2Map"));
+
+    // 只写文件名也认
+    let by_name = resolve_main_map(&maps, Some("Zerg01"));
+    assert_eq!(by_name.path.as_deref(), Some("2. Overmind/Zerg01.SC2Map"));
+
+    // 声明了但找不到 -> 只警告，不阻断
+    let missing = resolve_main_map(&maps, Some("3. The Fall/Protoss99.SC2Map"));
+    assert_eq!(missing.path, None);
+    assert!(missing.warning.is_some());
+
+    // 没声明、有多张 -> 不猜
+    let unset = resolve_main_map(&maps, None);
+    assert_eq!(unset.path, None);
+    assert!(!unset.automatic);
+
+    // 没声明、只有一张 -> 替你选（省一次点击）
+    let solo = resolve_main_map(&maps[..1], None);
+    assert_eq!(solo.path.as_deref(), Some("1. Rebel Yell/Terran01.SC2Map"));
+    assert!(solo.automatic);
+}
+
+#[test]
+fn natural_order_puts_terran2_before_terran10() {
+    let mut names = vec!["Terran10", "Terran2", "Terran1"];
+    names.sort_by(|left, right| super::natural_cmp(left, right));
+    assert_eq!(names, vec!["Terran1", "Terran2", "Terran10"]);
+
+    // 章节也要按数字排
+    let mut chapters = vec!["2. Overmind", "10. Later", "1. Rebel Yell"];
+    chapters.sort_by(|left, right| super::natural_cmp(left, right));
+    assert_eq!(chapters, vec!["1. Rebel Yell", "2. Overmind", "10. Later"]);
 }

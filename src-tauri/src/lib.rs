@@ -12,7 +12,8 @@ use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
 use miyin_core::library::{
-    self, Binding, Conflict, ImportMode, Library, Patch, SlotView, Variant, VariantChanges,
+    self, Binding, Conflict, DocInfo, ImportMode, Library, MainMapChoice, MapEntry, ModEntry,
+    Patch, SlotView, Variant, VariantChanges,
 };
 use miyin_core::sc2::{DiscoverySource, Installation};
 use miyin_core::update::Reporter;
@@ -320,6 +321,170 @@ fn activate_variant(
     let installation = require_installation(&state)?;
     library::activate(&state.library, &installation, &slot, variant_id.as_deref())
         .map_err(|error| error.to_string())
+}
+
+/// 列出某个版本里的地图（自制战役主要用这个）。
+///
+/// 地图**不进游戏目录**，就躺在库里 —— 界面把它们列出来，
+/// 用户挑一张交给编辑器打开。
+#[tauri::command(async)]
+fn variant_maps(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<MapEntry>, String> {
+    Ok(state.library.variant_maps(&slot, &variant_id))
+}
+
+/// 列出某个版本里的模组，并标出各自挂没挂载。
+#[tauri::command(async)]
+fn variant_mods(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ModEntry>, String> {
+    Ok(state.library.variant_mods(&slot, &variant_id))
+}
+
+/// 改某个版本的挂载模组清单。
+#[tauri::command(async)]
+fn set_mounted_mods(
+    slot: String,
+    variant_id: String,
+    mods: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    state
+        .library
+        .set_mounted_mods(&slot, &variant_id, &mods)
+        .map_err(|error| error.to_string())
+}
+
+/// 改某个版本的主地图；传 `null` 表示清空。
+#[tauri::command(async)]
+fn set_main_map(
+    slot: String,
+    variant_id: String,
+    map: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    state
+        .library
+        .set_main_map(&slot, &variant_id, map.as_deref())
+        .map_err(|error| error.to_string())
+}
+
+/// 这个版本该用哪张地图作为游玩入口。
+#[tauri::command(async)]
+fn main_map_choice(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<MainMapChoice, String> {
+    let variant = state
+        .library
+        .variant(&slot, &variant_id)
+        .ok_or_else(|| format!("库里找不到版本 {variant_id}"))?;
+    let maps = state.library.variant_maps(&slot, &variant_id);
+
+    Ok(library::resolve_main_map(
+        &maps,
+        variant.main_map.as_deref(),
+    ))
+}
+
+/// 启动编辑器打开某张地图的结果。
+#[derive(Debug, Clone, serde::Serialize)]
+struct EditorLaunch {
+    /// 用的是哪个编辑器。
+    editor: String,
+    /// 打开了哪张地图（相对路径）。
+    map: String,
+    /// 用户接下来要自己做什么 —— 界面照着念。
+    guidance: String,
+}
+
+/// 用编辑器打开自制战役里的某张地图。
+///
+/// 两步，顺序不能反：
+///
+/// 1. **先把挂载的模组铺进游戏目录** —— 地图里写死了 `Mods\xxx.SC2Mod` 依赖，
+///    模组不在位，打开就是一堆丢失的资源
+/// 2. 再用编辑器打开地图
+///
+/// 之后**不代劳进游戏**：编辑器起来后要用户自己按 Ctrl+F9（测试文档），
+/// 所以我们把这句话原样返回给界面去念。
+#[tauri::command(async)]
+fn open_map_in_editor(
+    slot: String,
+    variant_id: String,
+    map: String,
+    state: State<'_, AppState>,
+) -> Result<EditorLaunch, String> {
+    let installation = require_installation(&state)?;
+    let editor = installation.editor.clone().ok_or_else(|| {
+        "没在安装目录里找到地图编辑器（Support64/SC2Editor_x64.exe）—— 到「设置」里重新指定游戏目录试试"
+            .to_string()
+    })?;
+
+    // 带了模组却一个都没挂：先拦住，别让用户白白等编辑器起来再报错
+    let mods = state.library.variant_mods(&slot, &variant_id);
+    if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
+        return Err(
+            "这个战役带了模组，但你一个都没挂载 —— 地图的依赖找不到，打开就是一堆丢失的资源。先在「挂载模组」里勾上再试"
+                .to_string(),
+        );
+    }
+
+    // 先把挂载的模组铺进 <游戏>/Mods/
+    library::activate(&state.library, &installation, &slot, Some(&variant_id))
+        .map_err(|error| error.to_string())?;
+
+    let path = state
+        .library
+        .map_path(&slot, &variant_id, &map)
+        .map_err(|error| error.to_string())?;
+
+    std::process::Command::new(&editor)
+        .arg(&path)
+        .spawn()
+        .map_err(|error| format!("启动编辑器失败：{error}"))?;
+
+    Ok(EditorLaunch {
+        editor: editor.display().to_string(),
+        map,
+        guidance:
+            "编辑器已经打开这张地图。接下来请按 Ctrl+F9（菜单「测试文档」）进入游戏 —— 这一步得你自己点。"
+                .to_string(),
+    })
+}
+
+/// 某个版本自带的说明文档（PDF）；没有就是 `None`。
+#[tauri::command(async)]
+fn variant_doc(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<DocInfo>, String> {
+    Ok(state.library.variant_doc(&slot, &variant_id))
+}
+
+/// 读出说明文档的字节，交给界面渲染。
+///
+/// 走 IPC 传原始字节（`tauri::ipc::Response`）而不是让 WebView 去读文件：
+/// 既不用放开文件系统访问，也省掉 asset 协议的配置。
+#[tauri::command(async)]
+fn read_doc(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = state
+        .library
+        .doc_bytes(&slot, &variant_id)
+        .map_err(|error| error.to_string())?;
+
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// 修改一个已导入版本的元数据（名称 / 作者 / 注册 ID / 描述）。
@@ -938,6 +1103,14 @@ pub fn run() {
             prepare_import,
             import_package,
             activate_variant,
+            variant_maps,
+            variant_mods,
+            set_mounted_mods,
+            set_main_map,
+            main_map_choice,
+            open_map_in_editor,
+            variant_doc,
+            read_doc,
             update_variant,
             delete_variant,
             launch_game,

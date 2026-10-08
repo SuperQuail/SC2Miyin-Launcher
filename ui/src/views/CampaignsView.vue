@@ -86,6 +86,17 @@ const evidenceText = computed(() => {
 const isPatch = computed(() => inspection.value?.kind === "patch");
 
 /**
+ * 要不要把包里的模组一起挂上（默认要）。
+ *
+ * 自制战役的地图里写死了 `Mods\xxx.SC2Mod` 依赖，一个都不挂的话
+ * 用户点启动必然失败，所以默认勾上 —— 想精简的到战役页面里取消。
+ */
+const mountMods = ref(true);
+
+/** 这个包带不带模组。 */
+const packageMods = computed(() => inspection.value?.mod_count ?? 0);
+
+/**
  * **高置信度**归属：包内明确声明了资料片，或者证据链给的是精确证据。
  *
  * 启发式（地图名前缀）不算 —— 那种本来就只是猜，用户改掉很正常。
@@ -166,6 +177,7 @@ async function prepare(path: string): Promise<void> {
   try {
     const result = await api.prepareImport(path);
     pending.value = { preview: result, slot: result.slot ?? "", mode: "rename" };
+    mountMods.value = true;
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -237,6 +249,13 @@ async function doImport(): Promise<void> {
       current.slot,
       current.mode,
     );
+
+    // 用户不想装模组 -> 把导入时默认挂上的清掉
+    // （只在索引里改，模组要等激活时才会真的铺进游戏目录）
+    if (!mountMods.value && (created.mod_count ?? 0) > 0) {
+      await api.setMountedMods(current.slot, created.id, []);
+    }
+
     pending.value = null;
     await refresh();
     opened.value = current.slot;
@@ -384,6 +403,15 @@ async function doImport(): Promise<void> {
               chosenName
             }}」。装错地方通常会让战役里找不到关卡，确认前请想一下。
           </div>
+
+          <!-- 带模组的包：问一句要不要一起装 -->
+          <label v-if="packageMods > 0" class="check">
+            <input v-model="mountMods" type="checkbox" />
+            <span>
+              一起挂载这 <strong>{{ packageMods }}</strong> 个模组
+              <em>（自制战役的地图依赖它们，建议勾上；之后可以到战役页面里改）</em>
+            </span>
+          </label>
 
           <!-- 冲突：覆盖更新 or 重命名后导入 -->
           <div v-if="preview?.conflict" class="conflict">
@@ -792,6 +820,29 @@ async function doImport(): Promise<void> {
 
 .import__field .targets {
   margin-top: 8px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.7;
+  cursor: pointer;
+}
+
+.check input {
+  margin-top: 3px;
+}
+
+.check em {
+  display: block;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
 }
 
 /* 强改归属的警告条 */

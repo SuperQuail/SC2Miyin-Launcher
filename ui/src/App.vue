@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
 import type { ViewId } from "./composables/useLauncher";
+import ContextMenu from "./components/ContextMenu.vue";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
 import CheatsView from "./views/CheatsView.vue";
@@ -25,6 +26,10 @@ const {
   launcherVersion,
 } = useLauncher();
 
+/** 会出水波纹的元素。加新组件时把类名补进来就行。 */
+const RIPPLE_TARGETS =
+  ".btn, .chip, .tab, .variant, .slot-card, .map, .target, .ctx__item, .group__head, .update-badge";
+
 const tabs: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
   { id: "cheats", label: "作弊码" },
@@ -37,7 +42,30 @@ const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
 const dragging = ref(false);
 let stopWatching: (() => void) | null = null;
 
+/**
+ * 点击波纹：在按钮 / 卡片上按一下，从落点扩散一圈。
+ *
+ * 用一个全局监听而不是给每个组件加指令 —— 界面里的可点元素太多，
+ * 与其到处挂，不如在这里按选择器统一处理，新加的组件自动就有。
+ */
+function spawnRipple(event: MouseEvent): void {
+  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(RIPPLE_TARGETS);
+  if (!target || target.hasAttribute("disabled")) return;
+
+  const rect = target.getBoundingClientRect();
+  // 直径取长边两倍，保证从任何角落点都能铺满
+  const size = Math.max(rect.width, rect.height) * 2;
+  const dot = document.createElement("span");
+  dot.className = "ripple";
+  dot.style.width = dot.style.height = size + "px";
+  dot.style.left = event.clientX - rect.left - size / 2 + "px";
+  dot.style.top = event.clientY - rect.top - size / 2 + "px";
+  target.appendChild(dot);
+  window.setTimeout(() => dot.remove(), 620);
+}
+
 onMounted(async () => {
+  window.addEventListener("mousedown", spawnRipple);
   void bootstrap();
 
   // **启动就自动扫描更新**，不需要用户手点。
@@ -69,7 +97,10 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => stopWatching?.());
+onUnmounted(() => {
+  window.removeEventListener("mousedown", spawnRipple);
+  stopWatching?.();
+});
 </script>
 
 <template>
@@ -153,6 +184,9 @@ onUnmounted(() => stopWatching?.());
         {{ toast.message }}
       </div>
     </Transition>
+    <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
+    <ContextMenu />
+
     <!-- 启动时的更新公告（渲染 Release 正文的 Markdown） -->
     <UpdateNotice />
 

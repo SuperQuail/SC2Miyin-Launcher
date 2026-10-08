@@ -134,6 +134,12 @@ pub struct PackageInspection {
     /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// 包内声明的**说明文档（PDF）**，相对包根的路径。
+    ///
+    /// 导入时会连整个包一起解开，所以这份文档就在版本目录里，
+    /// 存下相对路径即可，之后直接读出来给界面渲染。
+    #[serde(default)]
+    pub doc: Option<String>,
     /// 归属判定的结论与依据；元数据已声明时是 `None`。
     pub identification: Option<Identification>,
     /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
@@ -183,6 +189,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         cover: None,
         tags: Vec::new(),
         main_map: None,
+        doc: None,
         kind: PackageKind::Campaign,
         id: None,
         requires: Vec::new(),
@@ -585,6 +592,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut description = None;
     let mut campaign_raw = String::new();
     let mut declared_main_map: Option<String> = None;
+    let mut declared_doc: Option<String> = None;
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
@@ -602,6 +610,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                 Ok(meta) => {
                     // 先借走扩展信息，后面几个字段会被移出
                     declared_main_map = meta.main_map_path();
+                    declared_doc = meta.doc_path();
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
@@ -661,6 +670,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             description = clean(meta.description);
             campaign_raw = clean(meta.campaign).unwrap_or_default();
             declared_main_map = clean(meta.main_map.clone());
+            declared_doc = clean(meta.doc.clone());
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
             declared_id = clean(meta.id.clone());
@@ -859,6 +869,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         priority: declared_priority,
         payloads,
         main_map: main_map_claim,
+        doc: declared_doc,
         identification,
         suggested_slot,
         content_root,

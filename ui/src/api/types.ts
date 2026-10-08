@@ -313,6 +313,50 @@ export interface UpdateProgress {
   percent: number | null;
 }
 
+/** 版本里的一张地图。 */
+export interface MapEntry {
+  /** 相对版本目录的路径，用 / 分隔 —— 主地图存的就是这个形式。 */
+  path: string;
+  /** 显示名（文件名去掉扩展名）。 */
+  name: string;
+  /** 包内的第一层目录名。作者可能拿它分章节 / 幕，也可能压根不用目录。 */
+  chapter: string | null;
+  size: number;
+  is_main: boolean;
+}
+
+/** 版本里的一个模组。 */
+export interface ModEntry {
+  /** 挂载键：相对版本目录的路径。 */
+  path: string;
+  name: string;
+  mounted: boolean;
+}
+
+/** 主地图的解析结果。 */
+export interface MainMapChoice {
+  path: string | null;
+  /** 是不是「只有一张地图，替你选了」。 */
+  automatic: boolean;
+  /** 声明了却找不到时的提示 —— 只警告，不阻断。 */
+  warning: string | null;
+}
+
+/** 编辑器启动的结果。 */
+export interface EditorLaunch {
+  editor: string;
+  map: string;
+  /** 用户接下来要自己做什么，界面照着念。 */
+  guidance: string;
+}
+
+/** 版本自带的说明文档。 */
+export interface DocInfo {
+  path: string;
+  name: string;
+  size: number;
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -402,6 +446,23 @@ export interface LauncherApi {
   openUrl(url: string): Promise<void>;
   /** 订阅下载进度，返回取消订阅的函数。 */
   onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<() => void>;
+  /** 列出版本里的地图。 */
+  variantMaps(slot: string, variantId: string): Promise<MapEntry[]>;
+  /** 列出版本里的模组与挂载状态。 */
+  variantMods(slot: string, variantId: string): Promise<ModEntry[]>;
+  /** 改挂载清单。 */
+  setMountedMods(slot: string, variantId: string, mods: string[]): Promise<Variant>;
+  /** 改主地图；传 null 清空。 */
+  setMainMap(slot: string, variantId: string, map: string | null): Promise<Variant>;
+  /** 这个版本该用哪张地图作为入口。 */
+  mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
+  /** 铺模组并用编辑器打开某张地图。 */
+  openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 版本自带的说明文档；没有就是 null。 */
+  variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
+  /** 读出说明文档的字节，交给 PDF 渲染器。 */
+  readDoc(slot: string, variantId: string): Promise<ArrayBuffer>;
+
   /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
   onUpdateLog(handler: (line: string) => void): Promise<() => void>;
 }
