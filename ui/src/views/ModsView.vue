@@ -9,7 +9,15 @@ import { computed, onMounted, ref } from "vue";
 
 import { api } from "../api/bridge";
 import { formatBytes } from "../api/art";
-import type { GameModEntry, LibraryMod, StandaloneMod } from "../api/types";
+import type {
+  GameModEntry,
+  LibraryMod,
+  ModComparison,
+  ModImport,
+  ModImportMode,
+  ModPreview,
+  StandaloneMod,
+} from "../api/types";
 import { errorText, useLauncher } from "../composables/useLauncher";
 
 const { installation, loading: bootLoading, reveal, notify, bootstrap } = useLauncher();
@@ -23,6 +31,61 @@ const importing = ref(false);
 
 /** 正在编辑的独立模组；null 表示没开编辑框。 */
 const editing = ref<StandaloneMod | null>(null);
+/** 正在看的对比结果。 */
+const comparing = ref<ModComparison | null>(null);
+/** 对比时选中的「另一个版本」。 */
+const compareWith = ref<Record<string, string>>({});
+
+/** 勾选要一起导出的版本（只对独立模组有意义）。 */
+const picked = ref<Set<string>>(new Set());
+
+/** 勾 / 取消一个版本。 */
+function togglePick(id: string): void {
+  const next = new Set(picked.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  picked.value = next;
+}
+
+/**
+ * 拿这一版跟同组的另一版比。
+ *
+ * `compareWith` 记的是「这个 modid 选了哪个版本去比」—— 一组版本里挑一个基准。
+ */
+async function compare(current: LibraryMod): Promise<void> {
+  const baseId = compareWith.value[current.modid ?? ""] ?? "";
+  if (!baseId || !current.standalone_id) return;
+
+  busy.value = current.path;
+  try {
+    comparing.value = await api.compareMods(baseId, current.standalone_id);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = null;
+  }
+}
+
+/** 把勾中的版本打成一个包。 */
+async function exportPicked(): Promise<void> {
+  const ids = [...picked.value];
+  if (!ids.length) return;
+
+  busy.value = "export-many";
+  try {
+    const message = await api.exportMods(ids);
+    notify("success", "已导出：" + message);
+    picked.value = new Set();
+  } catch (error) {
+    const text = errorText(error);
+    if (!text.includes("取消")) notify("error", text);
+  } finally {
+    busy.value = null;
+  }
+}
+
+/** 等着用户选「新版本 / 独立改版」的那次导入。 */
+const choosing = ref<{ path: string; preview: ModPreview } | null>(null);
 /** 等着确认删除的那个模组。 */
 const removing = ref<LibraryMod | null>(null);
 const form = ref({ name: "", author: "", version: "", description: "" });
@@ -77,14 +140,20 @@ const groups = computed(() => {
   >();
 
   for (const mod of filtered.value) {
-    const key = mod.origin + "|" + mod.slot + "|" + mod.variant_id;
+    // 独立模组按 **modid** 归并 —— 同一个模组的多个版本显示成一组，
+    // 用户一眼看得出「这几个是同一个东西的不同时期」。
+    // 战役包带的模组按「来源 + 版本」分组，它们本来就是跟着包走的。
+    const key =
+      mod.origin === "standalone"
+        ? "standalone|" + (mod.modid ?? mod.path)
+        : mod.origin + "|" + mod.slot + "|" + mod.variant_id;
     const bucket = buckets.get(key);
     if (bucket) bucket.mods.push(mod);
     else
       buckets.set(key, {
         key,
         slot: mod.slot,
-        slotName: mod.slot_name,
+        slotName: mod.origin === "standalone" ? (mod.modid ?? mod.name) : mod.slot_name,
         variantId: mod.variant_id,
         variantName: mod.variant_name,
         origin: mod.origin,
@@ -171,24 +240,70 @@ async function toggleGroup(
   }
 }
 
-/** 导入一个模组包。 */
+/**
+ * 导入一个模组包。
+ *
+ * 流程：选包 -> 预检 -> **库里已有同族的就问一句** -> 导入。
+ *
+ * 为什么要问：同 modid 的可能是「同一个模组的新版本」，也可能是
+ * 「有人拿它改了个版本」—— 后者跟原版是两码事，硬并进版本列表会让人
+ * 以为它们是同一个东西的不同时期。这个只有用户知道，替他决定太武断。
+ */
 async function importMod(kind: "file" | "folder"): Promise<void> {
   importing.value = true;
   try {
     const path = await api.pickModSource(kind);
     if (!path) return;
+
+    const found = await api.previewMod(path);
+
+    // 库里已经有一份**完全一样**的：不用问，后端会直接用那份
+    if (found.duplicate) {
+      const result = await api.importMod(path);
+      await load();
+      notify("info", result.message);
+      return;
+    }
+
+    // 有同 modid 的 -> 问一句
+    if (found.existing.length) {
+      choosing.value = { path, preview: found };
+      return;
+    }
+
     const result = await api.importMod(path);
     await load();
-
-    // 后端已经想好了该怎么说：全新 / 新版本 / 完全一样没重复存 / 版本号撞了自动改名
-    notify(result.action === "duplicate" ? "info" : "success", result.message);
-    if (result.action === "added") {
-      notify("info", "到列表里把它启用就会铺进游戏目录");
-    }
+    report(result);
   } catch (error) {
     notify("error", errorText(error));
   } finally {
     importing.value = false;
+  }
+}
+
+/** 用户在「新版本 / 独立改版」之间选了。 */
+async function chooseMode(mode: ModImportMode): Promise<void> {
+  const current = choosing.value;
+  if (!current) return;
+  choosing.value = null;
+
+  importing.value = true;
+  try {
+    const result = await api.importMod(current.path, mode);
+    await load();
+    report(result);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    importing.value = false;
+  }
+}
+
+/** 把导入结果如实说给用户。 */
+function report(result: ModImport): void {
+  notify(result.action === "duplicate" ? "info" : "success", result.message);
+  if (result.action === "added") {
+    notify("info", "到列表里把它启用就会铺进游戏目录");
   }
 }
 
@@ -298,6 +413,15 @@ function openModsDir(): void {
         </p>
       </div>
       <div class="hero__actions">
+        <button
+          v-if="picked.size"
+          class="btn btn-tonal"
+          type="button"
+          :disabled="busy !== null"
+          @click="exportPicked"
+        >
+          导出选中的 {{ picked.size }} 个版本
+        </button>
         <button class="btn btn-text" type="button" :disabled="loading" @click="load">
           {{ loading ? "读取中…" : "重新读取" }}
         </button>
@@ -332,9 +456,17 @@ function openModsDir(): void {
           </span>
           <span class="group__campaign">{{ group.slotName }}</span>
           <span v-if="group.variantName" class="group__variant">{{ group.variantName }}</span>
+          <span v-if="group.origin === 'standalone' && group.mods.length > 1" class="badge">
+            {{ group.mods.length }} 个版本
+          </span>
         </div>
         <div class="group__actions">
+          <!--
+            独立模组是**版本互斥**的：同一 modid 只能启用一个（它们在游戏目录里
+            抢同一个文件夹），所以不提供「全部启用」。
+          -->
           <button
+            v-if="group.origin !== 'standalone'"
             class="btn btn-text btn--tiny"
             type="button"
             :disabled="busy !== null"
@@ -356,13 +488,48 @@ function openModsDir(): void {
       <ul class="mods">
         <li v-for="mod in group.mods" :key="mod.path" class="mod">
           <div class="mod__info">
+            <input
+              v-if="mod.standalone_id"
+              class="mod__pick"
+              type="checkbox"
+              :checked="picked.has(mod.standalone_id)"
+              :title="'勾上：导出时带上这个版本'"
+              @change="togglePick(mod.standalone_id as string)"
+            />
             <span class="mod__name">{{ mod.name }}</span>
             <span v-if="mod.required" class="badge badge--req" title="包内声明为依赖模组">依赖</span>
+            <span v-if="mod.origin === 'standalone' && mod.version" class="badge badge--ver">
+              v{{ mod.version }}
+            </span>
             <span v-if="mod.parts > 1" class="badge">{{ mod.parts }} 个文件</span>
           </div>
 
           <div class="mod__actions">
             <template v-if="mod.standalone_id">
+              <select
+                v-if="group.mods.length > 1"
+                class="mod__base"
+                :value="compareWith[mod.modid ?? ''] ?? ''"
+                @change="compareWith[mod.modid ?? ''] = ($event.target as HTMLSelectElement).value"
+              >
+                <option value="">基准…</option>
+                <option
+                  v-for="other in group.mods.filter((item) => item.path !== mod.path)"
+                  :key="other.path"
+                  :value="other.standalone_id ?? ''"
+                >
+                  与 v{{ other.version ?? "未标" }} 比
+                </option>
+              </select>
+              <button
+                v-if="compareWith[mod.modid ?? '']"
+                class="btn btn-text btn--tiny"
+                type="button"
+                :disabled="busy !== null"
+                @click="compare(mod)"
+              >
+                对比
+              </button>
               <button
                 class="btn btn-text btn--tiny"
                 type="button"
@@ -429,6 +596,86 @@ function openModsDir(): void {
         </li>
       </ul>
     </section>
+
+    <!-- 对比结果 -->
+    <div v-if="comparing" class="sheet" @click.self="comparing = null">
+      <div class="sheet__card sheet__card--wide">
+        <h3 class="sheet__title">
+          {{ comparing.before.name }} v{{ comparing.before.version ?? "未标" }}
+          →
+          v{{ comparing.after.version ?? "未标" }}
+        </h3>
+
+        <p v-if="comparing.identical" class="sheet__text">
+          两个版本内容<strong>完全一样</strong>。
+        </p>
+
+        <template v-else>
+          <p class="sheet__text">
+            共 <strong>{{ comparing.files.filter((f) => f.status !== "same").length }}</strong>
+            个文件有差异（总 {{ comparing.files.length }} 个）。
+          </p>
+
+          <ul class="diff">
+            <li
+              v-for="file in comparing.files.filter((f) => f.status !== 'same')"
+              :key="file.path"
+              class="diff__row"
+              :class="'diff__row--' + file.status"
+            >
+              <span class="diff__tag">{{ file.status }}</span>
+              <span class="diff__path">{{ file.path }}</span>
+            </li>
+          </ul>
+
+          <details v-for="item in comparing.semantic" :key="item.path" class="semantic">
+            <summary class="semantic__head">语义 diff：{{ item.path }}</summary>
+            <pre class="semantic__body">{{ item.text }}</pre>
+          </details>
+
+          <p v-if="comparing.semantic_note" class="sheet__note">
+            {{ comparing.semantic_note }}
+          </p>
+        </template>
+
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="comparing = null">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 同 modid：问一句作为新版本还是独立改版 -->
+    <div v-if="choosing" class="sheet" @click.self="choosing = null">
+      <div class="sheet__card">
+        <h3 class="sheet__title">「{{ choosing.preview.name }}」要怎么放？</h3>
+        <p class="sheet__text">
+          库里已经有 <strong>{{ choosing.preview.existing.length }}</strong> 个同为
+          <code>{{ choosing.preview.modid }}</code> 的模组：
+        </p>
+
+        <ul class="existing">
+          <li v-for="item in choosing.preview.existing" :key="item.id" class="existing__row">
+            <span class="existing__name">{{ item.name }}</span>
+            <span class="existing__ver">v{{ item.version ?? "未标版本" }}</span>
+          </li>
+        </ul>
+
+        <p class="sheet__text">
+          <strong>作为新版本</strong>：归到同一个模组下面，之后可以自由切换用哪一版。<br />
+          <strong>作为独立改版</strong>：单独显示一个 —— 适用于「拿别人的模组改的」，
+          它跟原版是两码事。
+        </p>
+
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="chooseMode('separate')">
+            作为独立改版
+          </button>
+          <button class="btn btn-primary" type="button" @click="chooseMode('version')">
+            作为新版本
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 删除确认：自绘的，不用 window.confirm -->
     <div v-if="removing" class="sheet" @click.self="removing = null">
@@ -674,6 +921,12 @@ function openModsDir(): void {
   font-size: 10.5px;
 }
 
+.badge--ver {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
 .badge--req {
   background: var(--accent);
   color: #fff;
@@ -699,6 +952,126 @@ function openModsDir(): void {
   align-items: center;
   gap: 5px;
   flex: none;
+}
+
+/* 对比结果 */
+.sheet__card--wide {
+  width: min(920px, 92vw);
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.diff__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.diff__tag {
+  flex: none;
+  width: 62px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.diff__row--changed .diff__tag {
+  color: var(--warning, #b26a00);
+}
+
+.diff__row--added .diff__tag {
+  color: #00796b;
+}
+
+.diff__row--removed .diff__tag {
+  color: var(--danger, #c62828);
+}
+
+.diff__path {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic {
+  margin: 8px 0;
+}
+
+.semantic__head {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.semantic__body {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: #101725;
+  color: #cfe3ff;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.mod__base {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/* 询问对话框里的已有版本列表 */
+.existing {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.existing__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.existing__name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.existing__ver {
+  font-size: 11.5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--on-surface-variant);
 }
 
 /* 编辑框 */
@@ -734,6 +1107,11 @@ function openModsDir(): void {
 
 .btn--danger {
   color: var(--danger, #c62828);
+}
+
+.mod__pick {
+  flex: none;
+  cursor: pointer;
 }
 
 .mod__name {

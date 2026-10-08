@@ -176,6 +176,12 @@ pub struct LibraryMod {
     /// 单独导入的模组才有：库里的 id。界面靠它决定能不能改信息 / 导出 / 删除。
     #[serde(default)]
     pub standalone_id: Option<String>,
+    /// **modid**：同一个模组的多个版本靠它归到一起。
+    #[serde(default)]
+    pub modid: Option<String>,
+    /// 版本号。
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 /// 版本自带的说明文档。
@@ -688,6 +694,8 @@ impl Library {
                         mounted: entry.mounted,
                         parts: entry.parts,
                         standalone_id: None,
+                        modid: None,
+                        version: variant.version.clone(),
                     });
                 }
             }

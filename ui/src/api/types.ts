@@ -381,6 +381,9 @@ export interface LibraryMod {
   required: boolean;
   /** 单独导入的模组才有：库里的 id。 */
   standalone_id: string | null;
+  /** 同一个模组的多个版本靠它归到一起。 */
+  modid: string | null;
+  version: string | null;
 }
 
 /** 独立模组库里的一个模组。 */
@@ -464,6 +467,46 @@ export interface ModImport {
   existing: StandaloneMod | null;
   /** 界面该怎么说。 */
   message: string;
+}
+
+/** 导入模组前的预检。 */
+export interface ModPreview {
+  name: string;
+  /** 认出来的 modid。 */
+  modid: string;
+  fingerprint: string;
+  /** 库里同 modid 的已有版本。 */
+  existing: StandaloneMod[];
+  /** 库里已有一份内容完全一样的。 */
+  duplicate: boolean;
+  suggested_version: string;
+}
+
+/** 导入时怎么处理与已有模组的关系。 */
+export type ModImportMode = "auto" | "version" | "separate";
+
+/** 两个模组版本的一个文件差异。 */
+export interface ModFileDiff {
+  path: string;
+  status: "same" | "changed" | "added" | "removed";
+  size_before: number;
+  size_after: number;
+}
+
+/** 一份文件的语义 diff。 */
+export interface ModSemanticDiff {
+  path: string;
+  text: string;
+}
+
+/** 两个模组版本的对比结果。 */
+export interface ModComparison {
+  before: StandaloneMod;
+  after: StandaloneMod;
+  identical: boolean;
+  files: ModFileDiff[];
+  semantic: ModSemanticDiff[];
+  semantic_note: string | null;
 }
 
 export interface LauncherApi {
@@ -604,12 +647,18 @@ export interface LauncherApi {
   listStandaloneMods(): Promise<StandaloneMod[]>;
   /** 选一个模组包：file（压缩包 / .SC2Mod）或 folder。 */
   pickModSource(kind: "file" | "folder"): Promise<string | null>;
+  /** 导入前的预检：这个包是谁、库里有没有同族的。 */
+  previewMod(path: string): Promise<ModPreview>;
   /** 导入模组包。 */
-  importMod(path: string): Promise<ModImport>;
+  importMod(path: string, mode?: ModImportMode): Promise<ModImport>;
   /** 改模组信息。 */
   updateMod(id: string, changes: ModChanges): Promise<StandaloneMod>;
   /** 删掉模组。 */
   removeMod(id: string): Promise<void>;
+  /** 比两个模组版本差在哪。 */
+  compareMods(before: string, after: string): Promise<ModComparison>;
+  /** 把选中的若干模组版本打包成一个 zip，返回结果说明。 */
+  exportMods(ids: string[]): Promise<string>;
   /** 导出模组包，返回写到哪了。 */
   exportMod(id: string): Promise<string>;
   /** 启用 / 停用独立模组（启用会立刻铺进游戏目录）。 */

@@ -1200,3 +1200,168 @@ fn mods_are_grouped_by_folder_not_by_file() {
     assert_eq!(rows[1].parts, 1);
     assert!(!rows[1].mounted);
 }
+#[test]
+fn mod_import_dedupes_and_picks_versions() {
+    use crate::library::mods::{self, ModImportAction, ModImportMode};
+
+    let dir = tempfile::tempdir().expect("临时目录");
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&data).expect("建目录");
+
+    // 造一个模组目录：Mods/Demo/A.SC2Mod
+    let make = |name: &str, body: &str| {
+        let root = dir.path().join(name);
+        let inner = root.join("Demo");
+        std::fs::create_dir_all(&inner).expect("建模组目录");
+        std::fs::write(inner.join("A.SC2Mod"), body).expect("写文件");
+        root
+    };
+
+    let first = make("src1", "hello");
+    let same = make("src2", "hello");
+    let other = make("src3", "totally different");
+
+    // ---- 1) 全新导入 ----
+    let one = mods::import(
+        &data,
+        &first,
+        Some("demo.mod"),
+        Some("1.0"),
+        ModImportMode::Auto,
+    )
+    .expect("导入 1");
+    assert_eq!(one.action, ModImportAction::Added);
+    assert_eq!(one.record.modid.as_deref(), Some("demo.mod"));
+    assert_eq!(one.record.version.as_deref(), Some("1.0"));
+    assert_eq!(mods::list(&data).len(), 1);
+
+    // ---- 2) 内容一模一样：不留第二份 ----
+    let two = mods::import(
+        &data,
+        &same,
+        Some("demo.mod"),
+        Some("1.0"),
+        ModImportMode::Auto,
+    )
+    .expect("导入 2");
+    assert_eq!(
+        two.action,
+        ModImportAction::Duplicate,
+        "完全一样就该直接复用"
+    );
+    assert_eq!(mods::list(&data).len(), 1, "库里不该出现第二份一样的内容");
+    // 复用的是原来那条，id 也应当是原来那个
+    assert_eq!(two.record.id, one.record.id);
+
+    // ---- 3) 内容不同、版本号撞了：自动改版本号 ----
+    let three = mods::import(
+        &data,
+        &other,
+        Some("demo.mod"),
+        Some("1.2"),
+        ModImportMode::Auto,
+    )
+    .expect("导入 3");
+    assert_eq!(three.action, ModImportAction::NewVersion);
+    assert_eq!(
+        three.record.version.as_deref(),
+        Some("1.2"),
+        "包内声明的版本要被采纳"
+    );
+    assert_eq!(mods::list(&data).len(), 2);
+
+    // ---- 3b) 没声明版本、内容又不同：推出来的版本号撞了，自动改名 ----
+    let unnamed = make("src3b", "yet another body");
+    let renamed = mods::import(&data, &unnamed, Some("demo.mod"), None, ModImportMode::Auto)
+        .expect("导入 3b");
+    assert_eq!(renamed.action, ModImportAction::Renamed);
+    assert_ne!(
+        renamed.record.version.as_deref(),
+        Some("1.2"),
+        "撞号要自动换个版本号"
+    );
+
+    // ---- 4) 作为独立改版：即使 modid 相同也单独一个模组 ----
+    let four = mods::import(
+        &data,
+        &other,
+        Some("demo.mod"),
+        Some("1.2"),
+        ModImportMode::Separate,
+    )
+    .expect("导入 4");
+    assert_eq!(four.action, ModImportAction::Added);
+    let id = four.record.modid.clone().unwrap_or_default();
+    assert!(id.starts_with("demo.mod#"), "独立改版应当另起一个 id：{id}");
+    // 1.0 + 1.2 + 撞号改名的那个 + 独立改版 = 4
+    assert_eq!(mods::list(&data).len(), 4);
+
+    // ---- 5) 预检能认出「库里已有同族的」 ----
+    //
+    // 用一份**全新的内容** —— 拿 other 的话，它在第 3 步已经进库了，
+    // 预检会正确地说这是重复的（那也是一种正确行为，但不是这一步要验的）。
+    let fresh = make("src5", "brand new content nobody has");
+    let preview = mods::preview(&data, &fresh, Some("demo.mod"), Some("1.5")).expect("预检");
+    assert_eq!(preview.modid, "demo.mod");
+    assert!(
+        preview.existing.len() >= 2,
+        "同 modid 的已有版本应当被列出来"
+    );
+    assert!(!preview.duplicate, "全新内容不该判成重复");
+    assert_eq!(preview.suggested_version, "1.5", "包内声明的版本要被采纳");
+
+    // 反过来：内容确实重复时要认出来
+    let again = mods::preview(&data, &other, Some("demo.mod"), Some("1.2")).expect("预检 2");
+    assert!(again.duplicate, "同一份内容第二次来应当判成重复");
+}
+
+#[test]
+fn enabling_a_mod_disables_its_siblings() {
+    use crate::library::mods;
+
+    let dir = tempfile::tempdir().expect("临时目录");
+    let data = dir.path().join("data");
+    std::fs::create_dir_all(&data).expect("建目录");
+
+    let make = |name: &str, body: &str| {
+        let root = dir.path().join(name);
+        std::fs::create_dir_all(root.join("Demo")).expect("建模组目录");
+        std::fs::write(root.join("Demo").join("A.SC2Mod"), body).expect("写文件");
+        root
+    };
+
+    mods::import(
+        &data,
+        &make("a", "one"),
+        Some("demo.mod"),
+        Some("1.0"),
+        Default::default(),
+    )
+    .expect("导入 A");
+    mods::import(
+        &data,
+        &make("b", "two"),
+        Some("demo.mod"),
+        Some("2.0"),
+        Default::default(),
+    )
+    .expect("导入 B");
+
+    let all = mods::list(&data);
+    assert_eq!(all.len(), 2);
+
+    // 启用第一个
+    mods::set_enabled(&data, &all[0].id, true).expect("启用");
+    let after_first = mods::list(&data);
+    assert_eq!(after_first.iter().filter(|item| item.enabled).count(), 1);
+
+    // 再启用第二个：第一个必须让位 —— 它们在游戏目录里抢同一个文件夹
+    mods::set_enabled(&data, &all[1].id, true).expect("启用第二个");
+    let after_second = mods::list(&data);
+    let on: Vec<&str> = after_second
+        .iter()
+        .filter(|item| item.enabled)
+        .map(|item| item.id.as_str())
+        .collect();
+    assert_eq!(on, vec![all[1].id.as_str()], "同 modid 只能有一个启用");
+}

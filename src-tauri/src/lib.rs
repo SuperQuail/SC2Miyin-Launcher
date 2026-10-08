@@ -614,22 +614,60 @@ fn pick_mod_source(kind: String) -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 导入前的预检：这个包是谁、库里有没有同族的。
+///
+/// 界面拿它决定要不要问一句「作为新版本还是独立改版」。
+#[tauri::command(async)]
+fn preview_mod(path: String, state: State<'_, AppState>) -> Result<mods::ModPreview, String> {
+    let source = Path::new(&path);
+    let (declared_id, declared_version) = read_mod_meta(source);
+
+    mods::preview(
+        state.library.root(),
+        source,
+        declared_id.as_deref(),
+        declared_version.as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 从包里读 modid 与版本号（裸目录 / .SC2Mod 没有元数据，返回 None）。
+///
+/// **版本号必须一起读**：不读的话，库里只能从已有版本去推，
+/// 结果「作者发的 1.2 版」会被当成「1.0 撞号」而改名叫 1.0.2。
+fn read_mod_meta(source: &Path) -> (Option<String>, Option<String>) {
+    if !source.is_file() {
+        return (None, None);
+    }
+    match package::inspect(source) {
+        Ok(found) => (found.modid, found.version),
+        Err(_) => (None, None),
+    }
+}
+
 /// 导入一个独立模组包（目录 / .SC2Mod / 压缩包都行）。
 ///
-/// 压缩包会先读一遍元数据拿 **modid** —— 判定「同一个模组的新版本」全靠它。
-/// 裸的目录 / .SC2Mod 没有元数据，退回用名字当 id。
+/// `mode` 决定跟库里同 modid 的模组怎么处：
+/// - `version` —— 作为它的**新版本**归到一起，可切换
+/// - `separate` —— 作为**独立改版**单独显示一个
+/// - 不传 —— 自动（同 id 就归并）
 #[tauri::command(async)]
-fn import_mod(path: String, state: State<'_, AppState>) -> Result<mods::ModImport, String> {
+fn import_mod(
+    path: String,
+    mode: Option<mods::ModImportMode>,
+    state: State<'_, AppState>,
+) -> Result<mods::ModImport, String> {
     let source = Path::new(&path);
+    let (declared_id, declared_version) = read_mod_meta(source);
 
-    let declared = if source.is_file() {
-        package::inspect(source).ok().and_then(|found| found.modid)
-    } else {
-        None
-    };
-
-    mods::import(state.library.root(), source, declared.as_deref())
-        .map_err(|error| error.to_string())
+    mods::import(
+        state.library.root(),
+        source,
+        declared_id.as_deref(),
+        declared_version.as_deref(),
+        mode.unwrap_or_default(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// 改模组信息（只改启动器记录的，不动文件）。
@@ -663,6 +701,43 @@ fn export_mod(id: String, state: State<'_, AppState>) -> Result<String, String> 
 
     mods::export(state.library.root(), &id, &target).map_err(|error| error.to_string())?;
     Ok(target.to_string_lossy().into_owned())
+}
+
+/// 比两个模组版本差在哪。
+///
+/// 装了 SC2Diff 的话还会给出**语义 diff**（改了什么字段/物件），
+/// 没装就只列文件级差异 —— 界面按 `semantic_note` 如实说明。
+#[tauri::command(async)]
+fn compare_mods(
+    before: String,
+    after: String,
+    state: State<'_, AppState>,
+) -> Result<mods::ModComparison, String> {
+    mods::compare(state.library.root(), &before, &after).map_err(|error| error.to_string())
+}
+
+/// 把**选中的若干模组版本**打包成一个 zip。
+///
+/// 让用户挑是刻意的：一个模组攒了十几个版本之后全打包又大又没人要，
+/// 而「把 1.0 和 1.3 一起发过去对比」是很实际的需求。
+#[tauri::command(async)]
+fn export_mods(ids: Vec<String>, state: State<'_, AppState>) -> Result<String, String> {
+    let data = state.library.root();
+
+    let first = ids
+        .first()
+        .and_then(|id| mods::get(data, id))
+        .ok_or_else(|| "没有选中任何版本".to_string())?;
+
+    let target = rfd::FileDialog::new()
+        .set_title("导出模组版本")
+        .set_file_name(format!("{}-版本包.zip", first.name))
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .ok_or_else(|| "已取消".to_string())?;
+
+    let count = mods::export_many(data, &ids, &target).map_err(|error| error.to_string())?;
+    Ok(format!("{} 个文件 -> {}", count, target.to_string_lossy()))
 }
 
 /// 启用 / 停用独立模组。启用会立刻把它铺进 `<游戏>/Mods/`。
@@ -702,6 +777,8 @@ fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, Stri
             origin: miyin_core::library::ModOrigin::Standalone,
             required: false,
             standalone_id: Some(record.id.clone()),
+            modid: Some(mods::effective_id(&record)),
+            version: record.version.clone(),
         });
     }
 
@@ -1386,10 +1463,13 @@ pub fn run() {
             uninstall_tool,
             open_tool_repo,
             pick_mod_source,
+            preview_mod,
             import_mod,
             update_mod,
             remove_mod,
             export_mod,
+            export_mods,
+            compare_mods,
             set_mod_enabled,
             list_game_mods,
             read_doc,

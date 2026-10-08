@@ -16,7 +16,9 @@ import type {
   EditorLaunch,
   GameModEntry,
   LibraryMod,
+  ModComparison,
   ModImport,
+  ModPreview,
   StandaloneMod,
   ToolEnsure,
   ToolRelease,
@@ -111,10 +113,13 @@ const desktop: LauncherApi = {
   uninstallTool: (id) => invoke<void>("uninstall_tool", { id }),
   openToolRepo: (id) => invoke<void>("open_tool_repo", { id }),
   pickModSource: (kind) => invoke<string | null>("pick_mod_source", { kind }),
-  importMod: (path) => invoke<ModImport>("import_mod", { path }),
+  previewMod: (path) => invoke<ModPreview>("preview_mod", { path }),
+  importMod: (path, mode) => invoke<ModImport>("import_mod", { path, mode: mode ?? null }),
   updateMod: (id, changes) => invoke<StandaloneMod>("update_mod", { id, changes }),
   removeMod: (id) => invoke<void>("remove_mod", { id }),
   exportMod: (id) => invoke<string>("export_mod", { id }),
+  exportMods: (ids) => invoke<string>("export_mods", { ids }),
+  compareMods: (before, after) => invoke<ModComparison>("compare_mods", { before, after }),
   setModEnabled: (id, enabled) => invoke<StandaloneMod>("set_mod_enabled", { id, enabled }),
   readDoc: (slot, variantId) =>
     invoke<ArrayBuffer>("read_doc", { slot, variantId }),
@@ -362,6 +367,8 @@ function demoLibraryMods(): LibraryMod[] {
         origin,
         required: name === "Alenger",
         standalone_id: null,
+        modid: name,
+        version: "1.0",
       });
     }
   };
@@ -388,6 +395,8 @@ function demoLibraryMods(): LibraryMod[] {
     origin: "standalone",
     required: false,
     standalone_id: "手搓单位包",
+    modid: "手搓单位包",
+    version: "1.0",
   });
   return rows;
 }
@@ -742,6 +751,8 @@ const demo: LauncherApi = {
   uninstallTool: () => delay(undefined),
   openToolRepo: () => delay(undefined),
   pickModSource: () => delay(null),
+  previewMod: () =>
+    delay({ name: "演示模组", modid: "demo", fingerprint: "", existing: [], duplicate: false, suggested_version: "1.0" } as ModPreview),
   importMod: () =>
     delay({
       record: {
@@ -764,6 +775,16 @@ const demo: LauncherApi = {
   updateMod: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
   removeMod: () => delay(undefined),
   exportMod: () => delay("D:\\demo.zip"),
+  exportMods: () => delay("3 个文件 -> D:\\demo.zip"),
+  compareMods: () =>
+    delay({
+      before: {} as never,
+      after: {} as never,
+      identical: false,
+      files: [],
+      semantic: [],
+      semantic_note: "演示模式不做对比",
+    } as ModComparison),
   setModEnabled: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", author: null, version: null, description: null, enabled: true, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
   readDoc: () => delay(new ArrayBuffer(0)),
 

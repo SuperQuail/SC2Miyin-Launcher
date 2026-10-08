@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+pub mod sc2diff;
+
 use crate::error::{Error, Result};
 use crate::safety;
 use crate::update::Reporter;

@@ -131,6 +131,42 @@ pub struct StandaloneMod {
     pub parts: usize,
 }
 
+/// 导入前的预检：这个包是谁、库里有没有同族的。
+///
+/// 界面拿它决定要不要问一句 —— 「这看起来是 X 的另一个版本，
+/// 作为它的新版本，还是当成一个独立改版？」不确认就直接并进去太武断。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModPreview {
+    /// 包里的显示名。
+    pub name: String,
+    /// 认出来的 modid（包内声明的，或退回名字）。
+    pub modid: String,
+    /// 内容指纹。
+    pub fingerprint: String,
+    /// 库里同 modid 的已有版本。
+    pub existing: Vec<StandaloneMod>,
+    /// 库里是否已有一份**内容完全一样**的。
+    pub duplicate: bool,
+    /// 归到哪个版本号（按库里已有的推）。
+    pub suggested_version: String,
+}
+
+/// 导入时怎么处理与已有模组的关系。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModImportMode {
+    /// 自动：同 modid 就归并成版本（默认）。
+    #[default]
+    Auto,
+    /// **作为新版本**：归到同一个模组下面，可切换。
+    Version,
+    /// **作为独立改版**：即使 modid 相同也单独显示一个。
+    ///
+    /// 用于「基于别人的模组改的」那种 —— 跟原版是两码事，混在一个版本列表里
+    /// 反而让人以为它们是同一个东西的不同时期。
+    Separate,
+}
+
 /// 导入一个模组时发生了什么。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -327,19 +363,10 @@ pub fn effective_id(record: &StandaloneMod) -> String {
         .unwrap_or_else(|| record.name.clone())
 }
 
-/// 从磁盘导入一个模组：可以是目录、`.SC2Mod` 文件，或者压缩包。
+/// 把来源解到暂存目录，返回 (暂存目录, 显示名, 原始文件名)。
 ///
-/// 按 **modid** 判定归属：
-///
-/// | 情况 | 处理 |
-/// | --- | --- |
-/// | 库里没有这个 id | 新模组 |
-/// | 有，且**内容一模一样** | 不留第二份，直接用库里那份 |
-/// | 有，版本不同 | 作为**新版本**存一条 |
-/// | 有，版本相同但内容不同 | **自动改个版本号**再存 |
-///
-/// `declared_id` 是包内声明的 modid；没声明就退回用名字当 id。
-pub fn import(data: &Path, source: &Path, declared_id: Option<&str>) -> Result<ModImport> {
+/// 预检和导入都要用：先算指纹、跟库里比对，比完才知道要不要留下。
+fn stage(data: &Path, source: &Path) -> Result<(PathBuf, String, String)> {
     if !source.exists() {
         return Err(Error::PackageRejected(format!(
             "找不到要导入的模组：{}",
@@ -361,7 +388,6 @@ pub fn import(data: &Path, source: &Path, declared_id: Option<&str>) -> Result<M
     let root = mods_root(data);
     std::fs::create_dir_all(&root)?;
 
-    // 先解到暂存目录：还要算指纹、跟库里比对，比完才知道要不要留下
     let staging = safety::ensure_within(
         &root,
         &root.join(format!(".staging-{}", crate::library::now_seconds())),
@@ -385,12 +411,112 @@ pub fn import(data: &Path, source: &Path, declared_id: Option<&str>) -> Result<M
         return Err(error);
     }
 
+    Ok((staging, display, raw_name))
+}
+
+/// 导入前的预检：认一下这个包是谁、库里有没有同族的。
+///
+/// 会**先把内容解到暂存目录算指纹**，算完就删掉 —— 界面拿这份信息去问用户，
+/// 用户选了再真正导一次。模组通常不大，多解一遍换来「不武断地替用户决定」，值。
+pub fn preview(
+    data: &Path,
+    source: &Path,
+    declared_id: Option<&str>,
+    declared_version: Option<&str>,
+) -> Result<ModPreview> {
+    let (staging, display, _) = stage(data, source)?;
+
     let fingerprint = fingerprint_of(&staging)?;
+    let _ = std::fs::remove_dir_all(&staging);
+
     let modid = declared_id
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| display.clone());
+
+    let existing: Vec<StandaloneMod> = list(data)
+        .into_iter()
+        .filter(|item| effective_id(item) == modid)
+        .collect();
+
+    let duplicate = existing
+        .iter()
+        .any(|item| !item.fingerprint.is_empty() && item.fingerprint == fingerprint);
+
+    let taken: Vec<String> = existing
+        .iter()
+        .filter_map(|item| item.version.clone())
+        .collect();
+    let mut ignored = ModImportAction::Added;
+    // 包内声明的版本优先；没声明才从库里已有的推
+    let wanted = declared_version
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| taken.last().map(String::as_str).unwrap_or("1.0"));
+    let suggested = if taken.is_empty() {
+        wanted.to_string()
+    } else {
+        unique_version(wanted, &taken, &mut ignored)
+    };
+
+    Ok(ModPreview {
+        name: display,
+        modid,
+        fingerprint,
+        existing,
+        duplicate,
+        suggested_version: suggested,
+    })
+}
+
+/// 从磁盘导入一个模组：可以是目录、`.SC2Mod` 文件，或者压缩包。
+///
+/// 按 **modid** 判定归属：
+///
+/// | 情况 | 处理 |
+/// | --- | --- |
+/// | 库里没有这个 id | 新模组 |
+/// | 有，且**内容一模一样** | 不留第二份，直接用库里那份 |
+/// | 有，版本不同 | 作为**新版本**存一条 |
+/// | 有，版本相同但内容不同 | **自动改个版本号**再存 |
+///
+/// `declared_id` 是包内声明的 modid；没声明就退回用名字当 id。
+pub fn import(
+    data: &Path,
+    source: &Path,
+    declared_id: Option<&str>,
+    declared_version: Option<&str>,
+    mode: ModImportMode,
+) -> Result<ModImport> {
+    let (staging, display, _raw_name) = stage(data, source)?;
+    let root = mods_root(data);
+
+    let fingerprint = fingerprint_of(&staging)?;
+    let base_id = declared_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| display.clone());
+
+    // 「作为独立改版」：即使 id 相同也**不并进版本列表**，单独显示一个。
+    // 做法是给 id 加个后缀 —— 库里认的就是 id，这样它们天然是两个模组。
+    let modid = match mode {
+        ModImportMode::Separate => {
+            let existing_ids: Vec<String> = list(data).iter().map(effective_id).collect();
+            let mut candidate = format!("{base_id}#alt");
+            let mut index = 2;
+            while existing_ids.contains(&candidate) {
+                candidate = format!("{base_id}#alt-{index}");
+                index += 1;
+                if index > 999 {
+                    break;
+                }
+            }
+            candidate
+        }
+        _ => base_id,
+    };
 
     let existing_list = list(data);
     let same_id: Vec<StandaloneMod> = existing_list
@@ -413,30 +539,29 @@ pub fn import(data: &Path, source: &Path, declared_id: Option<&str>) -> Result<M
         });
     }
 
-    // ---- 决定版本号与目录名 ----
-    let mut version = same_id
-        .iter()
-        .filter_map(|item| item.version.clone())
-        .next_back();
+    // ---- 决定版本号 ----
+    //
+    // **包内声明的版本优先**。没声明才从库里已有的推 —— 推出来的多半就是
+    // 「跟上一版同号」，于是自然走到「撞号改名」那条路。这正是想要的：
+    // 不知道版本就老实说不知道，别硬安一个。
+    let declared = declared_version
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
     let mut action = ModImportAction::Added;
-
-    if !same_id.is_empty() {
-        // 传进来的包自己声明的版本还不知道（元数据在调用方解析），
-        // 这里按「库里已有同 id」处理：先当新版本，撞版本号再改名
+    let version = if same_id.is_empty() {
+        Some(declared.unwrap_or_else(|| "1.0".to_string()))
+    } else {
         action = ModImportAction::NewVersion;
-
         let taken: Vec<String> = same_id
             .iter()
             .filter_map(|item| item.version.clone())
             .collect();
-        version = Some(unique_version(
-            version.as_deref().unwrap_or("1.0"),
-            &taken,
-            &mut action,
-        ));
-    } else {
-        version = Some("1.0".to_string());
-    }
+        let wanted =
+            declared.unwrap_or_else(|| taken.last().cloned().unwrap_or_else(|| "1.0".to_string()));
+        Some(unique_version(&wanted, &taken, &mut action))
+    };
 
     let id = unique_dir_name(&root, &display)?;
     let target = safety::ensure_within(&root, &root.join(&id))?;
@@ -577,15 +702,32 @@ pub fn update(data: &Path, id: &str, changes: ModChanges) -> Result<StandaloneMo
 }
 
 /// 启用 / 停用一个模组。**只改记录** —— 真正铺进游戏目录要走 `sync`。
+///
+/// 启用时会**把同 modid 的其它版本关掉**：它们在游戏目录里抢的是同一个文件夹，
+/// 同时开着只会互相覆盖，留下一堆说不清是谁的文件。
 pub fn set_enabled(data: &Path, id: &str, enabled: bool) -> Result<StandaloneMod> {
     let mut mods = list(data);
-    let record = mods
-        .iter_mut()
+    let target_id = mods
+        .iter()
         .find(|item| item.id == id)
+        .map(effective_id)
         .ok_or_else(|| Error::CampaignNotFound(id.to_string()))?;
-    record.enabled = enabled;
 
-    let updated = record.clone();
+    for item in mods.iter_mut() {
+        if item.id == id {
+            item.enabled = enabled;
+        } else if enabled && effective_id(item) == target_id {
+            // 同一个模组的另一个版本：让位
+            item.enabled = false;
+        }
+    }
+
+    let updated = mods
+        .iter()
+        .find(|item| item.id == id)
+        .cloned()
+        .ok_or_else(|| Error::CampaignNotFound(id.to_string()))?;
+
     save(data, &mods)?;
     Ok(updated)
 }
@@ -648,6 +790,293 @@ pub fn export(data: &Path, id: &str, target: &Path) -> Result<()> {
         return Err(Error::PackageRejected("这个模组目录是空的".to_string()));
     }
     Ok(())
+}
+
+/// 导出**选中的若干版本**到一个 zip。
+///
+/// 为什么要能挑：一个模组攒了十几个版本之后，全打包出去又大又没人要；
+/// 而「把 1.0 和 1.3 一起发过去让人对比」是很实际的需求。
+///
+/// 包里的摆法：
+///
+/// `@text
+/// <名字>/
+/// ├── mods.txt          索引：这个包里带了哪些版本
+/// ├── 1.0/             各版本的完整内容
+/// └── 1.3/
+/// `@
+pub fn export_many(data: &Path, ids: &[String], target: &Path) -> Result<usize> {
+    if ids.is_empty() {
+        return Err(Error::PackageRejected("没有选中任何版本".to_string()));
+    }
+
+    let root = mods_root(data);
+    let records: Vec<StandaloneMod> = ids.iter().filter_map(|id| get(data, id)).collect();
+
+    if records.is_empty() {
+        return Err(Error::PackageRejected("选中的模组都不在库里".to_string()));
+    }
+
+    // 用第一个的名字当顶层目录 —— 同 modid 的多个版本本来就是一家人
+    let title = crate::campaign::sanitize::sanitize_dir_name(&records[0].name)
+        .unwrap_or_else(|| "mod".to_string());
+
+    let file = std::fs::File::create(target)?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    // 索引
+    let mut index = String::new();
+    index.push_str(
+        "# 这个模组包里带了以下版本
+",
+    );
+    if let Some(modid) = records[0].modid.as_deref() {
+        index.push_str(&format!(
+            "modid={modid}
+"
+        ));
+    }
+    index.push_str(&format!(
+        "title={title}
+"
+    ));
+    for record in &records {
+        index.push_str(&format!(
+            "version={}    # 原始目录 {}，{} MB
+",
+            record
+                .version
+                .clone()
+                .unwrap_or_else(|| "未标版本".to_string()),
+            record.id,
+            record.size_bytes / 1024 / 1024
+        ));
+    }
+    zip.start_file(format!("{title}/mods.txt"), options)?;
+    std::io::Write::write_all(&mut zip, index.as_bytes())?;
+
+    let mut written = 0usize;
+    for record in &records {
+        let dir = safety::ensure_within(&root, &root.join(&record.id))?;
+        if !dir.is_dir() {
+            continue;
+        }
+
+        let label = record.version.clone().unwrap_or_else(|| record.id.clone());
+        let label = crate::campaign::sanitize::sanitize_dir_name(&label)
+            .unwrap_or_else(|| record.id.clone());
+
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+        {
+            let relative = entry
+                .path()
+                .strip_prefix(&dir)
+                .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
+            let name = relative.to_string_lossy().replace('`', "/");
+            if name.is_empty() {
+                continue;
+            }
+            let name = format!("{title}/{label}/{name}");
+
+            if entry.file_type().is_dir() {
+                zip.add_directory(format!("{name}/"), options)?;
+            } else {
+                zip.start_file(name, options)?;
+                let mut input = std::fs::File::open(entry.path())?;
+                std::io::copy(&mut input, &mut zip)?;
+                written += 1;
+            }
+        }
+    }
+
+    zip.finish()?;
+    if written == 0 {
+        let _ = std::fs::remove_file(target);
+        return Err(Error::PackageRejected("选中的版本目录都是空的".to_string()));
+    }
+
+    Ok(written)
+}
+
+/// 两个模组版本之间的一个文件。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModFileDiff {
+    /// 相对模组目录的路径。
+    pub path: String,
+    /// `same` / `changed` / `added` / `removed`。
+    pub status: String,
+    pub size_before: u64,
+    pub size_after: u64,
+}
+
+/// 两个模组版本的对比结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModComparison {
+    pub before: StandaloneMod,
+    pub after: StandaloneMod,
+    /// 内容完全一样（指纹相同）。
+    pub identical: bool,
+    /// 逐文件的差异。
+    pub files: Vec<ModFileDiff>,
+    /// SC2Diff 给出的**语义 diff**（按文件）。
+    ///
+    /// 只有装了 SC2Diff、而且那个文件是**单文件形态**的 `.SC2Mod` 才有 ——
+    /// SC2Diff 处理的是文档，解开成目录树的它得先 pack 回去，这里不做。
+    /// 拿不到就留空，界面显示「未做语义 diff」而不是假装没有差异。
+    pub semantic: Vec<ModSemanticDiff>,
+    /// 没跑语义 diff 的原因。
+    pub semantic_note: Option<String>,
+}
+
+/// 一份文件的语义 diff。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModSemanticDiff {
+    pub path: String,
+    pub text: String,
+}
+
+/// 列一个模组目录里的文件（相对路径 -> (是否文件, 大小)）。
+fn list_files(root: &Path) -> Result<std::collections::BTreeMap<String, (bool, u64)>> {
+    let mut map = std::collections::BTreeMap::new();
+
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
+        let key = relative.to_string_lossy().replace('\\', "/");
+        if key.is_empty() {
+            continue;
+        }
+        let is_file = entry.file_type().is_file();
+        let size = if is_file {
+            entry.metadata().map(|meta| meta.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        map.insert(key, (is_file, size));
+    }
+
+    Ok(map)
+}
+
+/// 比两个模组版本。
+///
+/// 用途有两个：让用户看清「这两个版本差在哪」，也是**将来只存 diff** 的前置
+/// —— 看不见差异就谈不上只存差异。
+pub fn compare(data: &Path, before_id: &str, after_id: &str) -> Result<ModComparison> {
+    let before =
+        get(data, before_id).ok_or_else(|| Error::CampaignNotFound(before_id.to_string()))?;
+    let after = get(data, after_id).ok_or_else(|| Error::CampaignNotFound(after_id.to_string()))?;
+
+    let root = mods_root(data);
+    let dir_before = safety::ensure_within(&root, &root.join(&before.id))?;
+    let dir_after = safety::ensure_within(&root, &root.join(&after.id))?;
+
+    let files_before = list_files(&dir_before)?;
+    let files_after = list_files(&dir_after)?;
+
+    let mut files: Vec<ModFileDiff> = Vec::new();
+    let mut semantic: Vec<ModSemanticDiff> = Vec::new();
+
+    let mut keys: Vec<&String> = files_before.keys().chain(files_after.keys()).collect();
+    keys.sort();
+    keys.dedup();
+
+    for key in keys {
+        let left = files_before.get(key);
+        let right = files_after.get(key);
+
+        let status = match (left, right) {
+            (Some(_), None) => "removed",
+            (None, Some(_)) => "added",
+            (Some((_, a)), Some((_, b))) => {
+                if a == b && same_bytes(&dir_before.join(key), &dir_after.join(key)) {
+                    "same"
+                } else {
+                    "changed"
+                }
+            }
+            (None, None) => continue,
+        };
+
+        files.push(ModFileDiff {
+            path: key.clone(),
+            status: status.to_string(),
+            size_before: left.map(|(_, size)| *size).unwrap_or(0),
+            size_after: right.map(|(_, size)| *size).unwrap_or(0),
+        });
+    }
+
+    let identical = !before.fingerprint.is_empty() && before.fingerprint == after.fingerprint;
+
+    // 语义 diff：只在装了 SC2Diff、且改动的是**单文件** .SC2Mod 时才做
+    let mut note: Option<String> = None;
+    if crate::tools::sc2diff::locate(data).is_none() {
+        note = Some("没装 SC2Diff，只列出了文件级差异".to_string());
+    } else if identical {
+        note = Some("两个版本内容完全一样，没什么好比的".to_string());
+    } else {
+        let tmp = crate::library::default_root(data)
+            .join("diff-work")
+            .join(crate::library::now_seconds().to_string());
+
+        for item in files.iter().filter(|item| item.status == "changed") {
+            let left = dir_before.join(&item.path);
+            let right = dir_after.join(&item.path);
+            // SC2Diff 吃的是**打包好的文档**；解开成目录树的跳过
+            if !left.is_file() || !right.is_file() {
+                continue;
+            }
+            if !item.path.to_ascii_lowercase().ends_with(".sc2mod")
+                && !item.path.to_ascii_lowercase().ends_with(".sc2map")
+            {
+                continue;
+            }
+
+            let repo = tmp.join(format!("r{}", semantic.len()));
+            match crate::tools::sc2diff::semantic_diff(data, &left, &right, &repo) {
+                Ok(text) => semantic.push(ModSemanticDiff {
+                    path: item.path.clone(),
+                    text,
+                }),
+                Err(error) => {
+                    note = Some(format!("语义 diff 没跑通：{error}"));
+                    break;
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        if note.is_none() && semantic.is_empty() {
+            note = Some("改动都不在可比较的文档上，只列出了文件级差异".to_string());
+        }
+    }
+
+    Ok(ModComparison {
+        before,
+        after,
+        identical,
+        files,
+        semantic,
+        semantic_note: note,
+    })
+}
+
+/// 两个文件是不是逐字节一样。
+fn same_bytes(left: &Path, right: &Path) -> bool {
+    match (std::fs::read(left), std::fs::read(right)) {
+        (Ok(a), Ok(b)) => a == b,
+        // 读不了（比如是目录）就当作「不一样」，反正上面已经比过大小了
+        _ => false,
+    }
 }
 
 /// 模组目录里有没有 `.SC2Mod`。
