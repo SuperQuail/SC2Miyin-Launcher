@@ -422,16 +422,16 @@ fn open_map_in_editor(
     state: State<'_, AppState>,
 ) -> Result<EditorLaunch, String> {
     let installation = require_installation(&state)?;
-    let editor = installation.editor.clone().ok_or_else(|| {
-        "没在安装目录里找到地图编辑器（Support64/SC2Editor_x64.exe）—— 到「设置」里重新指定游戏目录试试"
-            .to_string()
-    })?;
+    let editor = installation
+        .editor
+        .clone()
+        .ok_or_else(|| "没找到游戏编辑器 —— 到「设置」里重新指定游戏目录试试".to_string())?;
 
     // 带了模组却一个都没挂：先拦住，别让用户白白等编辑器起来再报错
     let mods = state.library.variant_mods(&slot, &variant_id);
     if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
         return Err(
-            "这个战役带了模组，但你一个都没挂载 —— 地图的依赖找不到，打开就是一堆丢失的资源。先在「挂载模组」里勾上再试"
+            "这个战役带了模组，但你一个都没挂载 —— 这样打开地图会报错。先在「挂载模组」里勾上再试"
                 .to_string(),
         );
     }
@@ -453,9 +453,7 @@ fn open_map_in_editor(
     Ok(EditorLaunch {
         editor: editor.display().to_string(),
         map,
-        guidance:
-            "编辑器已经打开这张地图。接下来请按 Ctrl+F9（菜单「测试文档」）进入游戏 —— 这一步得你自己点。"
-                .to_string(),
+        guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
     })
 }
 

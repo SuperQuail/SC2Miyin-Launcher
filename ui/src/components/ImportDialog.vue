@@ -47,7 +47,7 @@ const pendingName = computed(
 const sourceLabel = computed(() => {
   const source = preview.value?.source;
   if (source === "metadata") return "包内声明的资料片";
-  if (source === "inferred") return "自动识别（尽力而为）";
+  if (source === "inferred") return "自动识别";
   return "无法识别";
 });
 
@@ -55,8 +55,7 @@ const sourceLabel = computed(() => {
 const evidenceText = computed(() => {
   const found = inspection.value?.identification;
   if (!found) return "";
-  const rough = found.evidence === "map_name_prefix" ? "（启发式）" : "";
-  return "依据" + rough + "：" + found.detail;
+  return "依据：" + found.detail;
 });
 
 /**
@@ -298,7 +297,7 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
         <input v-model="mountMods" type="checkbox" />
         <span>
           一起挂载这 <strong>{{ packageMods }}</strong> 个模组
-          <em>（自制战役的地图依赖它们，建议勾上；之后可以到战役页面里改）</em>
+          <em>（地图需要它们才能打开，建议勾上；之后可以到战役页面里改）</em>
         </span>
       </label>
 
@@ -372,12 +371,10 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
       </div>
       <h3 class="sheet__title">确定改到「{{ chosenName }}」吗？</h3>
       <p class="sheet__text">
-        启动器<strong>确定</strong>这个包属于 <strong>{{ identifiedName }}</strong>，
-        依据是<strong>包内自己声明的资料片</strong>或精确的证据链。
+        这个包属于 <strong>{{ identifiedName }}</strong>。
         <br /><br />
-        强行装到别的战役里，地图会落在游戏不期待的位置 ——
-        <strong>多半进游戏后找不到关卡，直接玩不了</strong>。
-        装错了可以删掉重导，但白折腾一趟。
+        装到别的战役里，地图会落在游戏找不到的位置 ——
+        <strong>多半进游戏后找不到关卡，玩不了</strong>。
       </p>
       <div class="sheet__actions">
         <button class="btn btn-text" type="button" @click="importAnyway">

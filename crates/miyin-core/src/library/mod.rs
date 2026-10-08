@@ -246,7 +246,7 @@ pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapCho
                 path: None,
                 automatic: false,
                 warning: Some(format!(
-                    "主地图写的是「{wanted}」，但这个版本里找不到这张地图 —— 请自己挑一张"
+                    "找不到「{wanted}」这张地图，请自己挑一张作为启动入口"
                 )),
             },
         };

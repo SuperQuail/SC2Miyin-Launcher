@@ -139,7 +139,7 @@ function showMapMenu(event: MouseEvent, map: MapEntry): void {
 
 /** 复制地图在库里的绝对路径。 */
 async function copyMapPath(map: MapEntry): Promise<void> {
-  const text = props.slot + "/" + props.variant.id + "/" + map.path;
+  const text = map.path;
   try {
     await navigator.clipboard.writeText(text);
     notify("success", "已复制：" + text);
@@ -212,7 +212,7 @@ async function launchAnyway(): Promise<void> {
       <div>
         <h3 class="custom__title">{{ variant.name }}</h3>
         <p class="custom__sub">
-          自制战役不装进游戏目录 —— 地图就在库里，用编辑器打开玩。
+          地图不装进游戏目录，用编辑器打开来玩。
           <span v-if="maps.length">共 {{ maps.length }} 张地图。</span>
         </p>
       </div>
@@ -242,8 +242,8 @@ async function launchAnyway(): Promise<void> {
         <span class="mount__count">已挂 {{ mountedCount }} / {{ mods.length }}</span>
       </div>
       <p class="mount__hint">
-        地图里写死了 <code>Mods\xxx.SC2Mod</code> 这种依赖路径，模组得铺进游戏目录才找得到。
-        不同战役的模组会互相打架，所以按需勾选；<strong>一个都不挂的话地图打不开</strong>。
+        地图需要这些模组才能正常打开。不同战役的模组可能互相冲突，按需勾选即可；
+        <strong>一个都不挂的话，地图打开会报错</strong>。
       </p>
       <ul class="mount__list">
         <li v-for="entry in mods" :key="entry.path" class="mod">
@@ -340,9 +340,8 @@ async function launchAnyway(): Promise<void> {
         <p class="sheet__text">
           这个战役带了 <strong>{{ mods.length }}</strong> 个模组，而你一个都没勾。
           <br /><br />
-          地图里声明了 <code>Mods\xxx.SC2Mod</code> 这样的依赖，
-          模组不在游戏目录里，打开地图会是一堆丢失的资源 ——
-          <strong>多半进去就报错或者满地紫色方块</strong>。
+          地图需要它们才能正常打开，现在直接启动，
+          <strong>多半会报错或者出现紫色方块</strong>。
         </p>
         <div class="sheet__actions">
           <button class="btn btn-text" type="button" @click="showMountWarning = false">

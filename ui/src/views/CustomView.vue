@@ -68,8 +68,8 @@ function openTools(event: MouseEvent): void {
         <p class="hero__eyebrow">独立整部战役</p>
         <h2 class="hero__title">自制战役</h2>
         <p class="hero__text">
-          <strong>不装进游戏目录</strong> —— SC2 本来就不支持自制战役，
-          地图留在库里，用编辑器打开来玩。包内声明 <code>campaign=custom</code> 即归到这里。
+          <strong>不装进游戏目录</strong> —— 地图留在启动器里，
+          用游戏编辑器打开来玩。
         </p>
       </div>
 
@@ -93,8 +93,7 @@ function openTools(event: MouseEvent): void {
     <section v-if="!variants.length" class="empty">
       <p class="empty__title">还没有自制战役</p>
       <p class="empty__text">
-        点「＋ 导入战役包」选一个包 —— 比如 SCMR 这类整包下载的战役，
-        启动器会自动认出它属于自制战役。
+        点「＋ 导入战役包」选一个包，启动器会自动认出它属于自制战役。
       </p>
     </section>
 

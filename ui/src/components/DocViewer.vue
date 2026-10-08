@@ -136,7 +136,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKey));
       </div>
 
       <footer class="doc__foot">
-        这一版是包自带的说明文档。<kbd>←</kbd> <kbd>→</kbd> 翻页，<kbd>Esc</kbd> 关闭。
+        <kbd>←</kbd> <kbd>→</kbd> 翻页 · <kbd>Esc</kbd> 关闭
       </footer>
     </div>
   </div>

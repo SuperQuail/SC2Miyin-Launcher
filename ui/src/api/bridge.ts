@@ -574,8 +574,7 @@ const demo: LauncherApi = {
     delay({
       editor: "D:\\Game\\BLZ\\StarCraft II\\Support64\\SC2Editor_x64.exe",
       map,
-      guidance:
-        "编辑器已经打开这张地图。接下来请按 Ctrl+F9（菜单「测试文档」）进入游戏 —— 这一步得你自己点。",
+      guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。",
     }),
   variantDoc: () => delay(null),
   readDoc: () => delay(new ArrayBuffer(0)),

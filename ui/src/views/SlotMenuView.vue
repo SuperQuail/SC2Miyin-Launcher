@@ -340,7 +340,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
         <h2 class="banner__title">{{ slot.display_name }}</h2>
         <p class="banner__sub">
           {{ isCustom
-            ? "自制战役不装进游戏目录 —— 挑一部，用编辑器打开它的地图来玩"
+            ? "挑一部战役，用编辑器打开它的地图来玩"
             : "选择要游玩的版本 —— 原版战役，或导入的玩家版本" }}
         </p>
       </div>
