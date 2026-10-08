@@ -216,6 +216,8 @@ pub struct VariantChanges {
     pub name: Option<String>,
     pub author: Option<String>,
     pub registration_id: Option<String>,
+    /// 版本号。填进来的会先过格式校验，不合规直接拒。
+    pub version: Option<String>,
     pub description: Option<String>,
     /// 包内**声明为依赖**的模组键；`None` 表示这一项不动。
     ///
@@ -230,6 +232,7 @@ impl VariantChanges {
         self.name.is_none()
             && self.author.is_none()
             && self.registration_id.is_none()
+            && self.version.is_none()
             && self.description.is_none()
             && self.declared_mods.is_none()
     }
@@ -276,6 +279,19 @@ pub fn update_variant(
     if let Some(id) = changes.registration_id {
         let trimmed = id.trim();
         variant.registration_id = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(version) = changes.version {
+        let trimmed = version.trim();
+        if trimmed.is_empty() {
+            // 空 = 清掉版本号（有些包本来就没写）
+            variant.version = None;
+        } else {
+            // **格式校验放后端** —— 界面那份提示是给人看的，这里才是闸门
+            if let Some(problem) = super::naming::version_error(trimmed) {
+                return Err(Error::PackageRejected(problem));
+            }
+            variant.version = Some(super::naming::normalize_version(trimmed));
+        }
     }
     if let Some(description) = changes.description {
         let trimmed = description.trim();

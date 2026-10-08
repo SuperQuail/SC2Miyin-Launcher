@@ -680,6 +680,67 @@ fn update_mod(
     mods::update(state.library.root(), &id, changes).map_err(|error| error.to_string())
 }
 
+/// 跟着战役包来的模组的定位信息 —— 第一次编辑时靠它建记录。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModIdentity {
+    slot: String,
+    variant: String,
+    /// 相对版本目录的路径（那个模组文件夹）。
+    path: String,
+    folder: String,
+    name: String,
+    version: Option<String>,
+    /// `file` / `folder`。
+    kind: String,
+    parts: usize,
+}
+
+/// 改一个模组的元数据。
+///
+/// **独立模组和战役包带来的模组走同一条路** —— 都是一条模组记录，
+/// 改的都是记录，不动包里的原始文件：
+///
+/// - `record_id` 有值：直接改那条记录
+/// - 只有 `identity`：说明是战役包带来的、还没记录 —— 先建一条再改
+#[tauri::command(async)]
+fn edit_mod(
+    record_id: Option<String>,
+    identity: Option<ModIdentity>,
+    changes: ModChanges,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    let data = state.library.root();
+
+    let id = match record_id {
+        Some(id) => id,
+        None => {
+            let identity = identity.ok_or_else(|| "不知道该改哪个模组".to_string())?;
+            let kind = if identity.kind == "file" {
+                mods::ModKind::File
+            } else {
+                mods::ModKind::Folder
+            };
+
+            mods::remember_campaign(
+                data,
+                &identity.slot,
+                &identity.variant,
+                &identity.path,
+                &identity.folder,
+                &identity.name,
+                identity.version.as_deref(),
+                kind,
+                identity.parts,
+            )
+            .map_err(|error| error.to_string())?
+            .id
+        }
+    };
+
+    mods::update(data, &id, changes).map_err(|error| error.to_string())
+}
+
 /// 删掉一个独立模组。
 #[tauri::command(async)]
 fn remove_mod(id: String, state: State<'_, AppState>) -> Result<(), String> {
@@ -787,6 +848,8 @@ fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, Stri
                 }
                 .to_string(),
             ),
+            mod_record_id: Some(record.id.clone()),
+            source_kind: "library".to_string(),
         });
     }
 
@@ -1474,6 +1537,7 @@ pub fn run() {
             preview_mod,
             import_mod,
             update_mod,
+            edit_mod,
             remove_mod,
             export_mod,
             export_mods,

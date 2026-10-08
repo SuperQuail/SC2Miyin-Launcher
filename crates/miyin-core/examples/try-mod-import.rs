@@ -72,11 +72,15 @@ fn main() {
     }
     let placed = mods::sync(&data, &installation).expect("铺盘");
     println!("=== 铺进 <游戏>/Mods/ 的东西 ===");
-    for name in &placed {
+    for name in &placed.placed {
         println!("  {name}");
     }
     println!();
 
+    for warning in &placed.warnings {
+        println!("  警告: {warning}");
+    }
+    println!();
     println!("=== <游戏>/Mods/ 的实际目录树（前 3 层）===");
     print_tree(&installation.mods_root, 3);
 

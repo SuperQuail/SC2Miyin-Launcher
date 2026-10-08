@@ -574,6 +574,7 @@ fn editing_metadata_keeps_content_and_directory() {
             name: Some("改过的名字".to_string()),
             author: Some("某位作者".to_string()),
             registration_id: Some("someone.reborn".to_string()),
+            version: Some("1.2.3".to_string()),
             description: Some("新描述".to_string()),
             declared_mods: None,
         },
@@ -583,6 +584,8 @@ fn editing_metadata_keeps_content_and_directory() {
     assert_eq!(updated.name, "改过的名字");
     assert_eq!(updated.author.as_deref(), Some("某位作者"));
     assert_eq!(updated.registration_id.as_deref(), Some("someone.reborn"));
+    // 版本号能改，而且存的是规范形式
+    assert_eq!(updated.version.as_deref(), Some("1.2.3"));
     assert_eq!(updated.description.as_deref(), Some("新描述"));
 
     // 改名不动目录：补丁绑定的锚点必须稳定
@@ -1660,4 +1663,171 @@ fn payload_counts_use_payload_roots_not_file_extensions() {
     let (maps, mods) = count_payloads(&payloads);
     assert_eq!(maps, 2, "两张地图（解开的目录树也算）");
     assert_eq!(mods, 2, "两个模组 —— Alenger 那些文件要归成一个");
+}
+#[test]
+fn different_owners_do_not_clobber_each_other() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+    let work = fixture.work.path();
+
+    let a = work.join("a.SC2Map");
+    let b = work.join("b.SC2Map");
+    std::fs::write(&a, b"aaa").expect("写");
+    std::fs::write(&b, b"bbb").expect("写");
+
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+
+    // 战役 A 铺一张地图
+    let mut plan_a = Plan::new(Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "v1".to_string(),
+    });
+    plan_a.push(&a, "Maps/Campaign/alpha.SC2Map");
+    manifest
+        .apply(data, &fixture.installation, &plan_a)
+        .expect("装 A");
+
+    // 战役 B（**另一个槽位**）也铺一张 —— 老代码会把 A 的整个撤掉
+    let mut plan_b = Plan::new(Owner::Campaign {
+        slot: "lotv".to_string(),
+        variant: "v1".to_string(),
+    });
+    plan_b.push(&b, "Maps/Campaign/void/beta.SC2Map");
+    let warnings = manifest
+        .apply(data, &fixture.installation, &plan_b)
+        .expect("装 B");
+    assert!(warnings.is_empty(), "目标不冲突就不该报警：{warnings:?}");
+
+    let alpha = fixture.installation.campaign_maps_root.join("alpha.SC2Map");
+    let beta = fixture
+        .installation
+        .campaign_maps_root
+        .join("void")
+        .join("beta.SC2Map");
+    assert!(alpha.is_file(), "A 的还在");
+    assert!(beta.is_file(), "B 的也装上了 —— 两个槽位互不干扰");
+
+    // 撤掉 A：只撤 A 的
+    manifest
+        .remove(
+            data,
+            &fixture.installation,
+            &Owner::Campaign {
+                slot: "wol".to_string(),
+                variant: "v1".to_string(),
+            },
+        )
+        .expect("撤 A");
+    assert!(!alpha.exists(), "A 的该撤掉");
+    assert!(beta.is_file(), "B 的一个字节都不该动");
+}
+
+#[test]
+fn conflicting_targets_warn_instead_of_silently_overwriting() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+    let work = fixture.work.path();
+
+    let a = work.join("a.SC2Mod");
+    let b = work.join("b.SC2Mod");
+    std::fs::write(&a, b"first").expect("写");
+    std::fs::write(&b, b"second").expect("写");
+
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+
+    // 战役要往 Mods/Shared.SC2Mod 放
+    let mut plan_a = Plan::new(Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "v1".to_string(),
+    });
+    plan_a.push(&a, "Mods/Shared.SC2Mod");
+    manifest
+        .apply(data, &fixture.installation, &plan_a)
+        .expect("装 A");
+
+    // 独立模组也要往**同一个位置**放 —— 应当给出警告，而不是静默覆盖
+    let mut plan_b = Plan::new(Owner::Mod {
+        id: "m1".to_string(),
+    });
+    plan_b.push(&b, "Mods/Shared.SC2Mod");
+    let warnings = manifest
+        .apply(data, &fixture.installation, &plan_b)
+        .expect("装 B");
+
+    assert_eq!(warnings.len(), 1, "抢同一个位置要说一声：{warnings:?}");
+    assert!(warnings[0].contains("Mods/Shared.SC2Mod"));
+
+    // 后装的赢，内容确实是它的
+    let content = std::fs::read(fixture.installation.mods_root.join("Shared.SC2Mod")).expect("读");
+    assert_eq!(content, b"second");
+
+    // A 已经不再拥有那个位置了（账已经转给 B）
+    assert!(
+        manifest
+            .of(&Owner::Campaign {
+                slot: "wol".to_string(),
+                variant: "v1".to_string(),
+            })
+            .is_empty(),
+        "位置被接管后，原来的 owner 不该还记着它"
+    );
+}
+#[test]
+fn a_custom_campaign_lands_in_custom_campaigns() {
+    // 踩过的坑：require_slot 多加了 is_main() 过滤，custom 被挡在门外，
+    // 导入自制战役直接报「未知的战役槽位：custom」。
+    // 自制战役是独立的一类，**不该**再判断它属于哪部原版战役。
+    let fixture = fixture();
+
+    let zip = build_zip(
+        fixture.work.path(),
+        "custom.zip",
+        &[
+            (
+                "MyCampaign/metadata.txt",
+                "title=群友之战\nauthor=某人\ncampaign=custom\nversion=1.0\n",
+            ),
+            ("MyCampaign/maps/qunyou01.SC2Map", "stub"),
+        ],
+    );
+
+    let variant =
+        import(&fixture.library, &zip, "custom", Default::default()).expect("导入自制战役");
+    assert_eq!(variant.version.as_deref(), Some("1.0"));
+
+    // 自制战役排在槽位表的最后一项
+    assert_eq!(slot(&fixture, "custom").variants.len(), 1);
+
+    // 启用：要落到 Maps/CustomCampaigns/，**不是** Maps/Campaign/
+    activate(
+        &fixture.library,
+        &fixture.installation,
+        "custom",
+        Some(&variant.id),
+    )
+    .expect("启用");
+
+    // CustomCampaigns 下面那层目录用**版本目录名**（稳定、跟库里的对得上）
+    let placed = fixture
+        .installation
+        .custom_campaigns_root
+        .join(&variant.id)
+        .join("qunyou01.SC2Map");
+    assert!(
+        placed.is_file(),
+        "自制战役该进 CustomCampaigns，实际没有：{}",
+        placed.display()
+    );
+    assert!(
+        !fixture
+            .installation
+            .campaign_maps_root
+            .join(&variant.id)
+            .exists(),
+        "自制战役绝不能进官方 Maps/Campaign"
+    );
 }

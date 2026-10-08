@@ -993,6 +993,36 @@ pub fn extract_to(package: &Path, content_root: &str, destination: &Path) -> Res
     let mut archive = contents::Contents::open(package)?;
     let mut stats = ExtractStats::default();
 
+    // **外部格式一次解完**，别一个条目起一个进程。
+    //
+    // 逐条 `copy_to` 对 zip 是对的（流式，不用先整包落一遍盘），
+    // 但对 rar/7z 就是 164 个条目 = 164 次 tar —— 比整体解一次还慢。
+    //
+    // `strip` 用内容根有几段目录来算：包常常多套一层「包名」目录，
+    // 那一层不该出现在库目录里。
+    let strip = content_root
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .count();
+
+    if archive.unpack_all(destination, strip)? {
+        // 文件已经在盘上了，统计按条目清单算
+        for entry in archive.entries() {
+            if entry.is_dir {
+                continue;
+            }
+            stats.files += 1;
+            stats.bytes += entry.size;
+            match extension_of(Path::new(&entry.name)).as_str() {
+                "sc2map" => stats.maps += 1,
+                "sc2mod" => stats.mods += 1,
+                _ => {}
+            }
+        }
+        return Ok(stats);
+    }
+
     let listing: Vec<(String, bool)> = archive
         .entries()
         .iter()

@@ -8,7 +8,7 @@
 //! ```text
 //! <启动器目录>/data/
 //! ├── library.json      # 索引：每个槽位下有哪些版本、当前启用哪个
-//! ├── active.json       # 激活清单：我们往游戏目录放了什么、挪走了什么
+//! ├── installed.json    # 安装清单：游戏目录里哪些东西是我们放的、谁放的
 //! ├── campaigns/
 //! │   └── wol/
 //! │       ├── 自由之翼：重生 v1.4.2/
@@ -36,7 +36,9 @@ use crate::sc2::Installation;
 
 pub mod activation;
 pub mod compose;
+pub mod install;
 pub mod mods;
+pub mod naming;
 
 pub use mods::{ModChanges, StandaloneMod};
 pub mod export;
@@ -46,7 +48,8 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
-pub use activation::{ActivationState, activate, deactivate};
+pub use activation::{activate, deactivate};
+pub use install::{Installed, Item, Manifest, Owner, Plan};
 pub use store::{VariantChanges, import, remove_variant, update_variant};
 
 /// 索引文件的格式版本，便于以后迁移。
@@ -190,6 +193,14 @@ pub struct LibraryMod {
     /// 铺成文件还是目录。
     #[serde(default)]
     pub kind: Option<String>,
+    /// **模组记录的 id** —— 有它就能改信息、导出。
+    ///
+    /// 独立模组天然有；跟着战役包来的会在第一次编辑时建一条。
+    #[serde(default)]
+    pub mod_record_id: Option<String>,
+    /// 这个模组的内容在哪（独立库 / 某个战役版本）。
+    #[serde(default)]
+    pub source_kind: String,
 }
 
 /// 版本自带的说明文档。
@@ -686,6 +697,15 @@ impl Library {
                 let declared = &variant.declared_mods;
 
                 for entry in group_mods(&variant.payloads, &mounted_list) {
+                    // 有模组记录的话**以记录为准** —— 用户可能改过名字和版本，
+                    // 改的是记录（覆盖包内声明），不动包本身。
+                    let record = crate::library::mods::find_campaign(
+                        self.root(),
+                        slug,
+                        &variant.id,
+                        &entry.path,
+                    );
+
                     rows.push(LibraryMod {
                         slot: slug.clone(),
                         slot_name: slot_name.clone(),
@@ -698,14 +718,22 @@ impl Library {
                         },
                         required: declared.iter().any(|item| item == &entry.path),
                         path: entry.path,
-                        name: entry.name,
+                        name: record
+                            .as_ref()
+                            .map(|item| item.name.clone())
+                            .unwrap_or(entry.name),
                         mounted: entry.mounted,
                         parts: entry.parts,
-                        standalone_id: None,
+                        standalone_id: record.as_ref().map(|item| item.id.clone()),
                         modid: None,
-                        version: variant.version.clone(),
+                        version: record
+                            .as_ref()
+                            .and_then(|item| item.version.clone())
+                            .or_else(|| variant.version.clone()),
                         folder: None,
                         kind: None,
+                        mod_record_id: record.map(|item| item.id),
+                        source_kind: "campaign".to_string(),
                     });
                 }
             }
@@ -1066,9 +1094,13 @@ pub fn conflict_for(
 }
 
 /// 校验槽位标识，返回对应的资料片。
+///
+/// **自制战役（`custom`）也是合法槽位** —— 以前这里多加了 `is_main()` 过滤，
+/// 结果导入自制战役会直接报「未知的战役槽位：custom」。
+/// 落盘位置本来就由 `Placement` 分开管（官方改版进 `Maps/Campaign`，
+/// 自制战役进 `Maps/CustomCampaigns`），校验这一层不该再判断它属于哪部原版战役。
 pub fn require_slot(slug: &str) -> Result<CampaignType> {
     CampaignType::from_slug(slug)
-        .filter(CampaignType::is_main)
         .ok_or_else(|| Error::PackageRejected(format!("未知的战役槽位：{slug}")))
 }
 

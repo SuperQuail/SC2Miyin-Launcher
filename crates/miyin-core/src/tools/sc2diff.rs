@@ -74,6 +74,8 @@ pub fn run(data: &Path, repo: Option<&Path>, args: &[&str]) -> Result<Output> {
         }
     }
     command.args(args);
+    // 它是控制台程序，别让它弹窗
+    crate::platform::hide_console(&mut command);
     // 中文输出别被代码页搞乱
     command.env("LC_ALL", "C.UTF-8");
 

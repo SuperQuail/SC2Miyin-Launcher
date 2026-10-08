@@ -101,30 +101,34 @@ impl Composition {
 /// | 类型 | 地图 | 模组 |
 /// | --- | --- | --- |
 /// | 原版战役（含改版） | 进 `Maps/Campaign[/子目录]/` | 进 `Mods/` |
-/// | 自制战役 | **留在库里，不进游戏目录** | 进 `Mods/` |
+/// | 自制战役 | 进 `Maps/CustomCampaigns/<战役目录>/` | 进 `Mods/` |
 ///
-/// 自制战役为什么地图不进游戏目录：**SC2 本来就不支持自制战役**，
-/// 放进 `Maps/Campaign` 只会污染官方目录，游戏也不会把它列出来。
-/// 正确玩法是用编辑器直接打开地图（见 `open_map_in_editor`）。
+/// **自制战役的地图要真的装到游戏目录里**（`Maps/CustomCampaigns`）——
+/// 那是 CCM 和同类工具约定俗成的位置，玩家和别的工具都去那里找。
+/// （早先这里判成「留在库里不进游戏目录」，结果自制战役根本装不上，
+/// 用户看到的就是「导入成功了但游戏里没有」。）
 ///
-/// 那为什么模组还是要进游戏目录：**地图里写死了依赖路径**。
+/// 模组两类战役都要进 `Mods/`：**地图里写死了依赖路径**。
 /// 实测 SCMR 的 `Terran01.SC2Map` 里声明的是 `Mods\SCMRmod.SC2Mod` ——
 /// 这是相对游戏根目录的路径，游戏与编辑器只会去 `<游戏>/Mods/` 下找。
-/// 不把模组放过去，地图打开就是一堆丢失的资源。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placement {
     /// 原版战役：`Maps/Campaign[/子目录]`。
     Campaign { sub: Option<String> },
-    /// 自制战役：地图留在库里，只有模组进游戏目录。
-    Custom,
+    /// 自制战役：`Maps/CustomCampaigns/<战役目录>/`。
+    Custom { folder: String },
 }
 
 impl Placement {
-    /// 由槽位与版本推出来。槽位是 `custom` 时按自制战役走。
-    pub fn of(slot_slug: &str, target_sub: Option<&str>) -> Self {
+    /// 由槽位、版本目录名与版本声明的子目录推出来。
+    ///
+    /// `folder` 只在自制战役时用到 —— 它就是 `Maps/CustomCampaigns/` 下面的那层目录名。
+    pub fn of(slot_slug: &str, folder: &str, target_sub: Option<&str>) -> Self {
         let is_custom = CampaignType::from_slug(slot_slug).is_some_and(|kind| kind.is_custom());
         if is_custom {
-            Self::Custom
+            Self::Custom {
+                folder: folder.to_string(),
+            }
         } else {
             Self::Campaign {
                 sub: target_sub.map(str::to_string),
@@ -132,12 +136,11 @@ impl Placement {
         }
     }
 
-    /// 这一层内容最终落在游戏目录的哪个基址下；不进游戏目录时返回 `None`。
-    pub fn base(&self) -> Option<&'static str> {
+    /// 这一层内容落在游戏目录里的基址。
+    pub fn base(&self) -> String {
         match self {
-            Self::Campaign { .. } => Some("Maps/Campaign"),
-            // 自制战役只有模组进游戏目录，地图不进
-            Self::Custom => None,
+            Self::Campaign { .. } => "Maps/Campaign".to_string(),
+            Self::Custom { folder } => format!("Maps/CustomCampaigns/{folder}"),
         }
     }
 }
@@ -152,9 +155,9 @@ pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> Opt
         // 模组两类战役都要进 Mods/ —— 地图依赖它
         PayloadTarget::Mod { name } => Some(format!("Mods/{name}")),
         PayloadTarget::Map { name } => {
-            // 自制战役的地图留在库里，不铺到游戏目录
-            if matches!(placement, Placement::Custom) {
-                return None;
+            // 自制战役：整包进 Maps/CustomCampaigns/<战役目录>/
+            if let Placement::Custom { folder } = placement {
+                return Some(format!("Maps/CustomCampaigns/{folder}/{name}"));
             }
 
             // 包内已经按官方结构摆了（voidprologue/…、swarm/evolution/…）-> 直接用
@@ -213,7 +216,8 @@ pub fn compose(
     let mut overridden: Vec<ComposedFile> = Vec::new();
 
     // 官方战役还是自制战役 —— 落点不一样
-    let placement = Placement::of(slot_slug, sub);
+    // 自制战役要用版本目录名当 CustomCampaigns 下面那层
+    let placement = Placement::of(slot_slug, &variant.id, sub);
 
     // 模组**只铺挂载了的那些** —— 官方战役的改版包一样可能带模组，
     // 而不同战役的模组之间会互相打架，所以一律让用户自己选挂哪几个
@@ -442,17 +446,34 @@ mod tests {
     }
 
     #[test]
-    fn custom_campaigns_keep_maps_in_the_library() {
+    fn custom_campaigns_install_into_custom_campaigns() {
         let map = PayloadTarget::Map {
             name: "1. Rebel Yell/Terran01.SC2Map".to_string(),
         };
 
-        // 自制战役：地图**不进游戏目录** —— SC2 本来就不支持自制战役，
-        // 放进去只会污染官方目录，正确玩法是用编辑器打开
-        let custom = Placement::of("custom", None);
-        assert_eq!(custom, Placement::Custom);
-        assert_eq!(custom.base(), None, "自制战役没有落盘基址");
-        assert_eq!(payload_target_path(&map, &custom), None, "地图应当留在库里");
+        // 自制战役：整包进 `Maps/CustomCampaigns/<战役目录>/`。
+        //
+        // **这里改过一次**：早先判成「地图留在库里不进游戏目录」，理由是
+        // 「SC2 不支持自制战役」。结论是错的 —— CustomCampaigns 正是 CCM
+        // 和同类工具约定俗成的位置，玩家和别的工具都去那里找。
+        // 照旧写法，用户看到的是「导入成功了但游戏里没有」。
+        let custom = Placement::of("custom", "qunyou", None);
+        assert_eq!(
+            custom,
+            Placement::Custom {
+                folder: "qunyou".to_string()
+            }
+        );
+        assert_eq!(
+            custom.base(),
+            "Maps/CustomCampaigns/qunyou",
+            "自制战役进 CustomCampaigns —— 那是 CCM 认的位置"
+        );
+        assert_eq!(
+            payload_target_path(&map, &custom).as_deref(),
+            Some("Maps/CustomCampaigns/qunyou/1. Rebel Yell/Terran01.SC2Map"),
+            "地图要真的装进去"
+        );
 
         // 但模组**必须**进 Mods/ —— 实测 SCMR 的地图里写死了
         // Mods\SCMRmod.SC2Mod 这个依赖路径，游戏与编辑器只去那里找
@@ -465,8 +486,8 @@ mod tests {
         );
 
         // 官方战役（含其改版）还是老地方
-        let official = Placement::of("lotv", Some("void"));
-        assert_eq!(official.base(), Some("Maps/Campaign"));
+        let official = Placement::of("lotv", "ignored", Some("void"));
+        assert_eq!(official.base(), "Maps/Campaign");
         assert_eq!(
             payload_target_path(&map, &official).as_deref(),
             Some("Maps/Campaign/void/1. Rebel Yell/Terran01.SC2Map")

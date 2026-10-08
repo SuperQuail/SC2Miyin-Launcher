@@ -110,10 +110,7 @@ fn main() {
             .join("Assets")
             .is_dir(),
     );
-    check(
-        "战役地图没混进 Mods/",
-        !mods_root.join("Maps").exists(),
-    );
+    check("战役地图没混进 Mods/", !mods_root.join("Maps").exists());
 
     println!();
 
@@ -121,8 +118,7 @@ fn main() {
     println!("── 二、战役路径（用户更可能这么导）──────────");
 
     let library = miyin_core::library::Library::new(work.join("campaign-data"));
-    let variant = match miyin_core::library::import(&library, &package, "wol", Default::default())
-    {
+    let variant = match miyin_core::library::import(&library, &package, "wol", Default::default()) {
         Ok(variant) => variant,
         Err(error) => {
             println!("  导入失败：{error}");
@@ -136,7 +132,10 @@ fn main() {
     );
 
     check("地图数 > 0（解开的目录树也要算）", variant.map_count > 0);
-    check("模组数按文件夹去重（不是按文件）", variant.mod_count > 0 && variant.mod_count < 10);
+    check(
+        "模组数按文件夹去重（不是按文件）",
+        variant.mod_count > 0 && variant.mod_count < 10,
+    );
 
     // 模组落点必须带层级
     let compose_campaign = miyin_core::library::compose::Placement::Campaign { sub: None };
@@ -145,10 +144,9 @@ fn main() {
         if !payload.is_mod {
             continue;
         }
-        if let Some(target) = miyin_core::library::compose::payload_target_path(
-            &payload.target,
-            &compose_campaign,
-        ) {
+        if let Some(target) =
+            miyin_core::library::compose::payload_target_path(&payload.target, &compose_campaign)
+        {
             mod_targets.push(target);
         }
     }
@@ -183,7 +181,9 @@ fn main() {
     ];
     check(
         "Alenger 里的文件没漏到 Mods/ 根下",
-        !mod_targets.iter().any(|target| leaked.contains(&target.as_str())),
+        !mod_targets
+            .iter()
+            .any(|target| leaked.contains(&target.as_str())),
     );
 
     // 真铺一遍

@@ -66,6 +66,19 @@ enum Backend {
         _temp: TempDir,
         files: Vec<PathBuf>,
     },
+    /// 外部解压器，**按需读**：列清单用 `-t`，读单条用 `-O`。
+    ///
+    /// 这一层是为了**别「为了列个清单就把上 G 的包全解一遍」** ——
+    /// 实测 1.4 GB 的 rar 光开一次就要 11 秒（那就是一次完整解压），
+    /// 而一次导入会开三次（预检、导入里的预检、真正解包）→ 33 秒白花。
+    /// 现在列清单只要 `tar -tf`，读一个 `DocumentHeader` 只要 `tar -xOf`。
+    External {
+        /// 用哪个解压器（目前只有 tar 走这条路）。
+        program: PathBuf,
+        archive: PathBuf,
+        /// 与 `entries` 一一对齐的包内路径；目录是 `None`。
+        names: Vec<Option<String>>,
+    },
 }
 
 /// 一个包的内容，屏蔽掉底层打包格式。
@@ -110,7 +123,22 @@ impl Contents {
             });
         }
 
-        // 其它格式：借系统解压器
+        // tar（bsdtar / libarchive，Win10 1803+ 自带）能列清单也能单条读 ——
+        // 那就别把整个包解出来
+        if let Some(program) = locate_tar()
+            && let Some((entries, names)) = list_with_tar(&program, path)
+        {
+            return Ok(Self {
+                backend: Backend::External {
+                    program,
+                    archive: path.to_path_buf(),
+                    names,
+                },
+                entries,
+            });
+        }
+
+        // 其它格式：老老实实借系统解压器整体解到临时目录
         let temp = TempDir::new()?;
         unpack_with_system_tool(path, temp.path())?;
 
@@ -163,6 +191,14 @@ impl Contents {
                 }
                 std::fs::read(path).ok()
             }
+            Backend::External {
+                program,
+                archive,
+                names,
+            } => {
+                let name = names.get(index)?.as_deref()?;
+                read_one_with_tar(program, archive, name)
+            }
         }
     }
 
@@ -189,8 +225,122 @@ impl Contents {
                 std::fs::copy(source, target)?;
                 Ok(())
             }
+            Backend::External {
+                program,
+                archive,
+                names,
+            } => {
+                let name = names
+                    .get(index)
+                    .and_then(|item| item.as_deref())
+                    .ok_or_else(|| Error::PackageRejected("条目下标越界".to_string()))?;
+
+                let bytes = read_one_with_tar(program, archive, name)
+                    .ok_or_else(|| Error::PackageRejected(format!("读不出包里的 {name}")))?;
+                std::fs::write(target, bytes)?;
+                Ok(())
+            }
         }
     }
+
+    /// 把**整个包**解到目标目录 —— 外部格式专用。
+    ///
+    /// 返回 `false` 表示这个后端不走整体解（zip 请逐条 `copy_to`）。
+    ///
+    /// 为什么整体解要单独开一条路：`extract_to` 是逐条目调的，
+    /// 外部格式逐条调就是**一个条目起一个进程** —— 164 个条目 164 次 `tar`，
+    /// 比整体解一次还慢。所以两种场景各用各的方式：
+    /// 列清单 + 读几个小文件 -> 单条读；真要全部落盘 -> 一次 ``tar -xf`。
+    pub fn unpack_all(&mut self, destination: &Path, strip: usize) -> Result<bool> {
+        let Backend::External {
+            program, archive, ..
+        } = &self.backend
+        else {
+            return Ok(false);
+        };
+
+        let mut command = Command::new(program);
+        command.arg("-xf").arg(archive).arg("-C").arg(destination);
+        if strip > 0 {
+            command.arg("--strip-components").arg(strip.to_string());
+        }
+        crate::platform::hide_console(&mut command);
+
+        let output = command
+            .output()
+            .map_err(|error| Error::PackageRejected(format!("解压失败：{error}")))?;
+
+        if !output.status.success() {
+            return Err(Error::PackageRejected(format!(
+                "解压失败：{}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+
+        Ok(true)
+    }
+}
+
+/// 找到可用的 tar。
+fn locate_tar() -> Option<PathBuf> {
+    // Windows 10 1803+ 自带 System32\tar.exe；其余平台看 PATH
+    let system = PathBuf::from(r"C:\Windows\System32\tar.exe");
+    if system.is_file() {
+        return Some(system);
+    }
+
+    let output = Command::new("tar").arg("--version").output().ok()?;
+    output.status.success().then(|| PathBuf::from("tar"))
+}
+
+/// 用 tar 列一份清单，返回 (条目, 与条目对齐的包内路径)。
+fn list_with_tar(
+    program: &Path,
+    archive: &Path,
+) -> Option<(Vec<ContentEntry>, Vec<Option<String>>)> {
+    let mut command = Command::new(program);
+    command.arg("-tf").arg(archive);
+    crate::platform::hide_console(&mut command);
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut entries = Vec::new();
+    let mut names = Vec::new();
+
+    for line in text.lines() {
+        let raw = line.trim_end_matches('\r');
+        if raw.is_empty() {
+            continue;
+        }
+        // tar 列出来的目录带尾斜杠
+        let is_dir = raw.ends_with('/') || raw.ends_with('\\');
+        let name = raw.trim_end_matches(['/', '\\']).replace('\\', "/");
+        if name.is_empty() {
+            continue;
+        }
+
+        entries.push(ContentEntry {
+            lossy: false,
+            size: 0,
+            is_dir,
+            name: name.clone(),
+        });
+        names.push((!is_dir).then_some(name));
+    }
+
+    (!entries.is_empty()).then_some((entries, names))
+}
+
+/// 用 tar 把**单个**条目读出来（`-O` 写到标准输出）。
+fn read_one_with_tar(program: &Path, archive: &Path, name: &str) -> Option<Vec<u8>> {
+    let mut command = Command::new(program);
+    command.arg("-xOf").arg(archive).arg(name);
+    crate::platform::hide_console(&mut command);
+    let output = command.output().ok()?;
+    output.status.success().then_some(output.stdout)
 }
 
 /// zip 的魔数。
@@ -250,7 +400,12 @@ fn unpack_with_system_tool(package: &Path, target: &Path) -> Result<()> {
 
     for unpacker in &UNPACKERS {
         let arguments = (unpacker.arguments)(package, target);
-        match Command::new(unpacker.program).args(&arguments).output() {
+        let mut command = Command::new(unpacker.program);
+        command.args(&arguments);
+        // **别弹控制台窗口** —— 从界面点导入时闪一个黑框很难看
+        crate::platform::hide_console(&mut command);
+
+        match command.output() {
             Ok(output) if output.status.success() => return Ok(()),
             Ok(output) => {
                 let message = String::from_utf8_lossy(&output.stderr).trim().to_string();

@@ -24,11 +24,13 @@ use sha2::{Digest, Sha256};
 use crate::error::{Error, Result};
 use crate::safety;
 
-/// 我们往游戏目录里放过的独立模组（回滚用）。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct ActiveList {
-    #[serde(default)]
-    placed: Vec<String>,
+/// 一次铺盘的结果。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SyncReport {
+    /// 这次实际铺进去的名字。
+    pub placed: Vec<String>,
+    /// 冲突提示 —— 谁盖了谁。以前是静默覆盖，出了问题查不出来。
+    pub warnings: Vec<String>,
 }
 
 /// 我们铺进游戏目录时用的名字 —— **原样返回，一个字符都不改**。
@@ -46,70 +48,79 @@ pub fn placed_name(record: &StandaloneMod) -> String {
     }
 }
 
-/// 把**启用**的独立模组铺进 `<游戏>/Mods/`，顺手撤掉之前铺过、现在停用的。
+/// 把**启用**的独立模组铺进 `<游戏>/Mods/`，顺手撤掉停用的。
+///
+/// **走的是和战役同一条写盘路径**（`super::install::Manifest`）——
+/// 白名单校验、备份还原、记账、回滚只有那一份实现。
+/// 以前这里自己写清单（`mods-active.json`），和战役的 `active.json`
+/// 互相不知道对方放了什么，两边抢同一个位置时谁也说不清。
 ///
 /// 只动**我们自己记过账**的东西：用户手动放的模组一个都不碰。
-/// 返回这次实际铺进去的名字。
-pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Vec<String>> {
-    let active_path = data.join("mods-active.json");
-    let previous: ActiveList = std::fs::read_to_string(&active_path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
+pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<SyncReport> {
+    // 用迁移版：老格式的 mods-active.json 也要认
+    let mut manifest = crate::library::install::Manifest::load_migrating(data, installation);
+    let all = list(data);
 
-    std::fs::create_dir_all(&installation.mods_root)?;
+    // ---- 1) 先撤掉不该留的 ----
+    //
+    // 三种情况：用户停用了、模组被删了、库里已经没有这条记录了。
+    let existing: Vec<String> = all.iter().map(|item| item.id.clone()).collect();
+    let mut stale: Vec<crate::library::install::Owner> = Vec::new();
+
+    for record in &all {
+        if !record.enabled {
+            stale.push(crate::library::install::Owner::Mod {
+                id: record.id.clone(),
+            });
+        }
+    }
+    for item in &manifest.files {
+        if let crate::library::install::Owner::Mod { id } = &item.owner
+            && !existing.contains(id)
+            && !stale.iter().any(|owner| owner == &item.owner)
+        {
+            stale.push(item.owner.clone());
+        }
+    }
+
+    for owner in stale {
+        manifest.remove(data, installation, &owner)?;
+    }
+
+    // ---- 2) 装启用中的 ----
     let mods_root = mods_root(data);
     let mut placed: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
 
-    for record in list(data) {
-        let name = placed_name(&record);
+    for record in all.iter().filter(|item| item.enabled) {
         let source = safety::ensure_within(&mods_root, &mods_root.join(&record.id))?;
+        let name = placed_name(record);
 
-        if !record.enabled {
-            continue;
-        }
+        let mut plan = crate::library::install::Plan::new(crate::library::install::Owner::Mod {
+            id: record.id.clone(),
+        });
+
+        // **目标要带 Mods/ 前缀** —— Plan 里的路径是相对**游戏根**的，
+        // 而 placed_name() 给的是 Mods/ 底下的名字。
+        let target = format!("Mods/{name}");
+
         // 形态要和原来一致：单个 .SC2Mod 铺成一个**文件**，
-        // 目录铺成**目录**。搞错了游戏照样找不到 —— 这是那个严重 bug 的另一半。
-        let dest =
-            safety::ensure_within(&installation.mods_root, &installation.mods_root.join(&name))?;
-        if dest.exists() {
-            // 已经在了就整体换掉，免得新旧混在一起
-            let _ = std::fs::remove_dir_all(&dest);
-            let _ = std::fs::remove_file(&dest);
-        }
-
+        // 目录铺成**目录**。搞错了游戏照样找不到。
         match record.kind {
             ModKind::File => {
                 let inner = single_child_file(&source).ok_or_else(|| {
                     Error::PackageRejected(format!("模组 {} 的内容不是一个文件", record.name))
                 })?;
-                std::fs::copy(inner, &dest)?;
+                plan.push(inner, target);
             }
-            ModKind::Folder => copy_tree(&source, &dest)?,
+            ModKind::Folder => plan.push(source.clone(), target),
         }
 
+        warnings.extend(manifest.apply(data, installation, &plan)?);
         placed.push(name);
     }
 
-    // 撤掉之前铺过、这次不该留的
-    for name in &previous.placed {
-        if placed.contains(name) {
-            continue;
-        }
-        if let Ok(path) =
-            safety::ensure_within(&installation.mods_root, &installation.mods_root.join(name))
-        {
-            let _ = std::fs::remove_dir_all(&path);
-            let _ = std::fs::remove_file(&path);
-        }
-    }
-
-    let text = serde_json::to_string_pretty(&ActiveList {
-        placed: placed.clone(),
-    })?;
-    std::fs::write(&active_path, text)?;
-
-    Ok(placed)
+    Ok(SyncReport { placed, warnings })
 }
 
 /// 独立模组铺进游戏目录时的**形态**。
@@ -133,7 +144,34 @@ pub enum ModKind {
     Folder,
 }
 
-/// 库里的一个独立模组。
+/// 一个模组的**内容在哪**。
+///
+/// 不管内容在哪，它都是一条「模组记录」—— 有自己的名字、版本、作者、modid，
+/// 可以编辑、可以导出。区别只在内容的落脚点：
+///
+/// `@text
+/// Library   独立导入的，内容在 data/mods/<id>/
+/// Campaign  跟着战役包来的，内容在 data/campaigns/<槽位>/<版本>/ 里
+/// `@
+///
+/// 分开记是为了「战役包带来的模组也能改信息」—— 改动存在记录里（覆盖包内的），
+/// 不动包本身。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ModSource {
+    /// 独立导入，内容就在库里。
+    #[default]
+    Library,
+    /// 跟着某个战役版本来的，内容在那个版本的目录里。
+    Campaign {
+        slot: String,
+        variant: String,
+        /// 相对版本目录的路径（就是那个模组文件夹）。
+        path: String,
+    },
+}
+
+/// 库里的一个模组记录。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StandaloneMod {
     /// 目录名，也是本地唯一键。
@@ -167,6 +205,9 @@ pub struct StandaloneMod {
     /// 铺成文件还是目录。
     #[serde(default)]
     pub kind: ModKind,
+    /// 内容在哪（独立导入的 / 跟着战役包来的）。
+    #[serde(default)]
+    pub source: ModSource,
     /// 启用了没 —— 启用才会铺进游戏目录。
     #[serde(default)]
     pub enabled: bool,
@@ -875,6 +916,8 @@ fn import_one(
         fingerprint,
         folder: item.folder.clone(),
         kind: item.kind,
+        // 独立导入的，内容就在库里
+        source: ModSource::Library,
         // 默认**不启用** —— 免得悄悄改了游戏状态
         enabled: false,
         imported_at: crate::library::now_seconds(),
@@ -950,6 +993,83 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// 找一条「跟着某个战役版本来的」模组记录。
+pub fn find_campaign(data: &Path, slot: &str, variant: &str, path: &str) -> Option<StandaloneMod> {
+    list(data).into_iter().find(|item| {
+        matches!(
+            &item.source,
+            ModSource::Campaign {
+                slot: item_slot,
+                variant: item_variant,
+                path: item_path,
+            } if item_slot == slot && item_variant == variant && item_path == path
+        )
+    })
+}
+
+/// **记住**一个跟着战役包来的模组，好让它也能改信息、也能单独导出。
+///
+/// 库里没有就建一条（`ModSource::Campaign`，**只存元数据**，内容仍在战役版本
+/// 目录里，不复制一份）；有就原样返回。
+///
+/// 为什么要这一步：战役包带来的模组本来只能看不能改 ——
+/// 名字、版本、作者全是包内写死的。现在它们和独立模组一样是一条**模组记录**，
+/// 改的是记录（覆盖包内声明），不动包本身。
+#[allow(clippy::too_many_arguments)]
+pub fn remember_campaign(
+    data: &Path,
+    slot: &str,
+    variant: &str,
+    path: &str,
+    folder: &str,
+    name: &str,
+    version: Option<&str>,
+    kind: ModKind,
+    parts: usize,
+) -> Result<StandaloneMod> {
+    if let Some(found) = find_campaign(data, slot, variant, path) {
+        return Ok(found);
+    }
+
+    // 记录 id 只要唯一、稳定就行 —— 用来源拼一个，不用中文当目录名
+    let id = format!("campaign-{slot}-{variant}-{}", short_hash(path));
+
+    let record = StandaloneMod {
+        id,
+        name: name.to_string(),
+        author: None,
+        version: version.map(str::to_string),
+        description: None,
+        modid: Some(name.to_string()),
+        fingerprint: String::new(),
+        folder: folder.to_string(),
+        kind,
+        source: ModSource::Campaign {
+            slot: slot.to_string(),
+            variant: variant.to_string(),
+            path: path.to_string(),
+        },
+        // 战役模组的启停由战役那条线管（mounted_mods），这里不掺和
+        enabled: false,
+        imported_at: crate::library::now_seconds(),
+        size_bytes: 0,
+        parts,
+    };
+
+    let mut mods = list(data);
+    mods.push(record.clone());
+    save(data, &mods)?;
+    Ok(record)
+}
+
+/// 路径的短哈希，用来拼一个稳定的记录 id。
+fn short_hash(value: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    format!("{:x}", hasher.finalize())[..8].to_string()
 }
 
 /// 改模组信息。**只改启动器记录的，不动文件**。
