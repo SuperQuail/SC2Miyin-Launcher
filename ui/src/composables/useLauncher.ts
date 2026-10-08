@@ -45,6 +45,46 @@ const updateChecking = ref(false);
 const updateDownloading = ref(false);
 /** 下载完成后弹的那个"要重启了"对话框。 */
 const showRestartPrompt = ref(false);
+/** 启动时的更新公告（渲染 Release 正文的那个弹窗）。 */
+const updateNoticeVisible = ref(false);
+/** 公告上的「不再提示这个版本」勾选状态。 */
+const updateNoticeMuted = ref(false);
+
+/** 「不再提示」记在这里；只记版本号，下次开新版还会提示。 */
+const MUTED_KEY = "miyin.update.mutedVersion";
+
+function readMutedVersion(): string {
+  try {
+    return localStorage.getItem(MUTED_KEY) ?? "";
+  } catch {
+    // 隐私模式之类可能不让读，忽略即可
+    return "";
+  }
+}
+
+function writeMutedVersion(version: string): void {
+  try {
+    if (version) localStorage.setItem(MUTED_KEY, version);
+    else localStorage.removeItem(MUTED_KEY);
+  } catch {
+    /* 存不了就算了，顶多多提示几次 */
+  }
+}
+
+/** 关掉公告（这次不提示了，下次启动还会提示）。 */
+function dismissUpdateNotice(): void {
+  updateNoticeVisible.value = false;
+  updateNoticeMuted.value = false;
+}
+
+/** 「不再提示这个版本」：记下版本号，以后不再弹；等出更新的版本再弹。 */
+function muteThisVersion(): void {
+  const version = updateCheck.value?.latest?.version ?? "";
+  writeMutedVersion(version);
+  updateNoticeVisible.value = false;
+  updateNoticeMuted.value = false;
+  pushUpdateLog("已设置为不再提示 " + version);
+}
 
 /** 有可用更新时存版本号，供顶栏提示；null 表示没有。 */
 const updateAvailable = computed(() => {
@@ -106,14 +146,25 @@ async function checkUpdateNow(quiet = false): Promise<void> {
   }
 }
 
-/** 启动时自动扫一次：**不需要用户手点**。 */
+/** 启动时自动扫一次：**不需要用户手点**；有新版就把公告弹出来。 */
 async function autoCheckUpdate(): Promise<void> {
   await checkUpdateNow(true);
 
-  // 浏览器演示模式：接着把下载流程也演一遍，
-  // 好让开发与截图能看到进度条与重启弹窗的实际样子（真实运行不会这样）。
-  if (!isDesktop && updateCheck.value?.available) {
-    setTimeout(() => void downloadUpdateNow(), 2600);
+  if (updateCheck.value?.available && updateCheck.value.latest) {
+    const version = updateCheck.value.latest.version;
+
+    if (readMutedVersion() === version) {
+      // 用户勾过「不再提示这个版本」—— 角标照常有，但不再弹窗
+      pushUpdateLog("已设为不再提示 " + version + "，只显示角标");
+    } else {
+      updateNoticeVisible.value = true;
+    }
+
+    // 浏览器演示模式：把下载流程也演一遍，
+    // 好让开发与截图能看到进度条与重启弹窗的实际样子（真实运行不会这样）。
+    if (!isDesktop) {
+      setTimeout(() => void downloadUpdateNow(), 6000);
+    }
   }
 }
 
@@ -129,6 +180,8 @@ async function downloadUpdateNow(): Promise<void> {
   try {
     const staged = await api.downloadUpdate(release.version);
     updateStaged.value = staged;
+    // 公告与重启弹窗不同时出现
+    updateNoticeVisible.value = false;
     pushUpdateLog("下载完成，点「安装并重启」即可换上 " + staged.version);
     // 下载完成 → 弹窗告诉用户需要重启
     showRestartPrompt.value = true;
@@ -291,6 +344,10 @@ async function reveal(path: string): Promise<void> {
 
 export function useLauncher() {
   return {
+    updateNoticeVisible,
+    updateNoticeMuted,
+    dismissUpdateNotice,
+    muteThisVersion,
     updateAvailable,
     updateLogs,
     updateCheck,

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用问题 / 讨论
+    url: https://github.com/SuperQuail/SC2Miyin-Launcher/discussions
+    about: 不确定算不算 bug、想聊聊怎么打包战役，欢迎来讨论区
+  - name: 包格式规范
+    url: https://github.com/SuperQuail/SC2Miyin-Launcher/blob/main/docs/package-format.md
+    about: 自己打包战役前先看这份
