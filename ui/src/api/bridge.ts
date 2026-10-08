@@ -116,6 +116,8 @@ const desktop: LauncherApi = {
   previewMod: (path) => invoke<ModPreview>("preview_mod", { path }),
   importMod: (path, mode) => invoke<ModImport>("import_mod", { path, mode: mode ?? null }),
   updateMod: (id, changes) => invoke<StandaloneMod>("update_mod", { id, changes }),
+  editMod: (recordId, identity, changes) =>
+    invoke<StandaloneMod>("edit_mod", { recordId, identity, changes }),
   removeMod: (id) => invoke<void>("remove_mod", { id }),
   exportMod: (id) => invoke<string>("export_mod", { id }),
   exportMods: (ids) => invoke<string>("export_mods", { ids }),
@@ -371,6 +373,8 @@ function demoLibraryMods(): LibraryMod[] {
         version: "1.0",
         folder: null,
         kind: null,
+        mod_record_id: null,
+        source_kind: "campaign",
       });
     }
   };
@@ -401,6 +405,8 @@ function demoLibraryMods(): LibraryMod[] {
     version: "1.0",
     folder: "手搓单位包",
     kind: "folder",
+    mod_record_id: "手搓单位包",
+    source_kind: "library",
   });
   return rows;
 }
@@ -779,6 +785,9 @@ const demo: LauncherApi = {
       existing: null,
       message: "已导入「演示模组」",
     } as ModImport),
+  editMod: () => delay(
+    { id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", source: { kind: "library" }, author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod,
+  ),
   updateMod: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
   removeMod: () => delay(undefined),
   exportMod: () => delay("D:\\demo.zip"),

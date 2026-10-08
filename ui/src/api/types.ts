@@ -388,6 +388,22 @@ export interface LibraryMod {
   folder: string | null;
   /** 铺成文件还是目录。 */
   kind: "file" | "folder" | null;
+  /** 模组记录的 id —— 有它就能改信息。 */
+  mod_record_id: string | null;
+  /** 内容在哪：`library`（独立库）或 `campaign`（某个战役版本）。 */
+  source_kind: string;
+}
+
+/** 跟着战役包来的模组的定位信息（第一次编辑时用来建记录）。 */
+export interface ModIdentity {
+  slot: string;
+  variant: string;
+  path: string;
+  folder: string;
+  name: string;
+  version: string | null;
+  kind: string;
+  parts: number;
 }
 
 /** 独立模组库里的一个模组。 */
@@ -667,6 +683,18 @@ export interface LauncherApi {
   importMod(path: string, mode?: ModImportMode): Promise<ModImport>;
   /** 改模组信息。 */
   updateMod(id: string, changes: ModChanges): Promise<StandaloneMod>;
+  /**
+   * 改一个模组的元数据。
+   *
+   * 独立模组和战役包带来的模组走同一条路 —— 改的都是记录，不动包里的原始文件。
+   * 战役模组第一次编辑时会先建一条记录。
+   */
+  editMod(
+    recordId: string | null,
+    identity: ModIdentity | null,
+    changes: ModChanges,
+  ): Promise<StandaloneMod>;
+
   /** 删掉模组。 */
   removeMod(id: string): Promise<void>;
   /** 比两个模组版本差在哪。 */

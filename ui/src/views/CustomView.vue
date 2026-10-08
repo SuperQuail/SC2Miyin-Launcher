@@ -41,6 +41,28 @@ function onImported(): void {
   if (newest) opened.value = newest.id;
 }
 
+/**
+ * 页面空白处的右键菜单。
+ *
+ * 这一页高频操作就三件：导入、看工具、刷新 —— 都给到右键里，
+ * 不用去顶栏找按钮。
+ */
+function showPageMenu(event: MouseEvent): void {
+  menu.show(
+    event,
+    [
+      { id: "import", label: "导入战役包…" },
+      { id: "cheats", label: "作弊码查询", separatorBefore: true },
+      { id: "reload", label: "重新读取" },
+    ],
+    (id) => {
+      if (id === "import") void importer.value?.startImport();
+      if (id === "cheats") emit("open-cheats");
+      if (id === "reload") void refresh();
+    },
+  );
+}
+
 /** 顶部「小工具」：作弊码这类查询工具挂在这里，不单开标签页。 */
 function openTools(event: MouseEvent): void {
   menu.show(
@@ -58,7 +80,7 @@ function openTools(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" @contextmenu.self="showPageMenu">
     <!--
       看板：这一页的内容直接压在壁纸上，没有这块半透明底板的话深色文字根本读不出来。
       样式与战役页的 hero 保持一致（半透明 + 背景模糊）。

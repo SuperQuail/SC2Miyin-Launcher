@@ -148,6 +148,32 @@ const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
  */
 const maximized = ref(false);
 
+/**
+ * 按住顶栏拖动窗口。
+ *
+ * 本来 `data-tauri-drag-region` 就够了，但它有个坑：**只认事件落在
+ * 带这个属性的元素本身**。点了里面带文字的 span、或任何子元素，就不响应 ——
+ * 用户的感觉就是「有时候能拖有时候不能」，很难受。
+ *
+ * 所以自己接管：落点不在按钮/链接/输入框/窗口控件上就调系统的拖动，
+ * 整条顶栏（除了那几个控件）都是有效拖动区。
+ */
+function startWindowDrag(event: MouseEvent): void {
+  if (event.button !== 0) return;
+
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button, a, input, select, textarea, .winctl")) return;
+
+  void (async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startDragging();
+    } catch {
+      // 浏览器演示模式没有这个能力，忽略
+    }
+  })();
+}
+
 onMounted(async () => {
   if (!isDesktop) return;
   try {
@@ -242,7 +268,7 @@ onUnmounted(() => {
     <div class="app-wallpaper" :style="backdropStyle"></div>
 
     <!-- 顶栏同时是标题栏：空白处按住可以拖窗口 -->
-    <header class="topbar" data-tauri-drag-region>
+    <header class="topbar" data-tauri-drag-region @mousedown="startWindowDrag">
       <div class="brand" data-tauri-drag-region>
         <span class="brand__avatar">
           <img :src="MIYIN.chibi" alt="弥音" />

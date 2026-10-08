@@ -10,6 +10,25 @@ import SlotMenuView from "./SlotMenuView.vue";
 
 const emit = defineEmits<{ "open-settings": []; "open-cheats": [] }>();
 
+/** 页面空白处的右键菜单。 */
+function showPageMenu(event: MouseEvent): void {
+  menu.show(
+    event,
+    [
+      { id: "import", label: "导入战役包…" },
+      { id: "reload", label: "重新读取战役库" },
+      { id: "cheats", label: "作弊码查询", separatorBefore: true },
+      { id: "settings", label: "设置" },
+    ],
+    (id) => {
+      if (id === "import") void importer.value?.startImport();
+      if (id === "reload") void refresh();
+      if (id === "cheats") emit("open-cheats");
+      if (id === "settings") emit("open-settings");
+    },
+  );
+}
+
 /** 顶部「小工具」：作弊码这类查询工具挂这里，不单开标签页。 */
 function openTools(event: MouseEvent): void {
   menu.show(
@@ -80,7 +99,7 @@ function onImported(slot: string): void {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" @contextmenu.self="showPageMenu">
     <!-- 尚未设置游戏目录 -->
     <section v-if="!installation" class="empty card">
       <img class="empty__art" :src="MIYIN.cry" alt="" />

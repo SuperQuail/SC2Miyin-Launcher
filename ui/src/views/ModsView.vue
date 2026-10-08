@@ -13,14 +13,17 @@ import type {
   GameModEntry,
   LibraryMod,
   ModComparison,
+  ModIdentity,
   ModImport,
   ModImportMode,
   ModPreview,
   StandaloneMod,
 } from "../api/types";
+import { useContextMenu, type MenuItem } from "../composables/useContextMenu";
 import { errorText, useLauncher } from "../composables/useLauncher";
 
 const { installation, loading: bootLoading, reveal, notify, bootstrap } = useLauncher();
+const menu = useContextMenu();
 
 const mods = ref<LibraryMod[]>([]);
 const gameMods = ref<GameModEntry[]>([]);
@@ -29,8 +32,10 @@ const busy = ref<string | null>(null);
 const keyword = ref("");
 const importing = ref(false);
 
-/** 正在编辑的独立模组；null 表示没开编辑框。 */
-const editing = ref<StandaloneMod | null>(null);
+/** 正在编辑哪个模组（展示用的那行）；null 表示没开编辑框。 */
+const editing = ref<LibraryMod | StandaloneMod | null>(null);
+/** 已经有记录的那个（null 表示还没记录，保存时要带上定位信息）。 */
+const editTarget = ref<StandaloneMod | null>(null);
 /** 正在看的对比结果。 */
 const comparing = ref<ModComparison | null>(null);
 /** 对比时选中的「另一个版本」。 */
@@ -307,20 +312,97 @@ function report(result: ModImport): void {
   }
 }
 
-/** 打开编辑框。 */
+/**
+ * 模组行上的右键菜单。
+ *
+ * 和行内按钮给的是同一批功能，只是不用先去找那几个小按钮 ——
+ * 模组页上真正高频的操作就这几件。
+ */
+function showModMenu(event: MouseEvent, mod: LibraryMod): void {
+  const items: MenuItem[] = [
+    { id: "toggle", label: mod.mounted ? "停用" : "启用" },
+    { id: "edit", label: "编辑信息…" },
+    { id: "copy", label: "复制挂载名", separatorBefore: true },
+  ];
+
+  // 只有内容在独立库里的才能导出 / 删除 ——
+  // 战役包带来的模组，内容归那个包，删了会破坏包
+  if (mod.source_kind === "library") {
+    items.push({ id: "export", label: "导出成一个包…" });
+    items.push({ id: "remove", label: "从库里删除", danger: true });
+  }
+
+  menu.show(event, items, (id) => {
+    if (id === "toggle") void toggle(mod);
+    if (id === "edit") editModAction(mod);
+    if (id === "copy") void copyMount(mod);
+    if (id === "export") void exportMod(mod);
+    if (id === "remove") removeMod(mod);
+  });
+}
+
+/** 页面空白处的右键菜单：导入和刷新。 */
+function showPageMenu(event: MouseEvent): void {
+  menu.show(
+    event,
+    [
+      { id: "import-file", label: "导入模组包…" },
+      { id: "import-folder", label: "从文件夹导入…" },
+      { id: "reload", label: "重新读取", separatorBefore: true },
+      { id: "open-mods", label: "打开游戏 Mods 目录", disabled: !installation.value },
+    ],
+    (id) => {
+      if (id === "import-file") void importMod("file");
+      if (id === "import-folder") void importMod("folder");
+      if (id === "reload") void load();
+      if (id === "open-mods") openModsDir();
+    },
+  );
+}
+
+/** 复制模组在游戏目录里的名字，方便自己去看 / 写进别的配置。 */
+async function copyMount(mod: LibraryMod): Promise<void> {
+  const text = "Mods/" + (mod.folder ?? mod.name);
+  try {
+    await navigator.clipboard.writeText(text);
+    notify("success", "已复制：" + text);
+  } catch {
+    notify("info", text);
+  }
+}
+
+/**
+ * 打开编辑框 —— **所有模组都能改**，不只是独立导入的。
+ *
+ * 跟着战役包来的模组也是一条模组记录：第一次编辑时后端会先建一条
+ * （只存元数据），改的是记录、不动包里的原始文件。
+ */
 function editModAction(mod: LibraryMod): void {
-  if (!mod.standalone_id) return;
+  editing.value = mod;
+  editTarget.value = null;
+
+  // 有记录就把现有信息填进去；没有（战役包带来的、还没编辑过）就先用展示值
   void (async () => {
     try {
-      const all = await api.listStandaloneMods();
-      const found = all.find((item) => item.id === mod.standalone_id);
-      if (!found) return;
-      editing.value = found;
+      if (mod.mod_record_id) {
+        const all = await api.listStandaloneMods();
+        const found = all.find((item) => item.id === mod.mod_record_id);
+        if (found) {
+          editTarget.value = found;
+          form.value = {
+            name: found.name,
+            author: found.author ?? "",
+            version: found.version ?? "",
+            description: found.description ?? "",
+          };
+          return;
+        }
+      }
       form.value = {
-        name: found.name,
-        author: found.author ?? "",
-        version: found.version ?? "",
-        description: found.description ?? "",
+        name: mod.name,
+        author: "",
+        version: mod.version ?? "",
+        description: "",
       };
     } catch (error) {
       notify("error", errorText(error));
@@ -332,15 +414,32 @@ async function saveEdit(): Promise<void> {
   const current = editing.value;
   if (!current) return;
 
-  busy.value = current.id;
+  busy.value = "edit";
   try {
-    await api.updateMod(current.id, {
+    // 战役包带来的、还没记录的：带上定位信息，后端会先建一条记录
+    const identity: ModIdentity | null =
+      !editTarget.value && "mod_record_id" in current
+        ? {
+            slot: current.slot,
+            variant: current.variant_id,
+            path: current.path,
+            folder: current.folder ?? current.name,
+            name: current.name,
+            version: current.version,
+            kind: current.kind ?? "folder",
+            parts: current.parts,
+          }
+        : null;
+
+    await api.editMod(editTarget.value?.id ?? null, identity, {
       name: form.value.name,
       author: form.value.author || null,
       version: form.value.version || null,
       description: form.value.description || null,
     });
+
     editing.value = null;
+    editTarget.value = null;
     await load();
     notify("success", "已保存");
   } catch (error) {
@@ -399,7 +498,7 @@ function openModsDir(): void {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page" @contextmenu.self="showPageMenu">
     <section class="hero">
       <div class="hero__body">
         <p class="hero__eyebrow">
@@ -486,7 +585,12 @@ function openModsDir(): void {
       </header>
 
       <ul class="mods">
-        <li v-for="mod in group.mods" :key="mod.path" class="mod">
+        <li
+          v-for="mod in group.mods"
+          :key="mod.path"
+          class="mod"
+          @contextmenu="showModMenu($event, mod)"
+        >
           <div class="mod__info">
             <input
               v-if="mod.standalone_id"
@@ -509,7 +613,7 @@ function openModsDir(): void {
           </div>
 
           <div class="mod__actions">
-            <template v-if="mod.standalone_id">
+            <template v-if="true">
               <select
                 v-if="group.mods.length > 1"
                 class="mod__base"
@@ -543,6 +647,7 @@ function openModsDir(): void {
                 编辑
               </button>
               <button
+                v-if="mod.source_kind === 'library'"
                 class="btn btn-text btn--tiny"
                 type="button"
                 :disabled="busy !== null"
@@ -551,6 +656,7 @@ function openModsDir(): void {
                 导出
               </button>
               <button
+                v-if="mod.source_kind === 'library'"
                 class="btn btn-text btn--tiny btn--danger"
                 type="button"
                 :disabled="busy !== null"
