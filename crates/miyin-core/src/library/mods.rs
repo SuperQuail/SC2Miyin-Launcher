@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 use crate::safety;
@@ -108,6 +109,16 @@ pub struct StandaloneMod {
     pub version: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// **modid**：包格式里声明的模组身份。
+    ///
+    /// 判定「这是同一个模组的不同版本，还是另一个模组」全看它：
+    /// id 相同 -> 同一个模组的不同版本；id 不同 -> 新模组。
+    /// 没声明时退回用显示名当 id（老记录、随手传的包都没有）。
+    #[serde(default)]
+    pub modid: Option<String>,
+    /// 内容的指纹（blake3）。用来判定「完全一样，不用再存一份」。
+    #[serde(default)]
+    pub fingerprint: String,
     /// 启用了没 —— 启用才会铺进游戏目录。
     #[serde(default)]
     pub enabled: bool,
@@ -118,6 +129,32 @@ pub struct StandaloneMod {
     /// 目录里有多少个 `.SC2Mod`。
     #[serde(default)]
     pub parts: usize,
+}
+
+/// 导入一个模组时发生了什么。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModImportAction {
+    /// 全新导进来的。
+    Added,
+    /// 同一个 modid 的新版本。
+    NewVersion,
+    /// **内容完全一样** —— 没重复存，直接用库里那份。
+    Duplicate,
+    /// 版本号撞了但内容不同 —— 自动改了个版本号存下来。
+    Renamed,
+}
+
+/// 导入模组的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModImport {
+    /// 库里最终的那条记录（可能是已有的那份，也可能是新建的）。
+    pub record: StandaloneMod,
+    pub action: ModImportAction,
+    /// 库里原来那个（如果有）。
+    pub existing: Option<StandaloneMod>,
+    /// 界面该怎么说。
+    pub message: String,
 }
 
 /// 允许用户修改的模组信息；`None` 表示这一项不动。
@@ -249,10 +286,60 @@ fn scan_dir(root: &Path) -> (usize, u64) {
     (parts, bytes)
 }
 
+/// 算一份内容的指纹（SHA-256）。
+///
+/// 拿它判定「完全一样」 —— 比逐字节比对省事，也比比名字可靠：
+/// 同一个包换个文件名再传一次是很常见的。
+fn fingerprint_of(root: &Path) -> Result<String> {
+    // 用 sha2 而不是 blake3：它已经在依赖里了，不为一个指纹再加一个 crate
+    let mut hasher = Sha256::new();
+    let mut files: Vec<PathBuf> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        if entry.file_type().is_file() {
+            files.push(entry.path().to_path_buf());
+        }
+    }
+
+    // 路径排序后再喂 —— 不然遍历顺序一变指纹就变了
+    files.sort();
+    for path in files {
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
+        // 路径也进哈希：同样的内容摆在不同的子目录里，是两个模组
+        hasher.update(relative.to_string_lossy().replace('\\', "/").as_bytes());
+        hasher.update(&std::fs::read(&path)?);
+    }
+
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// 这个记录的身份：优先用声明的 modid，没有就退回名字。
+pub fn effective_id(record: &StandaloneMod) -> String {
+    record
+        .modid
+        .clone()
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or_else(|| record.name.clone())
+}
+
 /// 从磁盘导入一个模组：可以是目录、`.SC2Mod` 文件，或者压缩包。
 ///
-/// 名字的取法：目录 / 压缩包用它自己的名字，单个 `.SC2Mod` 用去掉后缀的名字。
-pub fn import(data: &Path, source: &Path) -> Result<StandaloneMod> {
+/// 按 **modid** 判定归属：
+///
+/// | 情况 | 处理 |
+/// | --- | --- |
+/// | 库里没有这个 id | 新模组 |
+/// | 有，且**内容一模一样** | 不留第二份，直接用库里那份 |
+/// | 有，版本不同 | 作为**新版本**存一条 |
+/// | 有，版本相同但内容不同 | **自动改个版本号**再存 |
+///
+/// `declared_id` 是包内声明的 modid；没声明就退回用名字当 id。
+pub fn import(data: &Path, source: &Path, declared_id: Option<&str>) -> Result<ModImport> {
     if !source.exists() {
         return Err(Error::PackageRejected(format!(
             "找不到要导入的模组：{}",
@@ -273,39 +360,98 @@ pub fn import(data: &Path, source: &Path) -> Result<StandaloneMod> {
 
     let root = mods_root(data);
     std::fs::create_dir_all(&root)?;
+
+    // 先解到暂存目录：还要算指纹、跟库里比对，比完才知道要不要留下
+    let staging = safety::ensure_within(
+        &root,
+        &root.join(format!(".staging-{}", crate::library::now_seconds())),
+    )?;
+    std::fs::create_dir_all(&staging)?;
+
+    let staged = (|| -> Result<()> {
+        if source.is_dir() {
+            copy_tree(source, &staging)?;
+        } else if is_archive(source) {
+            crate::campaign::package::extract_to(source, "", &staging)?;
+            collapse_single_dir(&staging)?;
+        } else {
+            std::fs::copy(source, staging.join(&raw_name))?;
+        }
+        Ok(())
+    })();
+
+    if let Err(error) = staged {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
+    let fingerprint = fingerprint_of(&staging)?;
+    let modid = declared_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| display.clone());
+
+    let existing_list = list(data);
+    let same_id: Vec<StandaloneMod> = existing_list
+        .iter()
+        .filter(|item| effective_id(item) == modid)
+        .cloned()
+        .collect();
+
+    // ---- 内容完全一样：不留第二份 ----
+    if let Some(found) = same_id
+        .iter()
+        .find(|item| !item.fingerprint.is_empty() && item.fingerprint == fingerprint)
+    {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Ok(ModImport {
+            record: found.clone(),
+            action: ModImportAction::Duplicate,
+            existing: Some(found.clone()),
+            message: format!("「{}」库里已经有一份完全一样的，没有重复存", found.name),
+        });
+    }
+
+    // ---- 决定版本号与目录名 ----
+    let mut version = same_id
+        .iter()
+        .filter_map(|item| item.version.clone())
+        .next_back();
+    let mut action = ModImportAction::Added;
+
+    if !same_id.is_empty() {
+        // 传进来的包自己声明的版本还不知道（元数据在调用方解析），
+        // 这里按「库里已有同 id」处理：先当新版本，撞版本号再改名
+        action = ModImportAction::NewVersion;
+
+        let taken: Vec<String> = same_id
+            .iter()
+            .filter_map(|item| item.version.clone())
+            .collect();
+        version = Some(unique_version(
+            version.as_deref().unwrap_or("1.0"),
+            &taken,
+            &mut action,
+        ));
+    } else {
+        version = Some("1.0".to_string());
+    }
+
     let id = unique_dir_name(&root, &display)?;
     let target = safety::ensure_within(&root, &root.join(&id))?;
-
-    // 目录 -> 整个拷；文件 -> 拷进来；压缩包 -> 解开
-    if source.is_dir() {
-        copy_tree(source, &target)?;
-    } else if is_archive(source) {
-        let staging = safety::ensure_within(&root, &root.join(format!(".staging-{}", id)))?;
-        std::fs::create_dir_all(&staging)?;
-        match crate::campaign::package::extract_to(source, "", &staging) {
-            Ok(_) => {
-                // 压缩包里如果只有一层同名目录，往里收一层 —— 免得目录套目录
-                collapse_single_dir(&staging)?;
-                std::fs::rename(&staging, &target)?;
-            }
-            Err(error) => {
-                let _ = std::fs::remove_dir_all(&staging);
-                return Err(error);
-            }
-        }
-    } else {
-        std::fs::create_dir_all(&target)?;
-        std::fs::copy(source, target.join(&raw_name))?;
-    }
+    std::fs::rename(&staging, &target)?;
 
     let (parts, size_bytes) = scan_dir(&target);
     let record = StandaloneMod {
         id: id.clone(),
         name: display,
         author: None,
-        version: None,
+        version,
         description: None,
-        // 单独导入的模组默认**不启用** —— 免得悄悄改了游戏状态
+        modid: Some(modid.clone()),
+        fingerprint,
+        // 默认**不启用** —— 免得悄悄改了游戏状态
         enabled: false,
         imported_at: crate::library::now_seconds(),
         size_bytes,
@@ -315,7 +461,43 @@ pub fn import(data: &Path, source: &Path) -> Result<StandaloneMod> {
     let mut mods = list(data);
     mods.push(record.clone());
     save(data, &mods)?;
-    Ok(record)
+
+    let message = match action {
+        ModImportAction::Renamed => format!(
+            "「{}」这个版本号库里已经有了（内容不一样），自动存成了 {}",
+            record.name,
+            record.version.clone().unwrap_or_default()
+        ),
+        ModImportAction::NewVersion => format!(
+            "「{}」作为新版本 {} 存下来了",
+            record.name,
+            record.version.clone().unwrap_or_default()
+        ),
+        _ => format!("已导入「{}」", record.name),
+    };
+
+    Ok(ModImport {
+        record,
+        action,
+        existing: same_id.into_iter().next(),
+        message,
+    })
+}
+
+/// 挑一个没被占用的版本号；撞了就加后缀，并把 action 标成「自动改名」。
+fn unique_version(wanted: &str, taken: &[String], action: &mut ModImportAction) -> String {
+    if !taken.iter().any(|item| item == wanted) {
+        return wanted.to_string();
+    }
+
+    *action = ModImportAction::Renamed;
+    for index in 2..1000 {
+        let candidate = format!("{wanted}.{index}");
+        if !taken.iter().any(|item| item == &candidate) {
+            return candidate;
+        }
+    }
+    format!("{wanted}.{}", crate::library::now_seconds())
 }
 
 /// 是不是压缩包（按扩展名粗判）。

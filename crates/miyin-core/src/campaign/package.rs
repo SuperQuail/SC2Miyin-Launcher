@@ -134,6 +134,11 @@ pub struct PackageInspection {
     /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// 包内声明的 **modid**：这个模组的身份。
+    ///
+    /// 判定「同一个模组的不同版本，还是另一个模组」全看它。
+    #[serde(default)]
+    pub modid: Option<String>,
     /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
     ///
     /// 空表示作者没声明 —— **不代表包不带模组**，界面上按「可选」处理。
@@ -196,6 +201,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         main_map: None,
         doc: None,
         declared_mods: Vec::new(),
+        modid: None,
         kind: PackageKind::Campaign,
         id: None,
         requires: Vec::new(),
@@ -600,6 +606,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut declared_main_map: Option<String> = None;
     let mut declared_doc: Option<String> = None;
     let mut declared_mods_raw: Vec<String> = Vec::new();
+    let mut declared_mod: Option<String> = None;
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
@@ -619,6 +626,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     declared_main_map = meta.main_map_path();
                     declared_doc = meta.doc_path();
                     declared_mods_raw = meta.mods();
+                    declared_mod = meta.modid().map(str::to_string);
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
@@ -680,6 +688,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             declared_main_map = clean(meta.main_map.clone());
             declared_doc = clean(meta.doc.clone());
             declared_mods_raw = meta.mods.clone();
+            declared_mod = clean(meta.modid.clone());
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
             declared_id = clean(meta.id.clone());
@@ -908,6 +917,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         main_map: main_map_claim,
         doc: declared_doc,
         declared_mods,
+        modid: declared_mod,
         identification,
         suggested_slot,
         content_root,

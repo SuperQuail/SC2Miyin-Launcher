@@ -477,6 +477,36 @@ fn find_tool(id: &str) -> Result<tools::ToolSpec, String> {
         .ok_or_else(|| format!("不认识这个工具：{id}"))
 }
 
+/// 最小化窗口。
+#[tauri::command(async)]
+fn window_minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+/// 最大化 / 还原。
+#[tauri::command(async)]
+fn window_toggle_maximize(window: tauri::Window) -> Result<bool, String> {
+    let maximized = window.is_maximized().map_err(|error| error.to_string())?;
+    if maximized {
+        window.unmaximize().map_err(|error| error.to_string())?;
+    } else {
+        window.maximize().map_err(|error| error.to_string())?;
+    }
+    Ok(!maximized)
+}
+
+/// 关窗口。
+#[tauri::command(async)]
+fn window_close(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+/// 现在是不是最大化 —— 标题栏的按钮图标要跟着变。
+#[tauri::command(async)]
+fn window_is_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|error| error.to_string())
+}
+
 /// 启动时调：**没装就静默装上**。
 ///
 /// 失败不等于出错 —— 包成 `ToolEnsure` 返回，界面按 `message` 提示一句就行，
@@ -585,9 +615,21 @@ fn pick_mod_source(kind: String) -> Option<String> {
 }
 
 /// 导入一个独立模组包（目录 / .SC2Mod / 压缩包都行）。
+///
+/// 压缩包会先读一遍元数据拿 **modid** —— 判定「同一个模组的新版本」全靠它。
+/// 裸的目录 / .SC2Mod 没有元数据，退回用名字当 id。
 #[tauri::command(async)]
-fn import_mod(path: String, state: State<'_, AppState>) -> Result<StandaloneMod, String> {
-    mods::import(state.library.root(), Path::new(&path)).map_err(|error| error.to_string())
+fn import_mod(path: String, state: State<'_, AppState>) -> Result<mods::ModImport, String> {
+    let source = Path::new(&path);
+
+    let declared = if source.is_file() {
+        package::inspect(source).ok().and_then(|found| found.modid)
+    } else {
+        None
+    };
+
+    mods::import(state.library.root(), source, declared.as_deref())
+        .map_err(|error| error.to_string())
 }
 
 /// 改模组信息（只改启动器记录的，不动文件）。
@@ -1335,6 +1377,10 @@ pub fn run() {
             list_standalone_mods,
             list_tools,
             ensure_tool,
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
+            window_is_maximized,
             tool_releases,
             install_tool,
             uninstall_tool,

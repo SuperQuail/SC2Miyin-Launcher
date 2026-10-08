@@ -387,6 +387,10 @@ export interface LibraryMod {
 export interface StandaloneMod {
   id: string;
   name: string;
+  /** modid：判定「同一个模组的新版本」靠它。 */
+  modid: string | null;
+  /** 内容指纹（SHA-256），用来判定「完全一样」。 */
+  fingerprint: string;
   author: string | null;
   version: string | null;
   description: string | null;
@@ -450,6 +454,16 @@ export interface ToolEnsure {
   error: string | null;
   /** 界面该怎么跟用户说；没问题时是 null。 */
   message: string | null;
+}
+
+/** 导入模组的结果。 */
+export interface ModImport {
+  record: StandaloneMod;
+  /** 这次怎么处理的。 */
+  action: "added" | "new_version" | "duplicate" | "renamed";
+  existing: StandaloneMod | null;
+  /** 界面该怎么说。 */
+  message: string;
 }
 
 export interface LauncherApi {
@@ -562,6 +576,15 @@ export interface LauncherApi {
 
   /** 可选工具的清单与安装状态。 */
   listTools(): Promise<ToolStatus[]>;
+  /** 最小化窗口。 */
+  windowMinimize(): Promise<void>;
+  /** 最大化 / 还原；返回操作后是不是最大化。 */
+  windowToggleMaximize(): Promise<boolean>;
+  /** 关窗口。 */
+  windowClose(): Promise<void>;
+  /** 现在是不是最大化。 */
+  windowIsMaximized(): Promise<boolean>;
+
   /** 启动时调：没装就静默装上；之前失败过就不再试。 */
   ensureTool(id: string): Promise<ToolEnsure>;
   /** 某个工具有哪些版本可装。 */
@@ -582,7 +605,7 @@ export interface LauncherApi {
   /** 选一个模组包：file（压缩包 / .SC2Mod）或 folder。 */
   pickModSource(kind: "file" | "folder"): Promise<string | null>;
   /** 导入模组包。 */
-  importMod(path: string): Promise<StandaloneMod>;
+  importMod(path: string): Promise<ModImport>;
   /** 改模组信息。 */
   updateMod(id: string, changes: ModChanges): Promise<StandaloneMod>;
   /** 删掉模组。 */

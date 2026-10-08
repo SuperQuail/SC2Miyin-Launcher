@@ -2,10 +2,12 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
+import { api } from "./api/bridge";
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
 import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
+import { contextMenuHandledRecently, useContextMenu } from "./composables/useContextMenu";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
@@ -45,7 +47,123 @@ const tabs: { id: ViewId; label: string }[] = [
 /** 作弊码这类查询工具走弹层，不占标签位。 */
 const cheatsOpen = ref(false);
 
+const menu = useContextMenu();
+
+/**
+ * 右键：**一律拦掉浏览器原生的那个**。
+ *
+ * WebView 的原生菜单是「刷新 / 另存为 / 检查元素」那一套 —— 放在桌面应用里
+ * 格格不入，而且会把用户导向一个跟本应用无关的世界。所以整个窗口一律拦掉，
+ * 换成我们自己的：
+ *
+ * - 组件自己处理过的（卡片、地图行…）用组件那份菜单 —— 靠时间戳认出来
+ * - **输入框里给复制粘贴** —— 不然用户连粘贴个路径都做不到，这是拦掉的代价
+ * - 其余地方落到默认菜单
+ */
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  if (contextMenuHandledRecently()) return;
+
+  const editable = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    "input, textarea, [contenteditable='true']",
+  );
+
+  if (editable) {
+    menu.show(
+      event,
+      [
+        { id: "cut", label: "剪切" },
+        { id: "copy", label: "复制" },
+        { id: "paste", label: "粘贴" },
+        { id: "selectAll", label: "全选", separatorBefore: true },
+      ],
+      (id) => void editAction(editable, id),
+    );
+    return;
+  }
+
+  menu.show(
+    event,
+    [
+      { id: "refresh", label: "刷新数据" },
+      { id: "settings", label: "设置", separatorBefore: true },
+      { id: "repo", label: "项目主页" },
+    ],
+    (id) => {
+      if (id === "refresh") void bootstrap();
+      if (id === "settings") currentView.value = "settings";
+      if (id === "repo") void api.openUrl("https://github.com/SuperQuail/SC2Miyin-Launcher");
+    },
+  );
+}
+
+/** 输入框里的剪切 / 复制 / 粘贴 / 全选。 */
+async function editAction(element: HTMLElement, action: string): Promise<void> {
+  const field = element as HTMLInputElement | HTMLTextAreaElement;
+
+  if (action === "copy" || action === "cut") {
+    const selected = field.value?.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0) ?? "";
+    try {
+      await navigator.clipboard.writeText(selected);
+      if (action === "cut") {
+        const start = field.selectionStart ?? 0;
+        const end = field.selectionEnd ?? 0;
+        field.value = field.value.slice(0, start) + field.value.slice(end);
+        // 改完要通知 Vue —— 不然双向绑定还是旧值
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    } catch {
+      // 剪贴板被挡就算了，不弹红字
+    }
+    return;
+  }
+
+  if (action === "paste") {
+    try {
+      const text = await navigator.clipboard.readText();
+      const start = field.selectionStart ?? field.value.length;
+      const end = field.selectionEnd ?? field.value.length;
+      field.value = field.value.slice(0, start) + text + field.value.slice(end);
+      field.selectionStart = field.selectionEnd = start + text.length;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch {
+      // 读剪贴板需要权限，被拒就安静收场
+    }
+    return;
+  }
+
+  if (action === "selectAll") {
+    field.focus();
+    field.select();
+  }
+}
+
 const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
+
+/**
+ * 窗口按钮。
+ *
+ * 我们关掉了系统边框（`decorations: false`），所以最小化 / 最大化 / 关闭
+ * 得自己画。浏览器演示模式下这些命令不存在，按钮直接不显示。
+ */
+const maximized = ref(false);
+
+onMounted(async () => {
+  if (!isDesktop) return;
+  try {
+    maximized.value = await api.windowIsMaximized();
+  } catch {
+    // 拿不到就当没最大化
+  }
+});
+
+async function toggleMaximize(): Promise<void> {
+  try {
+    maximized.value = await api.windowToggleMaximize();
+  } catch {
+    // 忽略
+  }
+}
 
 /** 有文件被拖到窗口上方。 */
 const dragging = ref(false);
@@ -75,6 +193,7 @@ function spawnRipple(event: MouseEvent): void {
 
 onMounted(async () => {
   window.addEventListener("mousedown", spawnRipple);
+  window.addEventListener("contextmenu", onContextMenu);
   void bootstrap();
 
   // **启动就自动扫描更新**，不需要用户手点。
@@ -112,6 +231,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener("mousedown", spawnRipple);
+  window.removeEventListener("contextmenu", onContextMenu);
   stopWatching?.();
 });
 </script>
@@ -121,8 +241,9 @@ onUnmounted(() => {
     <div class="app-backdrop"></div>
     <div class="app-wallpaper" :style="backdropStyle"></div>
 
-    <header class="topbar">
-      <div class="brand">
+    <!-- 顶栏同时是标题栏：空白处按住可以拖窗口 -->
+    <header class="topbar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
         <span class="brand__avatar">
           <img :src="MIYIN.chibi" alt="弥音" />
         </span>
@@ -132,7 +253,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <nav class="tabs">
+      <nav class="tabs" data-tauri-drag-region>
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -169,6 +290,38 @@ onUnmounted(() => {
         <span v-if="installation" class="tag" title="星际争霸 II 版本">
           SC2 {{ installation.version }}
         </span>
+      </div>
+
+      <!-- 自绘的窗口按钮：系统边框已经关掉了 -->
+      <div class="winctl">
+        <button class="winctl__btn" type="button" title="最小化" @click="api.windowMinimize()">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6h7" /></svg>
+        </button>
+        <button
+          class="winctl__btn"
+          type="button"
+          :title="maximized ? '还原' : '最大化'"
+          @click="toggleMaximize"
+        >
+          <svg v-if="maximized" viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2.5" y="4.5" width="5" height="5" rx="1" />
+            <path d="M4.5 4.5v-2h5v5h-2" />
+          </svg>
+          <svg v-else viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2.5" y="2.5" width="7" height="7" rx="1.5" />
+          </svg>
+        </button>
+        <button
+          class="winctl__btn winctl__btn--close"
+          type="button"
+          title="关闭"
+          @click="api.windowClose()"
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M3 3l6 6" />
+            <path d="M9 3l-6 6" />
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -307,7 +460,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 24px;
   height: var(--header-height);
-  padding: 0 22px;
+  /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
+  padding: 0 6px 0 22px;
   background: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
   color: #fff;
   box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
@@ -355,6 +509,56 @@ onUnmounted(() => {
   font-size: 11px;
   opacity: 0.72;
   letter-spacing: 0.6px;
+}
+
+/* ---------- 自绘的窗口按钮 ---------- */
+/*
+ * 窗口按钮。
+ *
+ * 不加负外边距 —— 试过一次 `@margin-right: -18px`@ 想让它贴到窗口边缘，
+ * 结果整组被顶出可视区，界面上直接看不见，而系统边框已经关掉了，
+ * 那就等于没法关窗口。宁可和右边缘留一点间距。
+ */
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 6px;
+  /* 顶栏原本的右内边距对按钮来说太宽，收一点 */
+  margin-right: -14px;
+}
+
+.winctl__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.winctl__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* 关闭按钮悬停要变红 —— 这是所有桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
 }
 
 .tabs {

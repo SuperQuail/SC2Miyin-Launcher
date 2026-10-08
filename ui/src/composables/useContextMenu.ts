@@ -22,6 +22,20 @@ const at = ref({ x: 0, y: 0 });
 const items = ref<MenuItem[]>([]);
 let handler: ((id: string) => void) | null = null;
 
+/**
+ * 上一次弹菜单的时间。
+ *
+ * 用途：我们在 window 上挂了一个**一律拦掉浏览器原生菜单**的监听，
+ * 而组件的 `contextmenu` 会先于它触发并调 `show()`。
+ * 没有这个时间戳的话，组件刚弹出来的菜单会立刻被默认菜单顶掉。
+ */
+let lastShownAt = 0;
+
+/** 最近 100 毫秒内弹过菜单吗（说明已经有组件处理了这次右键）。 */
+export function contextMenuHandledRecently(): boolean {
+  return performance.now() - lastShownAt < 100;
+}
+
 export function useContextMenu() {
   /**
    * 在鼠标位置弹一个菜单。
@@ -33,6 +47,7 @@ export function useContextMenu() {
     event.preventDefault();
     event.stopPropagation();
 
+    lastShownAt = performance.now();
     at.value = { x: event.clientX, y: event.clientY };
     items.value = entries;
     handler = onPick;

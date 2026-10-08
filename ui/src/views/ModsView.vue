@@ -23,6 +23,8 @@ const importing = ref(false);
 
 /** 正在编辑的独立模组；null 表示没开编辑框。 */
 const editing = ref<StandaloneMod | null>(null);
+/** 等着确认删除的那个模组。 */
+const removing = ref<LibraryMod | null>(null);
 const form = ref({ name: "", author: "", version: "", description: "" });
 
 onMounted(async () => {
@@ -175,9 +177,14 @@ async function importMod(kind: "file" | "folder"): Promise<void> {
   try {
     const path = await api.pickModSource(kind);
     if (!path) return;
-    const created = await api.importMod(path);
+    const result = await api.importMod(path);
     await load();
-    notify("success", "已导入「" + created.name + "」—— 到上面把它启用就会铺进游戏目录");
+
+    // 后端已经想好了该怎么说：全新 / 新版本 / 完全一样没重复存 / 版本号撞了自动改名
+    notify(result.action === "duplicate" ? "info" : "success", result.message);
+    if (result.action === "added") {
+      notify("info", "到列表里把它启用就会铺进游戏目录");
+    }
   } catch (error) {
     notify("error", errorText(error));
   } finally {
@@ -248,7 +255,15 @@ async function exportMod(mod: LibraryMod): Promise<void> {
 /** 删掉。 */
 async function removeMod(mod: LibraryMod): Promise<void> {
   if (!mod.standalone_id) return;
-  if (!window.confirm("确定删掉模组「" + mod.name + "」吗？文件会从库里移除。")) return;
+  // 用自绘的确认框而不是 window.confirm —— 浏览器原生弹窗跟整个界面不是一套
+  removing.value = mod;
+}
+
+/** 确认删除。 */
+async function confirmRemove(): Promise<void> {
+  const mod = removing.value;
+  if (!mod?.standalone_id) return;
+  removing.value = null;
 
   busy.value = mod.path;
   try {
@@ -414,6 +429,21 @@ function openModsDir(): void {
         </li>
       </ul>
     </section>
+
+    <!-- 删除确认：自绘的，不用 window.confirm -->
+    <div v-if="removing" class="sheet" @click.self="removing = null">
+      <div class="sheet__card">
+        <h3 class="sheet__title">删除「{{ removing.name }}」？</h3>
+        <p class="sheet__text">
+          文件会从库里移除。如果它已经铺进游戏 <code>Mods/</code> 目录，
+          <strong>那边也会一起撤掉</strong>；你自己手动放的模组不受影响。
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="removing = null">取消</button>
+          <button class="btn btn-primary" type="button" @click="confirmRemove">删除</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 编辑独立模组的信息 -->
     <div v-if="editing" class="sheet" @click.self="editing = null">
