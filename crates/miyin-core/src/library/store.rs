@@ -144,6 +144,8 @@ pub fn import(
         map_count: stats.maps,
         mod_count: stats.mods,
         size_bytes: stats.bytes,
+        main_map: inspection.main_map.clone(),
+        mounted_mods: default_mounted_mods(&inspection),
         target_sub,
         cover,
         tags: inspection.tags.clone(),
@@ -199,6 +201,19 @@ pub fn remove_variant(
     library.save_index(&index)?;
 
     Ok(())
+}
+
+/// 导入时的默认挂载清单：**包里的模组全挂上**。
+///
+/// 为什么不默认空着：自制战役的地图里写死了 `Mods\xxx.SC2Mod` 依赖，
+/// 一个都不挂的话地图打开就是一堆丢失的资源 —— 用户第一次点启动必然失败。
+/// 先全挂上能跑，想精简的再到界面上取消（见 `Library::set_mounted_mods`）。
+fn default_mounted_mods(inspection: &crate::campaign::package::PackageInspection) -> Vec<String> {
+    inspection
+        .payloads
+        .iter()
+        .filter_map(|payload| super::mod_identity(payload).map(|(key, _)| key))
+        .collect()
 }
 
 /// 允许用户修改的元数据字段；`None` 表示这一项不动。

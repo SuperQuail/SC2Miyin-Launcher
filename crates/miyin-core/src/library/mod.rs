@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::campaign::CampaignFormat;
 use crate::campaign::metadata::CampaignType;
 use crate::campaign::metadata::PackageKind;
-use crate::campaign::package::Payload;
+use crate::campaign::package::{Payload, PayloadTarget};
 use crate::error::{Error, Result};
 use crate::sc2::Installation;
 
@@ -89,6 +89,162 @@ pub struct Variant {
     /// 靠扫目录去猜落点会摆错位置。
     #[serde(default)]
     pub payloads: Vec<Payload>,
+    /// **主地图**：自制战役的游玩入口，相对版本根目录的路径。
+    ///
+    /// 有些自制战役有一张总入口地图，打开它就能一路玩到底；也有的只能一张一张打。
+    /// 这里存的是**相对路径**（`1. Rebel Yell/Terran01.SC2Map`）——
+    /// 只存文件名的话，不同章节里重名的地图会撞车。
+    ///
+    /// 导入时用包内声明的值填充，之后用户可以在界面上改。
+    #[serde(default)]
+    pub main_map: Option<String>,
+    /// **挂载到游戏目录的模组**，存载荷的 source（相对版本目录的路径）。
+    ///
+    /// 自制战役的地图里写死了 `Mods\xxx.SC2Mod` 这种依赖路径，模组不铺进
+    /// `<游戏>/Mods/` 就打不开。但不同的自制战役之间会互相打架，
+    /// 所以让用户自己选挂哪几个；一个都没挂时启动前会警告。
+    ///
+    /// 空 = 一个都没挂。**注意这与「包里有模组」是两回事** ——
+    /// 得看 `variant_mods()` 才知道包里有哪些。
+    #[serde(default)]
+    pub mounted_mods: Vec<String>,
+}
+
+/// 版本里的一个模组。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModEntry {
+    /// 挂载键：载荷的 source，同时是相对版本目录的路径。
+    pub path: String,
+    /// 显示名（文件名，去掉 .SC2Mod 后缀）。
+    pub name: String,
+    /// 是不是已经挂上了。
+    pub mounted: bool,
+}
+
+/// 认出一个载荷是不是模组，返回 (挂载键, 显示名)。
+///
+/// 两种写法都算：
+/// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
+/// - `PayloadTarget::Mirror` 且路径在 `Mods/` 下 —— 包内是游戏目录镜像
+///   （SCMR 就是这种：包根一个 `Mods/` 目录，里面四个 `.SC2Mod`）
+pub fn mod_identity(payload: &Payload) -> Option<(String, String)> {
+    let key = match &payload.target {
+        PayloadTarget::Mod { name } => name.clone(),
+        PayloadTarget::Mirror { path } => {
+            let normalised = path.replace('\\', "/");
+            if !normalised.to_ascii_lowercase().starts_with("mods/") {
+                return None;
+            }
+            normalised
+        }
+        PayloadTarget::Map { .. } => return None,
+    };
+
+    let file = key.rsplit('/').next().unwrap_or(&key);
+    let name = file
+        .rsplit_once('.')
+        .map(|(stem, _)| stem.to_string())
+        .unwrap_or_else(|| file.to_string());
+
+    Some((payload.source.clone(), name))
+}
+
+/// 版本里的一张地图。
+#[derive(Debug, Clone, Serialize)]
+pub struct MapEntry {
+    /// 相对版本根目录的路径，用 `/` 分隔 —— 主地图存的就是这个形式。
+    pub path: String,
+    /// 显示名（文件名去掉扩展名）。
+    pub name: String,
+    /// 所属章节：版本根下的第一层目录；地图直接躺在根下时是 `None`。
+    pub chapter: Option<String>,
+    pub size: u64,
+    /// 是不是当前设为主地图的那张。
+    pub is_main: bool,
+}
+
+/// 主地图的解析结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct MainMapChoice {
+    /// 选中的地图（相对路径）。
+    pub path: Option<String>,
+    /// 是不是「只有一张地图，替你选了」。
+    pub automatic: bool,
+    /// 声明了却找不到时的提示 —— **只警告，不阻断**。
+    pub warning: Option<String>,
+}
+
+impl MainMapChoice {
+    /// 没定主地图。
+    pub fn unset() -> Self {
+        Self {
+            path: None,
+            automatic: false,
+            warning: None,
+        }
+    }
+
+    /// 有没有能直接启动的入口。
+    pub fn is_ready(&self) -> bool {
+        self.path.is_some()
+    }
+}
+
+/// 从地图列表里挑出该用哪张作为入口。
+///
+/// 规则（**不确定就不猜**）：
+///
+/// | 情况 | 结果 |
+/// | --- | --- |
+/// | 设了主地图，且**确实存在** | 用它 |
+/// | 设了，但找不到 | 给个警告，退回「没定」 |
+/// | 没设，且整个版本只有一张地图 | 自动用它（省用户一次点击） |
+/// | 其余 | 没定，让用户自己挑 |
+///
+/// 路径比较**忽略大小写与斜杠方向** —— 作者在包里写 `1. Rebel Yell\a.SC2Map`
+/// 还是 `1. Rebel Yell/a.SC2Map` 都得认。
+pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapChoice {
+    let normalize = |value: &str| value.replace('\\', "/").to_lowercase();
+
+    if let Some(wanted) = declared.map(str::trim).filter(|value| !value.is_empty()) {
+        let wanted_key = normalize(wanted);
+        // 先按完整相对路径比；再退一步只按文件名比（作者可能只写了文件名）
+        let hit = maps
+            .iter()
+            .find(|map| normalize(&map.path) == wanted_key)
+            .or_else(|| {
+                maps.iter().find(|map| {
+                    normalize(&map.name) == wanted_key
+                        || normalize(map.path.rsplit('/').next().unwrap_or("")) == wanted_key
+                })
+            });
+
+        return match hit {
+            Some(map) => MainMapChoice {
+                path: Some(map.path.clone()),
+                automatic: false,
+                warning: None,
+            },
+            None => MainMapChoice {
+                path: None,
+                automatic: false,
+                warning: Some(format!(
+                    "主地图写的是「{wanted}」，但这个版本里找不到这张地图 —— 请自己挑一张"
+                )),
+            },
+        };
+    }
+
+    // 没声明：只有一张的话直接用它，省用户一次点击
+    if maps.len() == 1 {
+        return MainMapChoice {
+            path: Some(maps[0].path.clone()),
+            automatic: true,
+            warning: None,
+        };
+    }
+
+    MainMapChoice::unset()
 }
 
 /// 一个官方资料片槽位。
@@ -301,6 +457,169 @@ impl Library {
             })
             .collect()
     }
+
+    /// 列出某个版本里的模组，并标出各自挂没挂载。
+    pub fn variant_mods(&self, slot_slug: &str, variant_id: &str) -> Vec<ModEntry> {
+        let Some(variant) = self.variant(slot_slug, variant_id) else {
+            return Vec::new();
+        };
+
+        variant
+            .payloads
+            .iter()
+            .filter_map(|payload| {
+                let (path, name) = mod_identity(payload)?;
+                let mounted = variant.mounted_mods.iter().any(|item| item == &path);
+                Some(ModEntry {
+                    path,
+                    name,
+                    mounted,
+                })
+            })
+            .collect()
+    }
+
+    /// 改某个版本的挂载模组清单。
+    ///
+    /// 传进来的键会被**过滤成这个版本里真实存在的模组** —— 免得界面上传来一个
+    /// 手改的路径，白白在激活时失败。
+    pub fn set_mounted_mods(
+        &self,
+        slot_slug: &str,
+        variant_id: &str,
+        mods: &[String],
+    ) -> Result<Variant> {
+        let mut index = self.index();
+        let slot = index
+            .slots
+            .get_mut(slot_slug)
+            .ok_or_else(|| Error::CampaignNotFound(slot_slug.to_string()))?;
+        let variant = slot
+            .variants
+            .iter_mut()
+            .find(|item| item.id == variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+        let known: Vec<String> = variant
+            .payloads
+            .iter()
+            .filter_map(|payload| mod_identity(payload).map(|(key, _)| key))
+            .collect();
+
+        variant.mounted_mods = mods
+            .iter()
+            .filter(|wanted| known.contains(wanted))
+            .cloned()
+            .collect();
+
+        let updated = variant.clone();
+        self.save_index(&index)?;
+        Ok(updated)
+    }
+
+    /// 改某个版本的主地图；传 `None` 表示清空。
+    pub fn set_main_map(
+        &self,
+        slot_slug: &str,
+        variant_id: &str,
+        map: Option<&str>,
+    ) -> Result<Variant> {
+        let mut index = self.index();
+        let slot = index
+            .slots
+            .get_mut(slot_slug)
+            .ok_or_else(|| Error::CampaignNotFound(slot_slug.to_string()))?;
+        let variant = slot
+            .variants
+            .iter_mut()
+            .find(|item| item.id == variant_id)
+            .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+        variant.main_map = map
+            .map(|value| value.replace('\\', "/"))
+            .filter(|value| !value.trim().is_empty());
+
+        let updated = variant.clone();
+        self.save_index(&index)?;
+        Ok(updated)
+    }
+
+    /// 取一个版本。
+    pub fn variant(&self, slot_slug: &str, variant_id: &str) -> Option<Variant> {
+        self.index()
+            .slots
+            .get(slot_slug)?
+            .variants
+            .iter()
+            .find(|item| item.id == variant_id)
+            .cloned()
+    }
+
+    /// 列出某个版本里的所有地图。
+    ///
+    /// 按**相对路径的自然顺序**排 —— 章节 `1. Rebel Yell` 排在 `2. Overmind` 前面，
+    /// `Terran2` 排在 `Terran10` 前面（普通字符串排序会把 10 排到 2 前面）。
+    pub fn variant_maps(&self, slot_slug: &str, variant_id: &str) -> Vec<MapEntry> {
+        let root = self.slot_dir(slot_slug).join(variant_id);
+        if !root.is_dir() {
+            return Vec::new();
+        }
+
+        let declared = self
+            .index()
+            .slots
+            .get(slot_slug)
+            .and_then(|slot| slot.variants.iter().find(|item| item.id == variant_id))
+            .and_then(|variant| variant.main_map.clone());
+
+        let mut maps: Vec<MapEntry> = walkdir::WalkDir::new(&root)
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("sc2map"))
+            })
+            .filter_map(|entry| {
+                let relative = entry.path().strip_prefix(&root).ok()?;
+                // 统一用 / 分隔，跨平台且与包内写法一致
+                let path = relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let name = entry
+                    .path()
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let chapter = path.split_once('/').map(|(folder, _)| folder.to_string());
+                let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+
+                Some(MapEntry {
+                    path,
+                    name,
+                    chapter,
+                    size,
+                    is_main: false,
+                })
+            })
+            .collect();
+
+        maps.sort_by(|left, right| natural_cmp(&left.path, &right.path));
+
+        if let Some(main) = declared {
+            for map in &mut maps {
+                if map.path.eq_ignore_ascii_case(&main) {
+                    map.is_main = true;
+                }
+            }
+        }
+
+        maps
+    }
 }
 
 /// 默认的库位置：**可执行文件同级的 data 目录**（绿色版，随软件走）。
@@ -484,4 +803,45 @@ pub(crate) fn now_seconds() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default()
+}
+
+/// 自然顺序比较：把连续数字当数值比，而不是按字符比。
+///
+/// 否则 `Terran10` 会排到 `Terran2` 前面。
+fn natural_cmp(left: &str, right: &str) -> std::cmp::Ordering {
+    let mut a = left.chars().peekable();
+    let mut b = right.chars().peekable();
+
+    loop {
+        match (a.peek().copied(), b.peek().copied()) {
+            (None, None) => return std::cmp::Ordering::Equal,
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(x), Some(y)) => {
+                if x.is_ascii_digit() && y.is_ascii_digit() {
+                    let mut num_a = String::new();
+                    while a.peek().is_some_and(char::is_ascii_digit) {
+                        num_a.push(a.next().unwrap_or_default());
+                    }
+                    let mut num_b = String::new();
+                    while b.peek().is_some_and(char::is_ascii_digit) {
+                        num_b.push(b.next().unwrap_or_default());
+                    }
+                    let va: u64 = num_a.parse().unwrap_or(0);
+                    let vb: u64 = num_b.parse().unwrap_or(0);
+                    match va.cmp(&vb) {
+                        std::cmp::Ordering::Equal => {}
+                        other => return other,
+                    }
+                } else {
+                    a.next();
+                    b.next();
+                    match x.to_ascii_lowercase().cmp(&y.to_ascii_lowercase()) {
+                        std::cmp::Ordering::Equal => {}
+                        other => return other,
+                    }
+                }
+            }
+        }
+    }
 }

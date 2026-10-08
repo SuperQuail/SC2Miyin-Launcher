@@ -53,6 +53,10 @@ pub struct CcmMetadata {
     ///
     /// 包作者可以用 cover / image / icon / banner 指定；没写就由导入逻辑按文件名特征查找。
     pub cover: Option<String>,
+    /// **主地图**（自制战役的游玩入口），相对内容根的路径。
+    ///
+    /// 这是弥音扩展键，CCM 本身没有。键名写 `mainmap` / `main_map` / `main` 都认。
+    pub main_map: Option<String>,
     /// 标签（逗号 / 顿号 / 空格分隔）。这是弥音扩展键，CCM 本身没有。
     pub tags: Vec<String>,
     /// **注册 ID**：补丁靠它引用战役，更新靠它认出同一个战役。
@@ -98,6 +102,10 @@ impl CcmMetadata {
                 "campaign" => meta.campaign = Some(value.to_string()),
                 "version" => meta.version = Some(value.to_string()),
                 "cover" | "image" | "icon" | "banner" => meta.cover = Some(value.to_string()),
+                "mainmap" | "main_map" | "main" => {
+                    // 统一成 / 分隔，后面比较时就不用管作者写的是哪种斜杠
+                    meta.main_map = Some(value.replace('\\', "/"));
+                }
                 "id" => meta.id = Some(value.to_string()),
                 "type" | "kind" => meta.kind = Some(value.to_string()),
                 "requires" | "require" | "dependencies" => {
@@ -120,6 +128,7 @@ impl CcmMetadata {
             && self.campaign.is_none()
             && self.version.is_none()
             && self.cover.is_none()
+            && self.main_map.is_none()
             && self.tags.is_empty()
             && self.id.is_none()
             && self.kind.is_none()
@@ -156,6 +165,12 @@ pub struct StandardMetadata {
     /// 包内自带的封面图（相对包根的路径）。
     #[serde(default)]
     pub cover: Option<String>,
+    /// **主地图**（自制战役的游玩入口），相对包根的路径。
+    ///
+    /// 只有自制战役用得上：官方战役由游戏自己的选关界面驱动，
+    /// 自制战役得告诉启动器「该打开哪一张」。
+    #[serde(default)]
+    pub main_map: Option<String>,
     /// 注册 ID（顶层写法；`miyin.id` 优先）。
     #[serde(default)]
     pub id: Option<String>,
@@ -165,6 +180,16 @@ pub struct StandardMetadata {
 }
 
 impl StandardMetadata {
+    /// 取主地图路径：命名空间写法 `miyin.main_map` 优先，其次顶层的 `main_map`。
+    pub fn main_map_path(&self) -> Option<String> {
+        self.miyin
+            .as_ref()
+            .and_then(|extensions| extensions.main_map.as_deref())
+            .or(self.main_map.as_deref())
+            .map(|value| value.replace('\\', "/"))
+            .filter(|value| !value.trim().is_empty())
+    }
+
     /// 取封面路径：命名空间写法 `miyin.cover` 优先，其次顶层的 `cover`。
     pub fn cover_path(&self) -> Option<&str> {
         self.miyin
@@ -236,6 +261,9 @@ pub struct MiyinExtensions {
     /// 封面图（相对包根的路径）。
     #[serde(default)]
     pub cover: Option<String>,
+    /// **主地图**（自制战役的游玩入口），相对包根的路径。
+    #[serde(default)]
+    pub main_map: Option<String>,
     /// 标签，显示在版本卡片上。
     #[serde(default)]
     pub tags: Vec<String>,

@@ -128,6 +128,12 @@ pub struct PackageInspection {
     pub priority: Option<i64>,
     /// 载荷清单：地图与模组，以及各自的落点。
     pub payloads: Vec<Payload>,
+    /// 包内声明的**主地图**（自制战役的游玩入口），相对包根的路径。
+    ///
+    /// 只作参考：导入时会校验它是否真的存在，找不到只记一条警告，
+    /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
+    #[serde(default)]
+    pub main_map: Option<String>,
     /// 归属判定的结论与依据；元数据已声明时是 `None`。
     pub identification: Option<Identification>,
     /// 按包内声明推断出的目标战役槽位；`None` 表示认不出来，需要用户指定。
@@ -176,6 +182,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         campaign_type: CampaignType::Other(String::new()),
         cover: None,
         tags: Vec::new(),
+        main_map: None,
         kind: PackageKind::Campaign,
         id: None,
         requires: Vec::new(),
@@ -577,6 +584,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut version = None;
     let mut description = None;
     let mut campaign_raw = String::new();
+    let mut declared_main_map: Option<String> = None;
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
@@ -593,6 +601,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             match StandardMetadata::parse(&decode_text(&text)) {
                 Ok(meta) => {
                     // 先借走扩展信息，后面几个字段会被移出
+                    declared_main_map = meta.main_map_path();
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
@@ -651,6 +660,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             version = clean(meta.version);
             description = clean(meta.description);
             campaign_raw = clean(meta.campaign).unwrap_or_default();
+            declared_main_map = clean(meta.main_map.clone());
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
             declared_id = clean(meta.id.clone());
@@ -780,6 +790,13 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         author = Some(UNKNOWN_AUTHOR.to_string());
     }
 
+    // 主地图：CCM 写 `mainmap=`，我们的 JSON 写 `main_map`
+    let main_map_claim = declared_main_map
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.replace('\\', "/"));
+
     if declared_kind == PackageKind::Patch && declared_requires.is_empty() {
         issues.push(
             HealthIssue::warning(
@@ -841,6 +858,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         requires: declared_requires,
         priority: declared_priority,
         payloads,
+        main_map: main_map_claim,
         identification,
         suggested_slot,
         content_root,

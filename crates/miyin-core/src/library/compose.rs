@@ -215,11 +215,28 @@ pub fn compose(
     // 官方战役还是自制战役 —— 落点不一样
     let placement = Placement::of(slot_slug, sub);
 
+    // 自制战役的模组**只铺挂载了的那些**：不同战役的模组会互相打架，
+    // 让用户自己选挂哪几个（见 Variant::mounted_mods）。地图本来就不铺，
+    // 所以这里的过滤只影响模组。
+    let payloads: Vec<Payload> = if matches!(placement, Placement::Custom) {
+        variant
+            .payloads
+            .iter()
+            .filter(|payload| match crate::library::mod_identity(payload) {
+                Some((key, _)) => variant.mounted_mods.iter().any(|item| item == &key),
+                None => true,
+            })
+            .cloned()
+            .collect()
+    } else {
+        variant.payloads.clone()
+    };
+
     // 第 0 层：战役本体
     let variant_dir = library.slot_dir(slot_slug).join(&variant.id);
     stack_layer(
         &variant_dir,
-        &variant.payloads,
+        &payloads,
         &placement,
         &Layer::Campaign,
         &mut placed,
