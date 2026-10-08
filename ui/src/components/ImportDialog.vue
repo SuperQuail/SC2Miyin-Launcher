@@ -281,7 +281,17 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
         </div>
       </div>
 
-      <div class="import__target">
+      <!--
+        来源与依据。
+        **自制战役入口不显示这些** —— 用户已经选了「自制战役」，
+        再说「自动识别 / 识别依据是地图名像自由之翼」纯属误导：
+        那套识别根本没参与决定，归属是用户自己定的。
+      -->
+      <div v-if="isCustomEntry" class="import__target">
+        <div class="import__source">按自制战役导入</div>
+        <div class="import__evidence">这一页导入的都算自制战役，不看包属于哪部原版战役</div>
+      </div>
+      <div v-else class="import__target">
         <div class="import__source">{{ sourceLabel }}</div>
         <div v-if="evidenceText" class="import__evidence">{{ evidenceText }}</div>
       </div>

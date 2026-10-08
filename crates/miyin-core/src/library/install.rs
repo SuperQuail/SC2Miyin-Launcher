@@ -440,16 +440,30 @@ fn resolve(installation: &Installation, relative: &str) -> Result<PathBuf> {
     allowed_target(installation, &path)
 }
 
-/// 校验目标位于**官方战役目录 / 自制战役目录 / 模组目录**之内。
+/// 校验目标落在游戏目录的**内容区**之内。
+///
+/// 白名单是这三个根（与 AGENTS.md §10.5 一致）：
+///
+/// `@text
+/// <游戏>/Maps/        游戏扫的所有地图 —— 官方战役、自制战役、以及
+///                     作者按自己结构摆的整包（SCMR 就是 Maps/Starcraft Mass Recall/…）
+/// <游戏>/Mods/        模组
+/// <游戏>/Interfaces/  界面
+/// `@
+///
+/// **别收窄成 Maps/Campaign 那种子目录** —— 收窄过，代价是复刻战役整包装不进去：
+/// 地图被正确放到 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 Maps/ 的
+/// 路径联动关卡），却被自己的闸门拒绝，用户看到的是「拒绝往 … 写东西」。
+/// 只要还在 `Maps/` 底下就不会污染别的地方，游戏也确实会去扫。
 ///
 /// 这是写盘的最后一道闸门 —— 不依赖上游校验过没有。
 fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
-    safety::ensure_within(&installation.campaign_maps_root, path)
+    safety::ensure_within(&installation.maps_root, path)
         .or_else(|_| safety::ensure_within(&installation.mods_root, path))
-        .or_else(|_| safety::ensure_within(&installation.custom_campaigns_root, path))
+        .or_else(|_| safety::ensure_within(&installation.interfaces_root, path))
         .map_err(|_| {
             Error::PackageRejected(format!(
-                "拒绝往 {} 写东西 —— 只允许写 Maps/Campaign、Maps/CustomCampaigns 和 Mods",
+                "拒绝往 {} 写东西 —— 只允许写游戏目录下的 Maps、Mods 和 Interfaces",
                 path.display()
             ))
         })

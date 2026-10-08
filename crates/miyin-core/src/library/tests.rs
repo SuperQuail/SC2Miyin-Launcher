@@ -2056,3 +2056,55 @@ fn deleting_one_slots_variant_leaves_the_other_slot_alone() {
         "别的槽位仍然处于启用状态"
     );
 }
+#[test]
+fn maps_outside_the_campaign_subdirs_are_allowed() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    // 踩过：白名单原来只放行 Maps/Campaign 和 Maps/CustomCampaigns，
+    // 而复刻战役 SCMR 整包要落在 Maps/Starcraft Mass Recall/…（它的启动器地图
+    // 按这个**相对 Maps/** 的路径联动关卡）。地图放对了，却被自己的闸门拒绝，
+    // 用户看到的是一句「拒绝往 … 写东西」。
+    //
+    // 白名单是 Maps / Mods / Interfaces 这三个**根**，不收窄到子目录。
+    let fixture = fixture();
+    let data = fixture.library.root();
+
+    let source = fixture.work.path().join("Terran01.SC2Map");
+    std::fs::write(&source, b"map").expect("写");
+
+    let mut plan = Plan::new(Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "scmr".to_string(),
+    });
+    plan.push(
+        &source,
+        "Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+    );
+
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+    manifest
+        .apply(data, &fixture.installation, &plan)
+        .expect("Maps/ 底下任意位置都该放行");
+
+    assert!(
+        fixture
+            .installation
+            .maps_root
+            .join("Starcraft Mass Recall")
+            .join("1. Rebel Yell")
+            .join("Terran01.SC2Map")
+            .is_file()
+    );
+
+    // 但游戏目录**之外**照样拒绝 —— 闸门还在
+    let mut escape = Plan::new(Owner::Mod {
+        id: "evil".to_string(),
+    });
+    escape.push(&source, "../别处/x.SC2Mod");
+    assert!(
+        manifest
+            .apply(data, &fixture.installation, &escape)
+            .is_err(),
+        "越界路径必须拒绝"
+    );
+}
