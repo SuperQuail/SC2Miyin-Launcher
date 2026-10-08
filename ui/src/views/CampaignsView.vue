@@ -51,6 +51,12 @@ const modCount = computed(() =>
 );
 const activeCount = computed(() => slots.value.filter((slot) => slot.active !== null).length);
 
+/** 原版战役：对官方四大战役的改版，与自制战役不是一类，所以分成两组。 */
+const officialSlots = computed(() => slots.value.filter((slot) => slot.slug !== "custom"));
+
+/** 自制战役：独立做的整部战役。 */
+const customSlots = computed(() => slots.value.filter((slot) => slot.slug === "custom"));
+
 const inspection = computed(() => pending.value?.preview.inspection ?? null);
 const preview = computed(() => pending.value?.preview ?? null);
 
@@ -78,6 +84,52 @@ const evidenceText = computed(() => {
 });
 
 const isPatch = computed(() => inspection.value?.kind === "patch");
+
+/**
+ * **高置信度**归属：包内明确声明了资料片，或者证据链给的是精确证据。
+ *
+ * 启发式（地图名前缀）不算 —— 那种本来就只是猜，用户改掉很正常。
+ */
+const highConfidence = computed(() => {
+  const judgement = preview.value;
+  if (!judgement || judgement.slot === null) return false;
+  if (judgement.source === "metadata") return true;
+  const evidence = inspection.value?.identification?.evidence;
+  return evidence != null && evidence !== "map_name_prefix";
+});
+
+/** 用户把归属改到了别处。 */
+const targetChanged = computed(
+  () =>
+    pending.value !== null &&
+    preview.value?.slot != null &&
+    pending.value.slot !== preview.value.slot,
+);
+
+/**
+ * 要不要警告：**高置信度 + 用户强改**。
+ *
+ * 这种改法多半会让战役装错地方 —— 地图不在游戏期待的子目录里，进去就找不到关卡。
+ * 所以拦一下，但**不禁止**：作者有时确实知道自己在干什么。
+ */
+const overrideWarning = computed(() => highConfidence.value && targetChanged.value);
+
+/** 被识别出来的那个槽位叫什么，用在提示里。 */
+const identifiedName = computed(() => {
+  const slug = preview.value?.slot;
+  if (!slug) return "";
+  return slots.value.find((slot) => slot.slug === slug)?.display_name ?? slug;
+});
+
+/** 用户当前选中的槽位叫什么。 */
+const chosenName = computed(() => {
+  const slug = pending.value?.slot;
+  if (!slug) return "";
+  return slots.value.find((slot) => slot.slug === slug)?.display_name ?? slug;
+});
+
+/** 二次确认弹窗开着没有。 */
+const overrideOpen = ref(false);
 
 /** 冲突时的新旧版本说法。 */
 const conflictText = computed(() => {
@@ -147,6 +199,34 @@ async function confirmPatchImport(): Promise<void> {
 
 /** 确认导入，并直接进入目标战役的菜单。 */
 async function confirmImport(): Promise<void> {
+  const current = pending.value;
+  if (!current || !current.slot) return;
+
+  // 高置信度却被强改 -> 先问一句，别默默装错
+  if (overrideWarning.value) {
+    overrideOpen.value = true;
+    return;
+  }
+
+  await doImport();
+}
+
+/** 用户看完警告仍然要改。 */
+async function importAnyway(): Promise<void> {
+  overrideOpen.value = false;
+  await doImport();
+}
+
+/** 用户被劝回去了：把目标改回识别出来的那个。 */
+function revertTarget(): void {
+  if (pending.value && preview.value?.slot) {
+    pending.value.slot = preview.value.slot;
+  }
+  overrideOpen.value = false;
+}
+
+/** 真正执行导入。 */
+async function doImport(): Promise<void> {
   const current = pending.value;
   if (!current || !current.slot) return;
 
@@ -298,6 +378,13 @@ async function confirmImport(): Promise<void> {
             <span v-if="needsTarget" class="import__ask">自动识别没能判断出归属，请手动选择</span>
           </div>
 
+          <!-- 高置信度却被改到别处：先说清后果，但不禁止 -->
+          <div v-if="overrideWarning" class="warn">
+            这个包<strong>明确</strong>属于「{{ identifiedName }}」，你把它改到了「{{
+              chosenName
+            }}」。装错地方通常会让战役里找不到关卡，确认前请想一下。
+          </div>
+
           <!-- 冲突：覆盖更新 or 重命名后导入 -->
           <div v-if="preview?.conflict" class="conflict">
             <div class="conflict__text">{{ conflictText }}</div>
@@ -356,15 +443,66 @@ async function confirmImport(): Promise<void> {
         </div>
       </section>
 
-      <div class="grid">
-        <SlotCard
-          v-for="slot in slots"
-          :key="slot.slug"
-          :slot="slot"
-          @open="opened = $event"
-        />
-      </div>
+      <section class="group">
+        <h3 class="group__title">原版战役</h3>
+        <p class="group__hint">
+          对官方四大战役的改版 —— 重制、换单位、加关卡都算这一类。
+        </p>
+        <div class="grid">
+          <SlotCard
+            v-for="slot in officialSlots"
+            :key="slot.slug"
+            :slot="slot"
+            @open="opened = $event"
+          />
+        </div>
+      </section>
+
+      <section class="group">
+        <h3 class="group__title">自制战役</h3>
+        <p class="group__hint">
+          独立做的整部战役，不依附于任何官方战役。导入后在这里按版本管理。
+        </p>
+        <div class="grid">
+          <SlotCard
+            v-for="slot in customSlots"
+            :key="slot.slug"
+            :slot="slot"
+            @open="opened = $event"
+          />
+        </div>
+      </section>
     </template>
+
+    <!-- 强改归属的二次确认 -->
+    <div v-if="overrideOpen" class="sheet" @click.self="overrideOpen = false">
+      <div class="sheet__card">
+        <div class="sheet__badge sheet__badge--warn">
+          <svg class="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3.5 2.5 20h19L12 3.5Z" />
+            <path d="M12 10v4.5" />
+            <path d="M12 17.4v.1" />
+          </svg>
+        </div>
+        <h3 class="sheet__title">确定改到「{{ chosenName }}」吗？</h3>
+        <p class="sheet__text">
+          启动器<strong>确定</strong>这个包属于 <strong>{{ identifiedName }}</strong>，
+          依据是<strong>包内自己声明的资料片</strong>或精确的证据链。
+          <br /><br />
+          强行装到别的战役里，地图会落在游戏不期待的位置 ——
+          <strong>多半进游戏后找不到关卡，直接玩不了</strong>。
+          装错了可以删掉重导，但白折腾一趟。
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="importAnyway">
+            我知道，仍然导入
+          </button>
+          <button class="btn btn-primary" type="button" @click="revertTarget">
+            改回 {{ identifiedName }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -654,6 +792,45 @@ async function confirmImport(): Promise<void> {
 
 .import__field .targets {
   margin-top: 8px;
+}
+
+/* 强改归属的警告条 */
+.warn {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.sheet__badge--warn {
+  background: var(--warning-soft);
+}
+
+.sheet__badge--warn .sheet__icon {
+  stroke: var(--warning);
+}
+
+/* 原版战役 / 自制战役 两组 */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.group__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.group__hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
 }
 
 .conflict {
