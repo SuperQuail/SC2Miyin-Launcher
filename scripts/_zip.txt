@@ -1,0 +1,124 @@
+总条目: 2725
+
+=== Maps/ 下的二级 ===
+  疯批帝国军械库2.3/Maps/Campaign  x2523
+  疯批帝国军械库2.3/Maps/  x1
+
+=== Mods/ 下的完整结构（前 80）===
+  疯批帝国军械库2.3/Mods/
+  疯批帝国军械库2.3/Mods/3疯批帝国之翼.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/
+  疯批帝国军械库2.3/Mods/Alenger/10埃蒙.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/11群友.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/12游骑兵.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/13净化者.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/2贝希摩斯虫群.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/3疯批帝国.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/4塔达林.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/5斯杜科夫.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/6阿巴瑟.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/7卡莱.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/8扎加拉.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/9海盗.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/AlengerBGM.SC2Mod
+  疯批帝国军械库2.3/Mods/Alenger/通用效果.SC2Mod
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/btn-techupgrade-locked.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_banshee_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_battlecruiser_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_battlecruiser_upgradeimage_2.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_hellion_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_medivac_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_perditionturret_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_perditionturret_upgradeimage_2.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_predator_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_predator_upgradeimage_2.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_siegetank_upgradeimage_2.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_thor_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_thor_upgradeimage_2.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/terranarmory_wraith_upgradeimage_1.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_armoryconsole_background.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_frame_big_corner_topleft_terran.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_frame_big_corner_topright_terran.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_button_action_hover.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_button_action_normal.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_laserdrill_hero_icon.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_missionarchive_button_normaloverpressedover.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_missionarchive_button_normalpressed.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_missionarchives_innercontainerbg.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_missionarchives_innercontainerborder.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_contactportraitframe.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_orbit.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_outerframe_left_bottom_corner.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_outerframe_right_bottom_corner.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_planetselection_hover.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_planetpanel_planetselection_normal.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_storypausebutton_hover.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_storypausebutton_normal.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_storyplaybutton_hover.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_storyplaybutton_normal.tga
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Textures/ui_wol_tosh_hero_icon.dds
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/PhoenixHero/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/PhoenixHero/PhoenixHero.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/ScoutAirMissileImpact_MP.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/ScoutAirMissile_Taldarim.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/ScoutWeaponImpact_MP.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/ScoutWeaponLaunch_MP.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/Scout_Forged.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/Scout_Forged_Death.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/Scout_Forged_WarpIn.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Protoss/Scout_Forged/Scout_Forged_WarpInStargate.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/BattlecruiserLoki/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/BattlecruiserLoki/BattlecruiserLoki_HyperjumpIn_Ex1.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/BattlecruiserLoki/BattlecruiserLoki_HyperjumpOut.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/BattlecruiserLoki/BattlecruiserLoki_Hyperjump_Placement_TC.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/BattlecruiserLoki/BattlecruiserLoki_YamatoAnims.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/Predator/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/Units/Terran/Predator/Predator.m3
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Base.SC2Data/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Base.SC2Data/Cutscenes/
+  疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Base.SC2Data/Cutscenes/Index.version
+
+=== Mods/ 下的顶层目录 ===
+  kit_liberty_story.SC2Mod/Base.SC2Data  x99
+  kit_liberty_story.SC2Mod/Assets  x58
+  kit_liberty_story.SC2Mod/enUS.SC2Data  x7
+  kit_liberty_story.SC2Mod/zhCN.SC2Data  x7
+    x1
+  3疯批帝国之翼.SC2Mod  x1
+  Alenger/  x1
+  Alenger/10埃蒙.SC2Mod  x1
+  Alenger/11群友.SC2Mod  x1
+  Alenger/12游骑兵.SC2Mod  x1
+  Alenger/13净化者.SC2Mod  x1
+  Alenger/1钢铁.SC2Mod  x1
+  Alenger/2贝希摩斯虫群.SC2Mod  x1
+  Alenger/3疯批帝国.SC2Mod  x1
+  Alenger/4塔达林.SC2Mod  x1
+  Alenger/5斯杜科夫.SC2Mod  x1
+  Alenger/6阿巴瑟.SC2Mod  x1
+  Alenger/7卡莱.SC2Mod  x1
+  Alenger/8扎加拉.SC2Mod  x1
+  Alenger/9海盗.SC2Mod  x1
+
+=== 地图单位（.SC2Map 根）===
+共 32 张地图
+  疯批帝国军械库2.3/Maps/Campaign/Test/EditorTest.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/tarcade.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thanson01.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thanson02.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thanson03a.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thanson03b.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thorner01.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thorner02.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thorner03.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thorner04.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/thorner05s.SC2Map
+  疯批帝国军械库2.3/Maps/Campaign/traynor01.SC2Map

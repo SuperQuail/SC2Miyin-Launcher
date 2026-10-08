@@ -13,7 +13,7 @@ use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
 use miyin_core::library::{
     self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
-    ModEntry, Patch, SlotView, Variant, VariantChanges,
+    ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
 };
 use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
 use miyin_core::update::Reporter;
@@ -457,10 +457,122 @@ fn open_map_in_editor(
     })
 }
 
+/// 独立模组库：列表。
+#[tauri::command(async)]
+fn list_standalone_mods(state: State<'_, AppState>) -> Result<Vec<StandaloneMod>, String> {
+    Ok(mods::list(state.library.root()))
+}
+
+/// 选一个模组包：文件（压缩包 / .SC2Mod）或文件夹。
+#[tauri::command(async)]
+fn pick_mod_source(kind: String) -> Option<String> {
+    let dialog = rfd::FileDialog::new().set_title("选择模组包");
+
+    if kind == "folder" {
+        return dialog
+            .pick_folder()
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+
+    dialog
+        .add_filter(
+            "模组包",
+            &[
+                "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz", "sc2mod",
+            ],
+        )
+        .add_filter("所有文件", &["*"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 导入一个独立模组包（目录 / .SC2Mod / 压缩包都行）。
+#[tauri::command(async)]
+fn import_mod(path: String, state: State<'_, AppState>) -> Result<StandaloneMod, String> {
+    mods::import(state.library.root(), Path::new(&path)).map_err(|error| error.to_string())
+}
+
+/// 改模组信息（只改启动器记录的，不动文件）。
+#[tauri::command(async)]
+fn update_mod(
+    id: String,
+    changes: ModChanges,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    mods::update(state.library.root(), &id, changes).map_err(|error| error.to_string())
+}
+
+/// 删掉一个独立模组。
+#[tauri::command(async)]
+fn remove_mod(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    mods::remove(state.library.root(), &id).map_err(|error| error.to_string())
+}
+
+/// 把独立模组打包导出成一个 zip，返回写到了哪。
+#[tauri::command(async)]
+fn export_mod(id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let record =
+        mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())?;
+
+    let target = rfd::FileDialog::new()
+        .set_title("导出模组包")
+        .set_file_name(format!("{}.zip", record.name))
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .ok_or_else(|| "已取消".to_string())?;
+
+    mods::export(state.library.root(), &id, &target).map_err(|error| error.to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// 启用 / 停用独立模组。启用会立刻把它铺进 `<游戏>/Mods/`。
+#[tauri::command(async)]
+fn set_mod_enabled(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    // 先落状态，再同步 —— 顺序不能反，sync 读的就是这份记录
+    mods::set_enabled(state.library.root(), &id, enabled).map_err(|error| error.to_string())?;
+
+    // 有游戏目录就顺手铺进去；没设游戏目录的话只记状态，等设置好再说
+    if let Ok(installation) = require_installation(&state) {
+        mods::sync(state.library.root(), &installation).map_err(|error| error.to_string())?;
+    }
+
+    mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())
+}
+
 /// **全库模组汇总**：模组管理菜单用。
 #[tauri::command(async)]
 fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, String> {
-    Ok(state.library.all_mods())
+    let mut rows = state.library.all_mods();
+
+    // 把独立模组并进来 —— 用户要的是**一张表**，不该分两个地方看
+    for record in mods::list(state.library.root()) {
+        rows.push(LibraryMod {
+            slot: String::new(),
+            slot_name: "独立模组".to_string(),
+            variant_id: String::new(),
+            variant_name: String::new(),
+            path: record.id.clone(),
+            name: record.name.clone(),
+            mounted: record.enabled,
+            parts: record.parts,
+            origin: miyin_core::library::ModOrigin::Standalone,
+            required: false,
+            standalone_id: Some(record.id.clone()),
+        });
+    }
+
+    rows.sort_by(|left, right| {
+        left.slot_name
+            .cmp(&right.slot_name)
+            .then_with(|| left.variant_name.cmp(&right.variant_name))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+
+    Ok(rows)
 }
 
 /// 游戏目录 Mods/ 里实际放着的模组。
@@ -1122,6 +1234,13 @@ pub fn run() {
             open_map_in_editor,
             variant_doc,
             list_library_mods,
+            list_standalone_mods,
+            pick_mod_source,
+            import_mod,
+            update_mod,
+            remove_mod,
+            export_mod,
+            set_mod_enabled,
             list_game_mods,
             read_doc,
             update_variant,

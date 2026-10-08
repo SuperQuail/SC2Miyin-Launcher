@@ -147,6 +147,7 @@ pub fn import(
         main_map: inspection.main_map.clone(),
         // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
         mounted_mods: None,
+        declared_mods: inspection.declared_mods.clone(),
         doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,
         cover,
@@ -213,6 +214,11 @@ pub struct VariantChanges {
     pub author: Option<String>,
     pub registration_id: Option<String>,
     pub description: Option<String>,
+    /// 包内**声明为依赖**的模组键；`None` 表示这一项不动。
+    ///
+    /// 空数组是有效值 —— 表示「作者改主意了，一个都不依赖」。
+    #[serde(default)]
+    pub declared_mods: Option<Vec<String>>,
 }
 
 impl VariantChanges {
@@ -222,6 +228,7 @@ impl VariantChanges {
             && self.author.is_none()
             && self.registration_id.is_none()
             && self.description.is_none()
+            && self.declared_mods.is_none()
     }
 }
 
@@ -270,6 +277,20 @@ pub fn update_variant(
     if let Some(description) = changes.description {
         let trimmed = description.trim();
         variant.description = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(declared) = changes.declared_mods {
+        // 只留这个版本里真实存在的模组 —— 免得界面上传来一个手改的键，
+        // 之后导出 / 核对时对不上
+        let known: Vec<String> = variant
+            .payloads
+            .iter()
+            .filter_map(|payload| super::mod_identity(payload).map(|found| found.key))
+            .collect();
+
+        variant.declared_mods = declared
+            .into_iter()
+            .filter(|key| known.contains(key))
+            .collect();
     }
 
     let updated = variant.clone();

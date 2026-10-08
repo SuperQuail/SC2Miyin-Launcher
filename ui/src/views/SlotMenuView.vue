@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { api } from "../api/bridge";
 import { slotArt } from "../api/art";
-import type { DocInfo, BoundPatch, SlotView, Variant } from "../api/types";
+import type { ModEntry, DocInfo, BoundPatch, SlotView, Variant } from "../api/types";
 import { errorText, useLauncher } from "../composables/useLauncher";
 import VariantCard from "../components/VariantCard.vue";
 import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
@@ -261,6 +261,14 @@ async function exportPatchItem(item: BoundPatch): Promise<void> {
 
 const editing = ref<Variant | null>(null);
 const form = ref({ name: "", author: "", registrationId: "", description: "" });
+/**
+ * 这个版本带的模组 —— 作者可以勾出**哪些是地图依赖的**。
+ *
+ * 勾上的会记进 `declared_mods`，导出时一并带上；
+ * 模组管理页也会给它们打「依赖」标。
+ */
+const editMods = ref<ModEntry[]>([]);
+const editRequired = ref<Set<string>>(new Set());
 
 function openEdit(variant: Variant): void {
   editing.value = variant;
@@ -270,6 +278,24 @@ function openEdit(variant: Variant): void {
     registrationId: variant.registration_id ?? "",
     description: variant.description ?? "",
   };
+
+  editMods.value = [];
+  editRequired.value = new Set(variant.declared_mods ?? []);
+  void (async () => {
+    try {
+      editMods.value = await api.variantMods(props.slot.slug, variant.id);
+    } catch {
+      editMods.value = [];
+    }
+  })();
+}
+
+/** 勾 / 取消一个依赖模组。 */
+function toggleRequired(path: string): void {
+  const next = new Set(editRequired.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  editRequired.value = next;
 }
 
 async function saveEdit(): Promise<void> {
@@ -282,6 +308,7 @@ async function saveEdit(): Promise<void> {
       author: form.value.author,
       registrationId: form.value.registrationId,
       description: form.value.description,
+      declaredMods: [...editRequired.value],
     });
     editing.value = null;
     await refresh();
@@ -565,6 +592,30 @@ async function doExport(mergePatches: boolean): Promise<void> {
           <span class="field__label">描述</span>
           <textarea v-model="form.description" class="field__input" rows="3"></textarea>
         </label>
+
+        <!-- 依赖模组：包作者在这里说清「地图需要哪几个模组」 -->
+        <div v-if="editMods.length" class="field">
+          <span class="field__label">
+            依赖模组（{{ editRequired.size }} / {{ editMods.length }}）
+          </span>
+          <p class="field__hint">
+            勾上的表示<strong>地图需要它才能正常打开</strong>。导出这个包时会一并带上，
+            模组管理页也会给它打「依赖」标。
+          </p>
+          <ul class="reqmods">
+            <li v-for="mod in editMods" :key="mod.path" class="reqmod">
+              <label class="reqmod__label">
+                <input
+                  type="checkbox"
+                  :checked="editRequired.has(mod.path)"
+                  @change="toggleRequired(mod.path)"
+                />
+                <span class="reqmod__name">{{ mod.name }}</span>
+              </label>
+              <span class="reqmod__parts">{{ mod.parts }} 个文件</span>
+            </li>
+          </ul>
+        </div>
 
         <div class="sheet__actions">
           <button class="btn btn-text" type="button" @click="editing = null">取消</button>
@@ -879,4 +930,50 @@ async function doExport(mergePatches: boolean): Promise<void> {
 .actions__spacer {
   flex: 1;
 }
+/* 依赖模组勾选 */
+.field__hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.reqmods {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.reqmod {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.reqmod__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.reqmod__name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.reqmod__parts {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
 </style>

@@ -134,6 +134,11 @@ pub struct PackageInspection {
     /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
+    ///
+    /// 空表示作者没声明 —— **不代表包不带模组**，界面上按「可选」处理。
+    #[serde(default)]
+    pub declared_mods: Vec<String>,
     /// 包内声明的**说明文档（PDF）**，相对包根的路径。
     ///
     /// 导入时会连整个包一起解开，所以这份文档就在版本目录里，
@@ -190,6 +195,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         tags: Vec::new(),
         main_map: None,
         doc: None,
+        declared_mods: Vec::new(),
         kind: PackageKind::Campaign,
         id: None,
         requires: Vec::new(),
@@ -593,6 +599,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut campaign_raw = String::new();
     let mut declared_main_map: Option<String> = None;
     let mut declared_doc: Option<String> = None;
+    let mut declared_mods_raw: Vec<String> = Vec::new();
     let mut declared_cover = None;
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
@@ -611,6 +618,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     // 先借走扩展信息，后面几个字段会被移出
                     declared_main_map = meta.main_map_path();
                     declared_doc = meta.doc_path();
+                    declared_mods_raw = meta.mods();
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
@@ -671,6 +679,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
             campaign_raw = clean(meta.campaign).unwrap_or_default();
             declared_main_map = clean(meta.main_map.clone());
             declared_doc = clean(meta.doc.clone());
+            declared_mods_raw = meta.mods.clone();
             declared_cover = clean(meta.cover);
             declared_tags = meta.tags.clone();
             declared_id = clean(meta.id.clone());
@@ -807,6 +816,34 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         .filter(|value| !value.is_empty())
         .map(|value| value.replace('\\', "/"));
 
+    // 依赖模组：归一化成键（作者写不写 `Mods/` 前缀都认），
+    // 再核对包里是不是真有 —— 声明了却没有，几乎总是写错了名字
+    let declared_mods: Vec<String> = {
+        let mut keys: Vec<String> = declared_mods_raw
+            .iter()
+            .map(|raw| crate::library::normalize_mod_key(raw))
+            .filter(|key| !key.is_empty())
+            .collect();
+        keys.dedup();
+
+        for key in &keys {
+            let present = payloads.iter().any(|payload| {
+                crate::library::mod_identity(payload).is_some_and(|found| &found.key == key)
+            });
+            if !present {
+                issues.push(
+                    HealthIssue::warning(
+                        "MOD_MISSING",
+                        format!("元数据声明依赖模组「{key}」，但包里没有它"),
+                    )
+                    .with_hint("请确认模组打在包里，或者改掉元数据里的 mods"),
+                );
+            }
+        }
+
+        keys
+    };
+
     if declared_kind == PackageKind::Patch && declared_requires.is_empty() {
         issues.push(
             HealthIssue::warning(
@@ -870,6 +907,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         payloads,
         main_map: main_map_claim,
         doc: declared_doc,
+        declared_mods,
         identification,
         suggested_slot,
         content_root,

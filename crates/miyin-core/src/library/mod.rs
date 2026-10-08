@@ -36,6 +36,9 @@ use crate::sc2::Installation;
 
 pub mod activation;
 pub mod compose;
+pub mod mods;
+
+pub use mods::{ModChanges, StandaloneMod};
 pub mod export;
 pub mod patch;
 pub mod store;
@@ -118,6 +121,35 @@ pub struct Variant {
     /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
     #[serde(default)]
     pub doc: Option<String>,
+    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
+    ///
+    /// 与 `mounted_mods` 不是一回事：这个说的是「作者要求必须有」，
+    /// 那个说的是「用户当前挂了哪些」。界面拿它标出哪些是必需的。
+    #[serde(default)]
+    pub declared_mods: Vec<String>,
+}
+
+/// 模组是从哪来的。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModOrigin {
+    /// 跟着**原版战役**的改版包进来的。
+    OfficialCampaign,
+    /// 跟着**自制战役**包进来的。
+    CustomCampaign,
+    /// **单独导入**的，不属于任何战役。
+    Standalone,
+}
+
+impl ModOrigin {
+    /// 界面上的说法。
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::OfficialCampaign => "原版战役包",
+            Self::CustomCampaign => "自制战役包",
+            Self::Standalone => "单独导入",
+        }
+    }
 }
 
 /// 库里的一个模组，带着它属于哪个版本的上下文。
@@ -132,9 +164,18 @@ pub struct LibraryMod {
     pub variant_name: String,
     /// 挂载键：载荷的 source，同时是相对版本目录的路径。
     pub path: String,
-    /// 显示名（文件名去掉 .SC2Mod 后缀）。
+    /// 显示名（去掉 .SC2Mod 后缀）。
     pub name: String,
     pub mounted: bool,
+    /// 这个模组由几个文件组成。
+    pub parts: usize,
+    /// 从哪来的。
+    pub origin: ModOrigin,
+    /// 是不是包内**声明为依赖**的模组。
+    pub required: bool,
+    /// 单独导入的模组才有：库里的 id。界面靠它决定能不能改信息 / 导出 / 删除。
+    #[serde(default)]
+    pub standalone_id: Option<String>,
 }
 
 /// 版本自带的说明文档。
@@ -150,12 +191,14 @@ pub struct DocInfo {
 /// 版本里的一个模组。
 #[derive(Debug, Clone, Serialize)]
 pub struct ModEntry {
-    /// 挂载键：载荷的 source，同时是相对版本目录的路径。
+    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
     pub path: String,
-    /// 显示名（文件名，去掉 .SC2Mod 后缀）。
+    /// 显示名（去掉 .SC2Mod 后缀）。
     pub name: String,
     /// 是不是已经挂上了。
     pub mounted: bool,
+    /// 这个模组由几个文件组成 —— `Alenger` 那种文件夹会有十几个。
+    pub parts: usize,
 }
 
 /// 这个版本**实际**会铺哪些模组。
@@ -169,36 +212,123 @@ pub fn effective_mounted_mods(variant: &Variant) -> Vec<String> {
     variant
         .payloads
         .iter()
-        .filter_map(|payload| mod_identity(payload).map(|(key, _)| key))
+        .filter_map(|payload| mod_identity(payload).map(|found| found.key))
         .collect()
 }
 
-/// 认出一个载荷是不是模组，返回 (挂载键, 显示名)。
+/// 把一堆载荷按模组归并 —— **按文件夹去重**。
 ///
-/// 两种写法都算：
-/// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
-/// - `PayloadTarget::Mirror` 且路径在 `Mods/` 下 —— 包内是游戏目录镜像
-///   （SCMR 就是这种：包根一个 `Mods/` 目录，里面四个 `.SC2Mod`）
-pub fn mod_identity(payload: &Payload) -> Option<(String, String)> {
-    let key = match &payload.target {
-        PayloadTarget::Mod { name } => name.clone(),
-        PayloadTarget::Mirror { path } => {
-            let normalised = path.replace('\\', "/");
-            if !normalised.to_ascii_lowercase().starts_with("mods/") {
-                return None;
-            }
-            normalised
+/// `Alenger/1钢铁.SC2Mod` 和 `Alenger/2贝希摩斯虫群.SC2Mod` 归成一行「Alenger」，
+/// 并记下它由几个文件组成。地图载荷会被忽略。
+pub fn group_mods(payloads: &[Payload], mounted: &[String]) -> Vec<ModEntry> {
+    let mut rows: Vec<ModEntry> = Vec::new();
+
+    for payload in payloads {
+        let Some(found) = mod_identity(payload) else {
+            continue;
+        };
+
+        match rows.iter_mut().find(|row| row.path == found.key) {
+            Some(row) => row.parts += 1,
+            None => rows.push(ModEntry {
+                mounted: mounted.contains(&found.key),
+                path: found.key,
+                name: found.name,
+                parts: 1,
+            }),
         }
-        PayloadTarget::Map { .. } => return None,
+    }
+
+    rows
+}
+
+/// 一个模组的身份。
+///
+/// **模组按文件夹分，不按单个文件分** —— 这是从真实样本学到的：
+///
+/// `@text
+/// Mods/
+/// ├── 3疯批帝国之翼.SC2Mod        单文件         -> 一个模组
+/// ├── Alenger/                    普通文件夹     -> 一个模组
+/// │   ├── 1钢铁.SC2Mod                            （里面 18 个 .SC2Mod）
+/// │   └── …
+/// └── kit_liberty_story.SC2Mod/   解开目录树     -> 一个模组
+/// `@
+///
+/// 判定办法：取落点里 `Mods/` 之后**第一段**。
+/// `Alenger/1钢铁.SC2Mod` 与 `Alenger/2贝希摩斯虫群.SC2Mod`
+/// 是同一个模组「Alenger」的两部分，不是两个模组。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModKey {
+    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
+    pub key: String,
+    /// 显示名：去掉 .SC2Mod 后缀。
+    pub name: String,
+}
+
+/// 认出一个载荷属于哪个模组；地图返回 `None`。
+///
+/// 两种写法都算模组：
+/// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
+/// - `PayloadTarget::Mirror` 且落在 `Mods/` 下 —— 包内是游戏目录镜像
+///   （真实样本几乎都是这种）
+pub fn mod_identity(payload: &Payload) -> Option<ModKey> {
+    match &payload.target {
+        // 裸的 .SC2Mod：落点是 `Mods/{name}`，名字本身就是键
+        // （名字里可能还带子目录，所以拼上前缀交给统一的解析）
+        PayloadTarget::Mod { name } => mod_key_of(&format!("Mods/{name}")),
+        // 游戏目录镜像：路径已经带 Mods/ 前缀了
+        PayloadTarget::Mirror { path } => mod_key_of(path),
+        PayloadTarget::Map { .. } => None,
+    }
+}
+
+/// 把作者写的依赖模组名字归一化成键（**不认识 `Mods/` 前缀也认**）。
+///
+/// `@text
+/// Mods/Alenger/          -> Alenger
+/// Mods/Alenger           -> Alenger
+/// Alenger                -> Alenger
+/// Alenger.SC2Mod         -> Alenger
+/// 3疯批帝国之翼.SC2Mod    -> 3疯批帝国之翼
+/// `@
+///
+/// 包作者写依赖时偷懒不写前缀是很常见的，不能因此就当没声明。
+pub fn normalize_mod_key(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/').replace('\\', "/");
+    let without_prefix = trimmed
+        .strip_prefix("Mods/")
+        .or_else(|| trimmed.strip_prefix("mods/"))
+        .unwrap_or(&trimmed);
+    let first = without_prefix.split('/').next().unwrap_or(without_prefix);
+
+    if first.to_ascii_lowercase().ends_with(".sc2mod") {
+        first[..first.len() - ".SC2Mod".len()].to_string()
+    } else {
+        first.to_string()
+    }
+}
+
+/// 从一条 `Mods/` 下的相对路径推出模组身份。
+pub fn mod_key_of(relative: &str) -> Option<ModKey> {
+    let normalised = relative.replace('\\', "/");
+    let rest = normalised
+        .strip_prefix("Mods/")
+        .or_else(|| normalised.strip_prefix("mods/"))?;
+    let first = rest.split('/').next().filter(|part| !part.is_empty())?;
+
+    // 显示名去掉 .SC2Mod 后缀（大小写不敏感）
+    let lower = first.to_ascii_lowercase();
+    let name = if lower.ends_with(".sc2mod") {
+        first[..first.len() - ".SC2Mod".len()].to_string()
+    } else {
+        first.to_string()
     };
 
-    let file = key.rsplit('/').next().unwrap_or(&key);
-    let name = file
-        .rsplit_once('.')
-        .map(|(stem, _)| stem.to_string())
-        .unwrap_or_else(|| file.to_string());
-
-    Some((payload.source.clone(), name))
+    Some(ModKey {
+        key: first.to_string(),
+        name,
+    })
 }
 
 /// 版本里的一张地图。
@@ -511,32 +641,22 @@ impl Library {
     }
 
     /// 列出某个版本里的模组，并标出各自挂没挂载。
+    ///
+    /// **按文件夹去重**：一个模组可能由十几个 `.SC2Mod` 组成，
+    /// 界面上一行就够了（见 `mod_identity`）。
     pub fn variant_mods(&self, slot_slug: &str, variant_id: &str) -> Vec<ModEntry> {
         let Some(variant) = self.variant(slot_slug, variant_id) else {
             return Vec::new();
         };
 
         let mounted_list = effective_mounted_mods(&variant);
-
-        variant
-            .payloads
-            .iter()
-            .filter_map(|payload| {
-                let (path, name) = mod_identity(payload)?;
-                let mounted = mounted_list.iter().any(|item| item == &path);
-                Some(ModEntry {
-                    path,
-                    name,
-                    mounted,
-                })
-            })
-            .collect()
+        group_mods(&variant.payloads, &mounted_list)
     }
 
     /// **全库的模组汇总**：模组管理菜单用。
     ///
-    /// 按「战役 → 版本 → 模组」铺平，每一行都带着它属于谁 ——
-    /// 用户看的是「自由之翼·重生 v1.4 的 XXX.SC2Mod」，不是一堆孤零零的文件名。
+    /// 每一行都带着它属于谁 —— 用户看的是「自由之翼 · 重生 v1.4 的 Alenger」，
+    /// 而不是一堆孤零零的文件名。
     pub fn all_mods(&self) -> Vec<LibraryMod> {
         let index = self.index();
         let mut rows = Vec::new();
@@ -545,22 +665,29 @@ impl Library {
             let slot_name = CampaignType::from_slug(slug)
                 .map(|kind| kind.display_name())
                 .unwrap_or_else(|| slug.clone());
+            let is_custom = CampaignType::from_slug(slug).is_some_and(|kind| kind.is_custom());
 
             for variant in &slot.variants {
                 let mounted_list = effective_mounted_mods(variant);
+                let declared = &variant.declared_mods;
 
-                for payload in &variant.payloads {
-                    let Some((path, name)) = mod_identity(payload) else {
-                        continue;
-                    };
+                for entry in group_mods(&variant.payloads, &mounted_list) {
                     rows.push(LibraryMod {
                         slot: slug.clone(),
                         slot_name: slot_name.clone(),
                         variant_id: variant.id.clone(),
                         variant_name: variant.name.clone(),
-                        path: path.clone(),
-                        name,
-                        mounted: mounted_list.iter().any(|item| item == &path),
+                        origin: if is_custom {
+                            ModOrigin::CustomCampaign
+                        } else {
+                            ModOrigin::OfficialCampaign
+                        },
+                        required: declared.iter().any(|item| item == &entry.path),
+                        path: entry.path,
+                        name: entry.name,
+                        mounted: entry.mounted,
+                        parts: entry.parts,
+                        standalone_id: None,
                     });
                 }
             }
@@ -600,7 +727,7 @@ impl Library {
         let known: Vec<String> = variant
             .payloads
             .iter()
-            .filter_map(|payload| mod_identity(payload).map(|(key, _)| key))
+            .filter_map(|payload| mod_identity(payload).map(|found| found.key))
             .collect();
 
         // 写 Some 而不是空 Vec：这样「一个都不挂」才是用户的意思，

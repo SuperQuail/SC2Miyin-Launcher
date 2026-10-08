@@ -16,6 +16,7 @@ import type {
   EditorLaunch,
   GameModEntry,
   LibraryMod,
+  StandaloneMod,
   MainMapChoice,
   MapEntry,
   ModEntry,
@@ -93,6 +94,13 @@ const desktop: LauncherApi = {
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
+  listStandaloneMods: () => invoke<StandaloneMod[]>("list_standalone_mods"),
+  pickModSource: (kind) => invoke<string | null>("pick_mod_source", { kind }),
+  importMod: (path) => invoke<StandaloneMod>("import_mod", { path }),
+  updateMod: (id, changes) => invoke<StandaloneMod>("update_mod", { id, changes }),
+  removeMod: (id) => invoke<void>("remove_mod", { id }),
+  exportMod: (id) => invoke<string>("export_mod", { id }),
+  setModEnabled: (id, enabled) => invoke<StandaloneMod>("set_mod_enabled", { id, enabled }),
   readDoc: (slot, variantId) =>
     invoke<ArrayBuffer>("read_doc", { slot, variantId }),
 
@@ -238,6 +246,8 @@ function variant(
     cover: null,
     tags: [],
     registration_id: null,
+    declared_mods: [],
+    doc: null,
   };
 }
 
@@ -316,26 +326,54 @@ const demoslots: SlotView[] = [
 /** 演示模式的库内模组。 */
 function demoLibraryMods(): LibraryMod[] {
   const rows: LibraryMod[] = [];
-  const push = (slot: string, slotName: string, variantId: string, variantName: string, names: string[]) => {
+  const push = (
+    slot: string,
+    slotName: string,
+    variantId: string,
+    variantName: string,
+    origin: LibraryMod["origin"],
+    names: string[],
+  ) => {
     for (const name of names) {
       rows.push({
         slot,
         slot_name: slotName,
         variant_id: variantId,
         variant_name: variantName,
-        path: "Mods/" + name + ".SC2Mod",
+        path: name,
         name,
         mounted: true,
+        parts: name === "Alenger" ? 18 : 1,
+        origin,
+        required: name === "Alenger",
+        standalone_id: null,
       });
     }
   };
-  push("wol", "自由之翼", "wol-reborn", "自由之翼：重生 v1.4", ["RebornData"]);
-  push("custom", "自制战役", "scmr-8", "Starcraft Mass Recall", [
+  push("wol", "自由之翼", "wol-reborn", "自由之翼：重生 v1.4", "official_campaign", [
+    "Alenger",
+    "RebornData",
+  ]);
+  push("custom", "自制战役", "scmr-8", "Starcraft Mass Recall", "custom_campaign", [
     "SCMRmod",
     "SCMRlocal",
     "SCMRassets",
     "SCMRcinematics",
   ]);
+  // 单独导入的
+  rows.push({
+    slot: "",
+    slot_name: "独立模组",
+    variant_id: "",
+    variant_name: "",
+    path: "手搓单位包",
+    name: "手搓单位包",
+    mounted: false,
+    parts: 3,
+    origin: "standalone",
+    required: false,
+    standalone_id: "手搓单位包",
+  });
   return rows;
 }
 
@@ -372,9 +410,10 @@ function demoMaps(): MapEntry[] {
 /** 演示模式的模组列表。 */
 function demoMods(): ModEntry[] {
   return ["SCMRmod", "SCMRlocal", "SCMRassets", "SCMRcinematics"].map((name) => ({
-    path: "Mods/" + name + ".SC2Mod",
+    path: name + ".SC2Mod",
     name,
     mounted: true,
+    parts: 1,
   }));
 }
 
@@ -638,6 +677,13 @@ const demo: LauncherApi = {
   variantDoc: () => delay(null),
   listLibraryMods: () => delay(demoLibraryMods()),
   listGameMods: () => delay(demoGameMods()),
+  listStandaloneMods: () => delay([]),
+  pickModSource: () => delay(null),
+  importMod: () => delay({ id: "demo", name: "演示模组", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
+  updateMod: () => delay({ id: "demo", name: "演示模组", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
+  removeMod: () => delay(undefined),
+  exportMod: () => delay("D:\\demo.zip"),
+  setModEnabled: () => delay({ id: "demo", name: "演示模组", author: null, version: null, description: null, enabled: true, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
   readDoc: () => delay(new ArrayBuffer(0)),
 
   appVersion: () => delay("0.1.0a3"),

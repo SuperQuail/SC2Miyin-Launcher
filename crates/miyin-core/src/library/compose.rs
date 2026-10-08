@@ -223,7 +223,7 @@ pub fn compose(
         .payloads
         .iter()
         .filter(|payload| match crate::library::mod_identity(payload) {
-            Some((key, _)) => mounted.iter().any(|item| item == &key),
+            Some(found) => mounted.contains(&found.key),
             None => true,
         })
         .cloned()

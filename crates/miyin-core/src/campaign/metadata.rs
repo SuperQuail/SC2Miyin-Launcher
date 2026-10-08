@@ -57,6 +57,11 @@ pub struct CcmMetadata {
     ///
     /// 这是弥音扩展键，CCM 本身没有。键名写 `mainmap` / `main_map` / `main` 都认。
     pub main_map: Option<String>,
+    /// **依赖的模组**（逗号 / 顿号 / 空格分隔）。
+    ///
+    /// 写 `Mods/Alenger` 或直接写 `Alenger` 都认 —— 见 `mod_key_of`。
+    /// 这是弥音扩展键，CCM 本身没有。
+    pub mods: Vec<String>,
     /// **说明文档（PDF）**，相对内容根的路径。
     ///
     /// 自制战役的作者常常写一份长篇说明（怎么装、怎么玩、有哪些改动），
@@ -117,6 +122,9 @@ impl CcmMetadata {
                     meta.requires = split_list(value);
                 }
                 "priority" => meta.priority = value.parse().ok(),
+                "mods" | "mod" | "requires_mods" | "依赖模组" => {
+                    meta.mods = split_list(value);
+                }
                 "doc" | "document" | "manual" | "说明" => {
                     meta.doc = Some(value.replace('\\', "/"));
                 }
@@ -138,6 +146,7 @@ impl CcmMetadata {
             && self.cover.is_none()
             && self.main_map.is_none()
             && self.doc.is_none()
+            && self.mods.is_empty()
             && self.tags.is_empty()
             && self.id.is_none()
             && self.kind.is_none()
@@ -180,6 +189,9 @@ pub struct StandardMetadata {
     /// 自制战役得告诉启动器「该打开哪一张」。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// **依赖的模组**；命名空间写法 `miyin.mods` 优先。
+    #[serde(default)]
+    pub mods: Vec<String>,
     /// **说明文档（PDF）**，相对包根的路径。
     #[serde(default)]
     pub doc: Option<String>,
@@ -192,6 +204,15 @@ pub struct StandardMetadata {
 }
 
 impl StandardMetadata {
+    /// 取依赖模组：命名空间写法 `miyin.mods` 优先，其次顶层。
+    pub fn mods(&self) -> Vec<String> {
+        self.miyin
+            .as_ref()
+            .map(|extensions| extensions.mods.clone())
+            .filter(|list| !list.is_empty())
+            .unwrap_or_else(|| self.mods.clone())
+    }
+
     /// 取说明文档路径：命名空间写法优先，其次顶层。
     pub fn doc_path(&self) -> Option<String> {
         self.miyin
@@ -286,6 +307,9 @@ pub struct MiyinExtensions {
     /// **主地图**（自制战役的游玩入口），相对包根的路径。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// **依赖的模组**：包里的地图需要它们才能正常打开。
+    #[serde(default)]
+    pub mods: Vec<String>,
     /// **说明文档（PDF）**，相对包根的路径。
     #[serde(default)]
     pub doc: Option<String>,

@@ -3,11 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::campaign::package;
-use crate::campaign::package::{Payload, PayloadTarget};
 use crate::library::{
     ImportMode, Library, MapEntry, VariantChanges, VersionRelation, activate, compare_versions,
-    compose, conflict_for, import, mod_identity, patch, remove_variant, resolve_main_map,
-    update_variant,
+    compose, conflict_for, import, patch, remove_variant, resolve_main_map, update_variant,
 };
 use crate::sc2::{DiscoverySource, Installation};
 
@@ -577,6 +575,7 @@ fn editing_metadata_keeps_content_and_directory() {
             author: Some("某位作者".to_string()),
             registration_id: Some("someone.reborn".to_string()),
             description: Some("新描述".to_string()),
+            declared_mods: None,
         },
     )
     .expect("update");
@@ -1044,62 +1043,6 @@ fn patch_metadata_can_be_edited() {
 }
 
 #[test]
-fn recognises_mods_in_both_packagings() {
-    // 裸的 .SC2Mod
-    let bare = Payload {
-        source: "SCMRmod.SC2Mod".to_string(),
-        target: PayloadTarget::Mod {
-            name: "SCMRmod.SC2Mod".to_string(),
-        },
-        expanded: false,
-        is_mod: true,
-    };
-    assert_eq!(
-        mod_identity(&bare),
-        Some(("SCMRmod.SC2Mod".to_string(), "SCMRmod".to_string()))
-    );
-
-    // 游戏目录镜像：SCMR 就是这种，包根一个 Mods/ 目录
-    let mirrored = Payload {
-        source: "Mods/SCMRassets.SC2Mod".to_string(),
-        target: PayloadTarget::Mirror {
-            path: "Mods/SCMRassets.SC2Mod".to_string(),
-        },
-        expanded: false,
-        is_mod: true,
-    };
-    assert_eq!(
-        mod_identity(&mirrored),
-        Some((
-            "Mods/SCMRassets.SC2Mod".to_string(),
-            "SCMRassets".to_string()
-        ))
-    );
-
-    // 地图不是模组
-    let map = Payload {
-        source: "1. Rebel Yell/Terran01.SC2Map".to_string(),
-        target: PayloadTarget::Map {
-            name: "Terran01.SC2Map".to_string(),
-        },
-        expanded: false,
-        is_mod: false,
-    };
-    assert_eq!(mod_identity(&map), None);
-
-    // 镜像里的地图也不是模组
-    let mirror_map = Payload {
-        source: "Maps/Campaign/void/a.SC2Map".to_string(),
-        target: PayloadTarget::Mirror {
-            path: "Maps/Campaign/void/a.SC2Map".to_string(),
-        },
-        expanded: false,
-        is_mod: false,
-    };
-    assert_eq!(mod_identity(&mirror_map), None);
-}
-
-#[test]
 fn main_map_resolution_never_guesses() {
     let maps = vec![
         MapEntry {
@@ -1197,4 +1140,63 @@ fn unconfigured_variants_mount_every_mod() {
     // 用户明确全关 -> 一个都不铺（这与"没配过"是两回事）
     variant.mounted_mods = Some(Vec::new());
     assert!(effective_mounted_mods(&variant).is_empty());
+}
+#[test]
+fn mods_are_grouped_by_folder_not_by_file() {
+    use crate::campaign::package::{Payload, PayloadTarget};
+    use crate::library::{group_mods, mod_key_of, normalize_mod_key};
+
+    // 真实样本「疯批帝国军械库」：Mods/Alenger/ 下面 18 个 .SC2Mod
+    // —— 那是**一个**模组，不是 18 个
+    assert_eq!(
+        mod_key_of("Mods/Alenger/1钢铁.SC2Mod").unwrap().key,
+        "Alenger"
+    );
+    assert_eq!(
+        mod_key_of("Mods/Alenger/通用效果.SC2Mod").unwrap().key,
+        "Alenger"
+    );
+
+    // 单文件形态
+    let single = mod_key_of("Mods/3疯批帝国之翼.SC2Mod").unwrap();
+    assert_eq!(single.key, "3疯批帝国之翼.SC2Mod");
+    assert_eq!(single.name, "3疯批帝国之翼");
+
+    // 解开目录树形态
+    let expanded = mod_key_of("Mods/kit_liberty_story.SC2Mod/Assets/x.dds").unwrap();
+    assert_eq!(expanded.key, "kit_liberty_story.SC2Mod");
+    assert_eq!(expanded.name, "kit_liberty_story");
+
+    // 不在 Mods/ 下 —— 不是模组
+    assert!(mod_key_of("Maps/Campaign/a.SC2Map").is_none());
+
+    // 作者写依赖时偷懒不写前缀，也得认
+    for raw in ["Mods/Alenger", "Mods/Alenger/", "Alenger", "Alenger.SC2Mod"] {
+        assert_eq!(normalize_mod_key(raw), "Alenger", "写的是 {raw}");
+    }
+
+    // 分组：同一个文件夹下的多个载荷归成一行
+    let payload = |source: &str| Payload {
+        source: source.to_string(),
+        target: PayloadTarget::Mirror {
+            path: source.to_string(),
+        },
+        expanded: false,
+        is_mod: true,
+    };
+    let payloads = vec![
+        payload("Mods/Alenger/1钢铁.SC2Mod"),
+        payload("Mods/Alenger/2贝希摩斯虫群.SC2Mod"),
+        payload("Mods/Alenger/通用效果.SC2Mod"),
+        payload("Mods/孤零零.SC2Mod"),
+    ];
+
+    let rows = group_mods(&payloads, &["Alenger".to_string()]);
+    assert_eq!(rows.len(), 2, "三个文件应当归成一个模组");
+    assert_eq!(rows[0].name, "Alenger");
+    assert_eq!(rows[0].parts, 3);
+    assert!(rows[0].mounted);
+    assert_eq!(rows[1].name, "孤零零");
+    assert_eq!(rows[1].parts, 1);
+    assert!(!rows[1].mounted);
 }

@@ -75,6 +75,10 @@ export interface Variant {
   tags: string[];
   /** 包声明的注册 ID：补丁靠它引用战役，更新靠它认出同一个战役。 */
   registration_id: string | null;
+  /** 包内**声明为依赖**的模组键。 */
+  declared_mods: string[];
+  /** 版本自带的说明文档（PDF）；没有就是 null。 */
+  doc: string | null;
 }
 
 /** 一个官方资料片槽位。 */
@@ -327,10 +331,12 @@ export interface MapEntry {
 
 /** 版本里的一个模组。 */
 export interface ModEntry {
-  /** 挂载键：相对版本目录的路径。 */
+  /** 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。 */
   path: string;
   name: string;
   mounted: boolean;
+  /** 这个模组由几个文件组成。 */
+  parts: number;
 }
 
 /** 主地图的解析结果。 */
@@ -363,10 +369,39 @@ export interface LibraryMod {
   slot_name: string;
   variant_id: string;
   variant_name: string;
-  /** 挂载键：相对版本目录的路径。 */
+  /** 挂载键：`Mods/` 之后的第一段。 */
   path: string;
   name: string;
   mounted: boolean;
+  /** 这个模组由几个文件组成（按文件夹分，一个模组可能有很多部分）。 */
+  parts: number;
+  /** 从哪来的。 */
+  origin: "official_campaign" | "custom_campaign" | "standalone";
+  /** 是不是包内声明为依赖的模组。 */
+  required: boolean;
+  /** 单独导入的模组才有：库里的 id。 */
+  standalone_id: string | null;
+}
+
+/** 独立模组库里的一个模组。 */
+export interface StandaloneMod {
+  id: string;
+  name: string;
+  author: string | null;
+  version: string | null;
+  description: string | null;
+  enabled: boolean;
+  imported_at: number;
+  size_bytes: number;
+  parts: number;
+}
+
+/** 修改模组信息；null / 不传表示这一项不动。 */
+export interface ModChanges {
+  name?: string | null;
+  author?: string | null;
+  version?: string | null;
+  description?: string | null;
 }
 
 /** 游戏目录 Mods/ 里的一个模组。 */
@@ -413,6 +448,8 @@ export interface LauncherApi {
       author?: string;
       registrationId?: string;
       description?: string;
+      /** 包内声明为依赖的模组键；不传表示这一项不动。 */
+      declaredMods?: string[];
     },
   ): Promise<Variant>;
 
@@ -487,6 +524,20 @@ export interface LauncherApi {
   listLibraryMods(): Promise<LibraryMod[]>;
   /** 游戏目录 Mods/ 里实际放着的模组。 */
   listGameMods(): Promise<GameModEntry[]>;
+  /** 独立模组库。 */
+  listStandaloneMods(): Promise<StandaloneMod[]>;
+  /** 选一个模组包：file（压缩包 / .SC2Mod）或 folder。 */
+  pickModSource(kind: "file" | "folder"): Promise<string | null>;
+  /** 导入模组包。 */
+  importMod(path: string): Promise<StandaloneMod>;
+  /** 改模组信息。 */
+  updateMod(id: string, changes: ModChanges): Promise<StandaloneMod>;
+  /** 删掉模组。 */
+  removeMod(id: string): Promise<void>;
+  /** 导出模组包，返回写到哪了。 */
+  exportMod(id: string): Promise<string>;
+  /** 启用 / 停用独立模组（启用会立刻铺进游戏目录）。 */
+  setModEnabled(id: string, enabled: boolean): Promise<StandaloneMod>;
 
   /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
   onUpdateLog(handler: (line: string) => void): Promise<() => void>;
