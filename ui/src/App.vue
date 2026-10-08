@@ -26,6 +26,7 @@ const {
   applyUpdateNow,
   currentView,
   launcherVersion,
+  ensureTools,
 } = useLauncher();
 
 /** 会出水波纹的元素。加新组件时把类名补进来就行。 */
@@ -79,6 +80,10 @@ onMounted(async () => {
   // **启动就自动扫描更新**，不需要用户手点。
   // 稍微延后，别和启动时的战役库读取抢时间。
   setTimeout(() => void autoCheckUpdate(), 1200);
+
+  // **可选工具默认静默安装**：没有就装上；装不上只提示一句，之后不再重试。
+  // 排在更新检查后面 —— 那是更要紧的事，工具装不上不影响启动器本身。
+  setTimeout(() => void ensureTools(), 2600);
 
   // 浏览器演示模式没有这个 API，静默跳过
   if (!isDesktop) return;
@@ -473,6 +478,11 @@ onUnmounted(() => {
   box-shadow: var(--shadow-3);
   border-left: 4px solid var(--accent);
   font-size: 13.5px;
+}
+
+.toast--warning {
+  background: color-mix(in srgb, var(--warning, #b26a00) 92%, transparent);
+  color: #fff;
 }
 
 .toast--success {

@@ -65,6 +65,10 @@ pub struct ToolStatus {
     /// 可执行文件的位置。
     pub path: Option<String>,
     pub size_bytes: u64,
+    /// 自动安装失败过（启动时不再重试，可在设置里手动装）。
+    pub auto_failed: bool,
+    /// 上次自动安装失败的原因。
+    pub auto_error: Option<String>,
 }
 
 /// Release 里的一个可装版本。
@@ -79,6 +83,140 @@ pub struct ToolRelease {
     pub size: u64,
     /// 有没有提供我们要的那个附件。
     pub has_asset: bool,
+}
+
+/// 自动安装「别再试了」的标记。
+///
+/// 约定（用户定的）：启动时自动检查、没有就静默装上；**装不上就提示该部分功能
+/// 不可用，之后启动不再尝试** —— 免得每次开启动器都卡一遍网络、弹一遍红字。
+/// 用户想再试，到设置里手动装一次即可（那条路会清掉这个标记）。
+fn skip_file(data: &Path, spec: &ToolSpec) -> PathBuf {
+    tool_dir(data, spec).join("auto-install-failed.txt")
+}
+
+/// 自动安装的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolEnsure {
+    pub id: String,
+    pub name: String,
+    /// 现在能不能用。
+    pub ready: bool,
+    /// 这次干了什么。
+    pub action: ToolEnsureAction,
+    /// 失败原因。
+    pub error: Option<String>,
+    /// 界面该怎么跟用户说；没问题时是 `None`，不该打扰用户。
+    pub message: Option<String>,
+}
+
+/// `ensure` 这次干了什么。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolEnsureAction {
+    /// 本来就装好了，什么都没做。
+    AlreadyInstalled,
+    /// 之前自动装失败过，按约定不再重试。
+    Skipped,
+    /// 这次装上了。
+    Installed,
+    /// 这次没装上 —— 已经记下，之后不再自动重试。
+    Failed,
+}
+
+/// 启动时调：没装就**静默装上**；之前失败过就不再试。
+///
+/// 这个函数**不会**因为网络问题让启动器起不来 —— 失败也是一种正常结果，
+/// 包成 `ToolEnsure` 返回给界面去提示。
+pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolEnsure {
+    let base =
+        |action: ToolEnsureAction, ready: bool, error: Option<String>, message: Option<String>| {
+            ToolEnsure {
+                id: spec.id.to_string(),
+                name: spec.name.to_string(),
+                ready,
+                action,
+                error,
+                message,
+            }
+        };
+
+    // 已经装好了
+    if executable(data, spec).is_some() {
+        return base(ToolEnsureAction::AlreadyInstalled, true, None, None);
+    }
+
+    // 之前自动装失败过 —— 别再试了，也别再弹提示烦人
+    if skip_file(data, spec).is_file() {
+        return base(ToolEnsureAction::Skipped, false, None, None);
+    }
+
+    let reporter = Reporter::silent();
+    let list = match releases(spec, settings, reporter) {
+        Ok(list) => list,
+        Err(error) => {
+            let _ = mark_failed(data, spec, &error);
+            return base(
+                ToolEnsureAction::Failed,
+                false,
+                Some(error.clone()),
+                Some(format!(
+                    "{} 安装失败，模组差异相关的功能暂时不可用（之后不再自动重试，可在「设置 → 可选工具」里手动重装）：{error}",
+                    spec.name
+                )),
+            );
+        }
+    };
+
+    let Some(picked) = list.iter().find(|release| release.has_asset) else {
+        let reason = format!("{} 还没有可下载的版本", spec.name);
+        let _ = mark_failed(data, spec, &reason);
+        return base(
+            ToolEnsureAction::Failed,
+            false,
+            Some(reason.clone()),
+            Some(format!("{reason}；之后不再自动重试")),
+        );
+    };
+
+    match install(data, spec, picked, settings, reporter) {
+        Ok(_) => base(ToolEnsureAction::Installed, true, None, None),
+        Err(error) => {
+            let text = error.to_string();
+            let _ = mark_failed(data, spec, &text);
+            base(
+                ToolEnsureAction::Failed,
+                false,
+                Some(text.clone()),
+                Some(format!(
+                    "{} 安装失败，模组差异相关的功能暂时不可用（之后不再自动重试，可在「设置 → 可选工具」里手动重装）：{text}",
+                    spec.name
+                )),
+            )
+        }
+    }
+}
+
+/// 记下「自动装失败过」，顺便写下原因方便排查。
+fn mark_failed(data: &Path, spec: &ToolSpec, reason: &str) -> Result<()> {
+    let dir = tool_dir(data, spec);
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(
+        skip_file(data, spec),
+        format!(
+            "{reason}
+"
+        ),
+    )?;
+    Ok(())
+}
+
+/// 手动安装时清掉「别再试了」标记 —— 用户明确要装，就该真装。
+pub fn clear_skip(data: &Path, spec: &ToolSpec) -> Result<()> {
+    let path = skip_file(data, spec);
+    if path.is_file() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// 工具的安装目录。
@@ -120,7 +258,17 @@ pub fn status(data: &Path, spec: &ToolSpec) -> ToolStatus {
             .and_then(|path| std::fs::metadata(path).ok())
             .map(|meta| meta.len())
             .unwrap_or(0),
-        path: path.map(|path| path.display().to_string()),
+        path: path.as_ref().map(|path| path.display().to_string()),
+        // 只有**没装成**的时候才提这件事；装好了就不该再提旧账
+        auto_failed: path.is_none() && skip_file(data, spec).is_file(),
+        auto_error: if path.is_none() {
+            std::fs::read_to_string(skip_file(data, spec))
+                .ok()
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty())
+        } else {
+            None
+        },
     }
 }
 
@@ -208,6 +356,9 @@ pub fn install(
     }
     std::fs::rename(&staging, &target)?;
     std::fs::write(version_file(data, spec), &release.version)?;
+
+    // 装成功了，把「之前失败过」的标记清掉
+    let _ = clear_skip(data, spec);
 
     reporter.say(format!("{} {} 已装好", spec.name, release.version));
     Ok(status(data, spec))

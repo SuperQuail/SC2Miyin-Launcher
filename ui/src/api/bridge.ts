@@ -17,6 +17,7 @@ import type {
   GameModEntry,
   LibraryMod,
   StandaloneMod,
+  ToolEnsure,
   ToolRelease,
   ToolStatus,
   MainMapChoice,
@@ -98,6 +99,7 @@ const desktop: LauncherApi = {
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
   listStandaloneMods: () => invoke<StandaloneMod[]>("list_standalone_mods"),
   listTools: () => invoke<ToolStatus[]>("list_tools"),
+  ensureTool: (id) => invoke<ToolEnsure>("ensure_tool", { id }),
   toolReleases: (id) => invoke<ToolRelease[]>("tool_releases", { id }),
   installTool: (id, version) => invoke<ToolStatus>("install_tool", { id, version }),
   uninstallTool: (id) => invoke<void>("uninstall_tool", { id }),
@@ -685,6 +687,7 @@ const demo: LauncherApi = {
   listLibraryMods: () => delay(demoLibraryMods()),
   listGameMods: () => delay(demoGameMods()),
   listStandaloneMods: () => delay([]),
+  ensureTool: () => delay({ id: "sc2diff", name: "SC2Diff", ready: false, action: "skipped", error: null, message: null } as ToolEnsure),
   listTools: () =>
     delay([
       {
@@ -696,6 +699,8 @@ const demo: LauncherApi = {
         version: null,
         path: null,
         size_bytes: 0,
+        auto_failed: false,
+        auto_error: null,
       },
     ]),
   toolReleases: () =>
@@ -720,6 +725,8 @@ const demo: LauncherApi = {
       version: "0.1.0a2",
       path: "D:\\demo\\sc2diff.exe",
       size_bytes: 1_410_000,
+      auto_failed: false,
+      auto_error: null,
     } as ToolStatus),
   uninstallTool: () => delay(undefined),
   openToolRepo: () => delay(undefined),

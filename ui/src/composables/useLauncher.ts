@@ -15,7 +15,7 @@ import type {
   Variant,
 } from "../api/types";
 
-export type ToastKind = "info" | "success" | "error";
+export type ToastKind = "info" | "success" | "warning" | "error";
 
 export interface Toast {
   kind: ToastKind;
@@ -239,6 +239,29 @@ const toast = ref<Toast | null>(null);
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 弹一条提示。 */
+/**
+ * 启动时把可选工具装上 —— **默认静默安装**。
+ *
+ * 约定：没有就自动装；装不上提示一句「该部分功能不可用」，之后启动不再尝试
+ * （后端记了标记，下次直接返回 skipped），用户想再试到设置里手动装。
+ *
+ * 这里**绝不能抛** —— 一个可选工具装不上，不该影响启动器本身能用。
+ */
+async function ensureTools(): Promise<void> {
+  try {
+    const result = await api.ensureTool("sc2diff");
+
+    if (result.action === "installed") {
+      notify("success", result.name + " 已自动装好");
+    } else if (result.action === "failed" && result.message) {
+      notify("warning", result.message);
+    }
+    // already_installed / skipped 都不打扰用户
+  } catch {
+    // 静默：这条路失败不影响启动
+  }
+}
+
 export function notify(kind: ToastKind, message: string): void {
   toast.value = { kind, message };
   if (toastTimer) clearTimeout(toastTimer);
@@ -397,6 +420,7 @@ export function useLauncher() {
     showRestartPrompt,
     checkUpdateNow,
     autoCheckUpdate,
+  ensureTools,
     downloadUpdateNow,
     applyUpdateNow,
     droppedPackage,

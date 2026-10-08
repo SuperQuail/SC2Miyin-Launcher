@@ -477,6 +477,22 @@ fn find_tool(id: &str) -> Result<tools::ToolSpec, String> {
         .ok_or_else(|| format!("不认识这个工具：{id}"))
 }
 
+/// 启动时调：**没装就静默装上**。
+///
+/// 失败不等于出错 —— 包成 `ToolEnsure` 返回，界面按 `message` 提示一句就行，
+/// 而且之后不再自动重试（用户可以到设置里手动装）。
+#[tauri::command(async)]
+fn ensure_tool(id: String, state: State<'_, AppState>) -> Result<tools::ToolEnsure, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    Ok(tools::ensure(state.library.root(), &spec, &settings))
+}
+
 /// 某个工具有哪些版本可装。
 #[tauri::command(async)]
 fn tool_releases(id: String, state: State<'_, AppState>) -> Result<Vec<ToolRelease>, String> {
@@ -1318,6 +1334,7 @@ pub fn run() {
             list_library_mods,
             list_standalone_mods,
             list_tools,
+            ensure_tool,
             tool_releases,
             install_tool,
             uninstall_tool,

@@ -422,6 +422,10 @@ export interface ToolStatus {
   version: string | null;
   path: string | null;
   size_bytes: number;
+  /** 自动安装失败过（启动时不再重试，可手动装）。 */
+  auto_failed: boolean;
+  /** 上次自动安装失败的原因。 */
+  auto_error: string | null;
 }
 
 /** 一个工具的可安装版本。 */
@@ -433,6 +437,19 @@ export interface ToolRelease {
   download_url: string;
   size: number;
   has_asset: boolean;
+}
+
+/** 自动安装可选工具的结果。 */
+export interface ToolEnsure {
+  id: string;
+  name: string;
+  /** 现在能不能用。 */
+  ready: boolean;
+  /** 这次干了什么。 */
+  action: "already_installed" | "skipped" | "installed" | "failed";
+  error: string | null;
+  /** 界面该怎么跟用户说；没问题时是 null。 */
+  message: string | null;
 }
 
 export interface LauncherApi {
@@ -545,6 +562,8 @@ export interface LauncherApi {
 
   /** 可选工具的清单与安装状态。 */
   listTools(): Promise<ToolStatus[]>;
+  /** 启动时调：没装就静默装上；之前失败过就不再试。 */
+  ensureTool(id: string): Promise<ToolEnsure>;
   /** 某个工具有哪些版本可装。 */
   toolReleases(id: string): Promise<ToolRelease[]>;
   /** 装一个工具；version 传 null 表示装最新的。 */

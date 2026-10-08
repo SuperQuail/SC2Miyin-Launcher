@@ -139,6 +139,12 @@ function versionLabel(release: ToolRelease): string {
       </div>
 
       <p class="tool__about">{{ tool.about }}</p>
+
+      <!-- 自动装失败过：说清为什么之后不再自动重试 -->
+      <p v-if="tool.auto_failed" class="tool__failed">
+        上次自动安装失败<template v-if="tool.auto_error">：{{ tool.auto_error }}</template>。
+        <strong>之后启动不会再自动尝试</strong> —— 想装的话点上面的「一键安装」。
+      </p>
       <p v-if="tool.installed && tool.path" class="tool__path" :title="tool.path">
         {{ tool.path }} · {{ formatBytes(tool.size_bytes) }}
       </p>
@@ -205,6 +211,16 @@ function versionLabel(release: ToolRelease): string {
   font-size: 12.5px;
   line-height: 1.7;
   color: var(--on-surface-variant);
+}
+
+.tool__failed {
+  margin: 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft, color-mix(in srgb, #b26a00 14%, transparent));
+  color: var(--warning, #b26a00);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .tool__path {
