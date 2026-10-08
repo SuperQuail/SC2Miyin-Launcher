@@ -35,6 +35,8 @@ const proxy = ref<{ url: string; source: string } | null>(null);
 const savingNetwork = ref(false);
 const showNotes = ref(false);
 const logBox = ref<HTMLElement | null>(null);
+/** 整个面板；从更新公告跳过来时滚到自己身上。 */
+const panelBox = ref<HTMLElement | null>(null);
 
 onMounted(async () => {
   try {
@@ -44,6 +46,14 @@ onMounted(async () => {
   } catch (error) {
     notify("error", errorText(error));
   }
+});
+
+// 从更新公告跳过来时自动开始下载 —— 把面板滚到视线里，
+// 否则用户只听到"在下载"却看不到进度条与终端
+watch(updateDownloading, async (downloading) => {
+  if (!downloading) return;
+  await nextTick();
+  panelBox.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
 // 终端自动滚到底：用户进来看到的是最新一行，而不是最老的
@@ -103,7 +113,7 @@ const notes = computed(() => latest.value?.notes?.trim() ?? "");
 </script>
 
 <template>
-  <section class="panel">
+  <section ref="panelBox" class="panel">
     <header class="panel__head">
       <h4 class="panel__title">更新</h4>
       <span class="panel__version">当前 {{ current || "…" }}</span>

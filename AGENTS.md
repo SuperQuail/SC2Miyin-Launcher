@@ -14,7 +14,7 @@
 | 英文名 | MiYin Launcher |
 | 组织 | [SuperQuail](https://github.com/SuperQuail) |
 | 仓库 | https://github.com/SuperQuail/SC2Miyin-Launcher |
-| 当前版本 | **`0.1.0a2`**（对外写法；`Cargo.toml` 里是 `0.1.0-alpha.2`，见 §15.1） |
+| 当前版本 | **`0.1.0a3`**（对外写法；`Cargo.toml` 里是 `0.1.0-alpha.2`，见 §15.1） |
 | 许可证 | MIT |
 | 曾用名 | HSCL / Hello StarCraft Launcher（历史名称，仅本地目录仍在用） |
 | 本地目录 | `D:\Code\Rust\HSCL`（目录名暂未随改名调整，避免破坏现有工作流） |
@@ -98,7 +98,7 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │               ├── store.rs        # 导入 / 删除版本
 │               └── activation.rs   # 启用 / 停用（按清单精确回滚）
 ├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
-│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里
+│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
 │   ├── tauri.conf.json
 │   └── icons/                 # 由 scripts/prepare-icons.py 生成
 ├── ui/                        # Vue 3 + TypeScript 前端
@@ -228,15 +228,35 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 2. 写发行说明 `docs/release-notes/v<版本>.md` —— CI 会把它作为 Release 正文，
    **文件名必须与 tag 完全对应**（`v0.1.0a2` 对 `v0.1.0a2.md`）。
 3. 更新 `CHANGELOG.md`。
-4. 从 `main` 合到 `release`，打 tag 并推送：
+4. **按流向推 PR**（三个分支都受保护，推不上去）：
 
    ```bash
-   git checkout release && git merge main && git push origin release
-   git tag v0.1.0a2 && git push origin v0.1.0a2
+   # 1) 发版准备分支 -> dev
+   gh pr create --base dev --head chore/release-0.1.0a4 --title "chore(release): 版本升到 0.1.0a4"
+   gh pr merge <编号> --squash --delete-branch
+
+   # 2) 逐级推进（这两步用 --merge，**不要**用 --squash）
+   gh pr create --base main    --head dev  --title "chore(release): 合并 dev 到 main（0.1.0a4）"
+   gh pr merge <编号> --merge
+   gh pr create --base release --head main --title "chore(release): 合并 main 到 release（0.1.0a4）"
+   gh pr merge <编号> --merge
    ```
 
-5. `.github/workflows/release.yml` 自动构建 Windows 绿色版并附到 Release。
-   版本号里带字母的（`0.1.0a2` / `0.1.0-alpha.2`）会**自动标成预发行**。
+5. 从 `release` 打 tag 并推送，`.github/workflows/release.yml` 会自动构建
+   Windows 绿色版并附到 Release。版本号里带字母的（`0.1.0a2` / `0.1.0-alpha.2`）
+   会**自动标成预发行**：
+
+   ```bash
+   git tag -a v0.1.0a4 origin/release -m "0.1.0a4"
+   git push origin v0.1.0a4
+   ```
+
+⚠️ **推进类 PR 必须用 `--merge`，不能 `--squash`**。踩过的坑：一开始用 squash
+把 `dev` 压成单个提交合进 `main`，两边历史就此分叉，之后每次 `dev` → `main`
+都冲突。真碰上了就用 `git merge origin/main -s ours` 收口一次（内容以 dev 为准，
+但把 main 记为祖先），再走 PR 推上去。
+
+也正因为这样，**不要开「要求线性历史」** —— 它和「长分支互相推进」天生打架。
 
 ⚠️ **改完版本号务必确认文件仍是 UTF-8**：PowerShell 的 `Set-Content` 默认按 ANSI 写盘，
 会把中文写成非法字节 —— `cargo` 会直接报 `path was not valid utf-8`。
@@ -668,3 +688,27 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 - **不确定就不动**：版本号认不出、摘要对不上、包里没有 exe、zip 条目越界 —— 一律拒绝。
 - **更新只换程序本体**：`data/`（战役库、补丁、配置）一个字节都不碰。
 - Windows 上覆盖不了正在运行的 exe，所以走 `.cmd` 重试脚本。
+
+---
+
+## 16. 命令层：一律 `#[tauri::command(async)]`
+
+**这是踩过的一个大坑**：Tauri 2 里**同步命令跑在主线程**上。
+启动器的命令动不动就是几秒到几分钟 —— 读整个压缩包、拷贝几个 GB 的战役、等用户选文件 ——
+同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
+
+所以 `src-tauri/src/lib.rs` 里的命令**全部**写成：
+
+```rust
+#[tauri::command(async)]
+fn import_package(...) -> Result<...> { ... }
+```
+
+`(async)` 让 Tauri 把同步函数体丢到线程池执行，不用改写函数体 —— 一个词的事。
+（Tauri 文档原话：*Commands without the async keyword are executed on the main thread
+unless defined with `#[tauri::command(async)]`*。）
+
+特别长的活（下载更新、检查更新）再加一层 `async fn` +
+`tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
+
+**自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。

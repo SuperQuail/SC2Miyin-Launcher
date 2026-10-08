@@ -152,7 +152,17 @@ fn require_installation(state: &State<'_, AppState>) -> Result<Installation, Str
 }
 
 /// 检测本机的星际争霸 II 安装。
-#[tauri::command]
+/// 命令层的两条约定：
+///
+/// 1. **一律 `#[tauri::command(async)]`**。Tauri 2 里同步命令跑在**主线程**上，
+///    而这里的活动辄几秒到几分钟（读整个压缩包、拷几个 GB 的战役、等用户选文件）——
+///    同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
+///    加 `(async)` 后 Tauri 会把它丢到线程池，界面照样能点。
+///    （踩过一次：下载更新时整个窗口卡住。）
+/// 2. 特别长的活（下载、检查更新）另外用 `async fn` + `spawn_blocking`，
+///    免得占着异步 worker 几十秒。
+///
+#[tauri::command(async)]
 fn detect_installation(state: State<'_, AppState>) -> Result<Option<Installation>, String> {
     let existing = state.installation.lock().map_err(lock_error)?.clone();
     if existing.is_some() {
@@ -170,7 +180,7 @@ fn detect_installation(state: State<'_, AppState>) -> Result<Option<Installation
 }
 
 /// 手动指定游戏目录，校验通过后记住它。
-#[tauri::command]
+#[tauri::command(async)]
 fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installation, String> {
     let installation = Installation::from_root(&path, DiscoverySource::Manual)
         .map_err(|error| error.to_string())?;
@@ -181,20 +191,20 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
 }
 
 /// 战役库根目录（软件同级的 data 目录）。
-#[tauri::command]
+#[tauri::command(async)]
 fn library_root(state: State<'_, AppState>) -> String {
     state.library.root().to_string_lossy().into_owned()
 }
 
 /// 读取全部槽位：每个官方资料片下已导入的版本，以及当前启用的是哪个。
-#[tauri::command]
+#[tauri::command(async)]
 fn list_slots(state: State<'_, AppState>) -> Result<Vec<SlotView>, String> {
     let installation = state.installation.lock().map_err(lock_error)?.clone();
     Ok(state.library.slots(installation.as_ref()))
 }
 
 /// 安装前预检一个战役包。
-#[tauri::command]
+#[tauri::command(async)]
 fn inspect_package(path: String) -> Result<PackageInspection, String> {
     package::inspect(Path::new(&path)).map_err(|error| error.to_string())
 }
@@ -228,7 +238,7 @@ struct ImportPreview {
 }
 
 /// 选完文件后的第一步：预检、判断归属、查冲突。**不写任何文件。**
-#[tauri::command]
+#[tauri::command(async)]
 fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPreview, String> {
     let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
 
@@ -277,7 +287,7 @@ fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPrev
 ///
 /// - 槽位可以不传：按包内声明自动判断（进化包会归到「虫群之心」）
 /// - mode 决定遇到已有同名 / 同 ID 版本时，是**覆盖更新**还是**重命名后导入**
-#[tauri::command]
+#[tauri::command(async)]
 fn import_package(
     path: String,
     slot: Option<String>,
@@ -301,7 +311,7 @@ fn import_package(
 }
 
 /// 启用某个版本；variantId 传 null 表示切回**原版战役**。
-#[tauri::command]
+#[tauri::command(async)]
 fn activate_variant(
     slot: String,
     variant_id: Option<String>,
@@ -316,7 +326,7 @@ fn activate_variant(
 ///
 /// 只改启动器自己记录的元数据，不动包内容；改名不会改版本目录，
 /// 因此挂在这个版本上的补丁绑定不受影响。
-#[tauri::command]
+#[tauri::command(async)]
 fn update_variant(
     slot: String,
     variant_id: String,
@@ -328,13 +338,13 @@ fn update_variant(
 }
 
 /// 当前程序版本。
-#[tauri::command]
+#[tauri::command(async)]
 fn app_version() -> String {
     miyin_core::update::current_version().to_string()
 }
 
 /// 当前生效的网络设置。
-#[tauri::command]
+#[tauri::command(async)]
 fn network_settings(state: State<'_, AppState>) -> Result<NetworkSettings, String> {
     state
         .network
@@ -344,7 +354,7 @@ fn network_settings(state: State<'_, AppState>) -> Result<NetworkSettings, Strin
 }
 
 /// 改网络设置并落盘。
-#[tauri::command]
+#[tauri::command(async)]
 fn set_network_settings(
     settings: NetworkSettings,
     state: State<'_, AppState>,
@@ -360,7 +370,7 @@ fn set_network_settings(
 }
 
 /// 当前自动探测到的代理（界面要如实告诉用户走的是哪条路）。
-#[tauri::command]
+#[tauri::command(async)]
 fn detected_proxy(state: State<'_, AppState>) -> Option<miyin_core::update::net::DetectedProxy> {
     state
         .network
@@ -372,28 +382,42 @@ fn detected_proxy(state: State<'_, AppState>) -> Option<miyin_core::update::net:
 /// 检查更新。**网络失败不算错误**：包在返回值里，界面照常显示"检查失败"。
 ///
 /// 过程会通过 `update://log` 事件实时发给界面，渲染成那个内嵌终端。
-#[tauri::command]
-fn check_update(window: tauri::Window, state: State<'_, AppState>) -> Result<UpdateCheck, String> {
+///
+/// ⚠️ **必须是 `async fn`**：Tauri 2 里同步命令跑在**主线程**上，
+/// 而这里是好几秒的网络等待 —— 同步写法会让整个窗口卡住（踩过，就是下载时"未响应"）。
+/// 写成 async 后 Tauri 会把它丢到运行时线程；再用 `spawn_blocking`
+/// 把这坨阻塞 IO 挪出异步线程池，免得占着 worker。
+#[tauri::command(async)]
+async fn check_update(
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> Result<UpdateCheck, String> {
     let settings = state
         .network
         .lock()
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
 
-    let emit = |message: &str| {
-        let _ = window.emit("update://log", message.to_string());
-    };
-
-    Ok(miyin_core::update::check::check(
-        &miyin_core::update::current_version(),
-        &settings,
-        Reporter::with_log(&emit),
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        let emit = |message: &str| {
+            let _ = window.emit("update://log", message.to_string());
+        };
+        miyin_core::update::check::check(
+            &miyin_core::update::current_version(),
+            &settings,
+            Reporter::with_log(&emit),
+        )
+    })
+    .await
+    .map_err(|error| format!("检查任务异常：{error}"))
 }
 
 /// 下载更新包（会持续发 ``update://progress`` 事件）。
-#[tauri::command]
-fn download_update(
+///
+/// 下载是几十秒级别的事，**必须 async** —— 同步命令跑在主线程上，
+/// 下载期间整个窗口得不到消息泵，用户看到的就是「未响应」。
+#[tauri::command(async)]
+async fn download_update(
     version: String,
     window: tauri::Window,
     state: State<'_, AppState>,
@@ -403,53 +427,56 @@ fn download_update(
         .lock()
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
-
-    // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
-    let quiet = |_: &str| {};
-    let found = miyin_core::update::check::check(
-        &miyin_core::update::current_version(),
-        &settings,
-        Reporter::with_log(&quiet),
-    );
-    let release = found
-        .latest
-        .filter(|release| release.version == version)
-        .ok_or_else(|| format!("没找到 {version} 这个版本，请重新检查更新"))?;
-    let asset = release
-        .platform_asset()
-        .ok_or_else(|| "这个发行版没有适合 Windows 的包".to_string())?
-        .clone();
-
     let data_dir = state.library.root().to_path_buf();
 
-    // 日志与进度都实时发给界面：日志渲染成内嵌终端，进度画进度条
-    let emit = |message: &str| {
-        let _ = window.emit("update://log", message.to_string());
-    };
-    let progress = |done: u64, total: Option<u64>| {
-        let _ = window.emit(
-            "update://progress",
-            ProgressPayload {
-                done,
-                total,
-                percent: total
-                    .filter(|total| *total > 0)
-                    .map(|total| ((done as f64 / total as f64) * 100.0).min(100.0)),
-            },
+    let staged = tauri::async_runtime::spawn_blocking(move || -> Result<Staged, String> {
+        // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
+        let quiet = |_: &str| {};
+        let found = miyin_core::update::check::check(
+            &miyin_core::update::current_version(),
+            &settings,
+            Reporter::with_log(&quiet),
         );
-    };
+        let release = found
+            .latest
+            .filter(|release| release.version == version)
+            .ok_or_else(|| format!("没找到 {version} 这个版本，请重新检查更新"))?;
+        let asset = release
+            .platform_asset()
+            .ok_or_else(|| "这个发行版没有适合 Windows 的包".to_string())?
+            .clone();
 
-    let staged = miyin_core::update::stage(
-        &asset,
-        &settings,
-        &data_dir,
-        &version,
-        Reporter {
-            log: Some(&emit),
-            progress: Some(&progress),
-        },
-    )
-    .map_err(|error| error.to_string())?;
+        // 日志与进度都实时发给界面：日志渲染成内嵌终端，进度画进度条
+        let emit = |message: &str| {
+            let _ = window.emit("update://log", message.to_string());
+        };
+        let progress = |done: u64, total: Option<u64>| {
+            let _ = window.emit(
+                "update://progress",
+                ProgressPayload {
+                    done,
+                    total,
+                    percent: total
+                        .filter(|total| *total > 0)
+                        .map(|total| ((done as f64 / total as f64) * 100.0).min(100.0)),
+                },
+            );
+        };
+
+        miyin_core::update::stage(
+            &asset,
+            &settings,
+            &data_dir,
+            &version,
+            Reporter {
+                log: Some(&emit),
+                progress: Some(&progress),
+            },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("下载任务异常：{error}"))??;
 
     if let Ok(mut guard) = state.staged.lock() {
         *guard = Some(staged.clone());
@@ -459,7 +486,7 @@ fn download_update(
 }
 
 /// 换上新版本并退出程序（替换脚本会等我们让出 exe 的锁）。
-#[tauri::command]
+#[tauri::command(async)]
 fn apply_update(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let staged = state
         .staged
@@ -488,7 +515,7 @@ fn apply_update(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(),
 }
 
 /// 用系统默认浏览器打开一个链接。
-#[tauri::command]
+#[tauri::command(async)]
 fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("只允许打开 http(s) 链接".to_string());
@@ -497,7 +524,7 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 /// 把某个版本导出成 CCM 也能读的战役包。
-#[tauri::command]
+#[tauri::command(async)]
 fn export_variant(
     slot: String,
     variant_id: String,
@@ -525,7 +552,7 @@ fn export_variant(
 }
 
 /// 弹出"另存为"对话框选导出位置。
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_export_path(default_name: String) -> Option<String> {
     rfd::FileDialog::new()
         .set_file_name(format!("{default_name}.zip"))
@@ -535,7 +562,7 @@ fn pick_export_path(default_name: String) -> Option<String> {
 }
 
 /// 库里全部补丁。
-#[tauri::command]
+#[tauri::command(async)]
 fn list_patches(state: State<'_, AppState>) -> Vec<Patch> {
     state.library.index().patches.into_values().collect()
 }
@@ -554,7 +581,7 @@ struct BoundPatch {
 }
 
 /// 列出某个战役挂着的补丁。
-#[tauri::command]
+#[tauri::command(async)]
 fn list_bindings(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
     library::compose::bindings_of(&state.library, &slot)
         .into_iter()
@@ -568,7 +595,7 @@ fn list_bindings(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
 }
 
 /// 库里还没挂到某个战役上的补丁（供界面挑选手动挂载）。
-#[tauri::command]
+#[tauri::command(async)]
 fn list_available_patches(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
     let bound: Vec<String> = library::compose::bindings_of(&state.library, &slot)
         .into_iter()
@@ -591,13 +618,13 @@ fn list_available_patches(slot: String, state: State<'_, AppState>) -> Vec<Bound
 }
 
 /// 导入一个补丁包（补丁不归任何战役，导入后需要挂到战役上）。
-#[tauri::command]
+#[tauri::command(async)]
 fn import_patch(path: String, state: State<'_, AppState>) -> Result<Patch, String> {
     library::patch::import_patch(&state.library, Path::new(&path)).map_err(|e| e.to_string())
 }
 
 /// 把库里所有**声明了依赖且匹配得上**的补丁自动挂到对应战役上。
-#[tauri::command]
+#[tauri::command(async)]
 fn auto_bind_patches(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     library::patch::auto_bind(&state.library)
         .map(|bound| {
@@ -610,19 +637,19 @@ fn auto_bind_patches(state: State<'_, AppState>) -> Result<Vec<String>, String> 
 }
 
 /// 把补丁挂到某个战役上。
-#[tauri::command]
+#[tauri::command(async)]
 fn bind_patch(slot: String, patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
     library::patch::bind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
 }
 
 /// 解绑（补丁本身还在库里）。
-#[tauri::command]
+#[tauri::command(async)]
 fn unbind_patch(slot: String, patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
     library::patch::unbind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
 }
 
 /// 改挂载设置：启用状态 / 优先级。**改完需要重新启用一次战役才会生效。**
-#[tauri::command]
+#[tauri::command(async)]
 fn configure_patch(
     slot: String,
     patch_id: String,
@@ -635,7 +662,7 @@ fn configure_patch(
 }
 
 /// 改一个已导入补丁的元数据。
-#[tauri::command]
+#[tauri::command(async)]
 fn update_patch(
     patch_id: String,
     changes: library::patch::PatchChanges,
@@ -645,7 +672,7 @@ fn update_patch(
 }
 
 /// 单独导出一个补丁包。
-#[tauri::command]
+#[tauri::command(async)]
 fn export_patch(
     patch_id: String,
     destination: String,
@@ -664,13 +691,13 @@ fn export_patch(
 }
 
 /// 从库里彻底删掉一个补丁。
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_patch(patch_id: String, state: State<'_, AppState>) -> Result<(), String> {
     library::patch::remove_patch(&state.library, &patch_id).map_err(|e| e.to_string())
 }
 
 /// 预览某个版本打上当前补丁后的合成清单。
-#[tauri::command]
+#[tauri::command(async)]
 fn preview_composition(
     slot: String,
     variant_id: String,
@@ -698,7 +725,7 @@ fn preview_composition(
 }
 
 /// 删除库里的某个版本（若正在启用会先切回原版战役）。
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_variant(
     slot: String,
     variant_id: String,
@@ -710,7 +737,7 @@ fn delete_variant(
 }
 
 /// 启动游戏。
-#[tauri::command]
+#[tauri::command(async)]
 fn launch_game(state: State<'_, AppState>) -> Result<(), String> {
     let installation = require_installation(&state)?;
     let launcher = installation.preferred_launcher().to_path_buf();
@@ -724,7 +751,7 @@ fn launch_game(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 /// 在资源管理器中定位文件或目录。
-#[tauri::command]
+#[tauri::command(async)]
 fn reveal_path(path: String) -> Result<(), String> {
     let target = PathBuf::from(&path);
     if !target.exists() {
@@ -753,7 +780,7 @@ fn reveal_in_file_manager(_target: &Path) -> Result<(), String> {
 }
 
 /// 弹出文件选择框，返回用户选中的战役包路径。
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_package() -> Option<String> {
     rfd::FileDialog::new()
         .set_title("选择战役包 / 补丁包")
@@ -769,7 +796,7 @@ fn pick_package() -> Option<String> {
 }
 
 /// 弹出目录选择框，返回用户选中的游戏目录。
-#[tauri::command]
+#[tauri::command(async)]
 fn pick_game_directory() -> Option<String> {
     rfd::FileDialog::new()
         .set_title("选择星际争霸 II 安装目录")
@@ -778,7 +805,7 @@ fn pick_game_directory() -> Option<String> {
 }
 
 /// 读取战役目录内的封面图，返回 data URL 供界面直接显示。
-#[tauri::command]
+#[tauri::command(async)]
 fn campaign_cover(dir: String) -> Option<String> {
     let cover = scanner::find_cover_for(&PathBuf::from(dir))?;
     file_to_data_url(&cover)
@@ -787,7 +814,7 @@ fn campaign_cover(dir: String) -> Option<String> {
 /// 读取库里某个版本自带的封面图。
 ///
 /// 返回 `None` 表示这个包没配封面，界面会退回该战役的官方美术。
-#[tauri::command]
+#[tauri::command(async)]
 fn variant_cover(slot: String, variant_id: String, state: State<'_, AppState>) -> Option<String> {
     let relative = {
         let index = state.library.index();

@@ -515,7 +515,7 @@ const demo: LauncherApi = {
       overridden: [],
     }),
 
-  appVersion: () => delay("0.1.0a2"),
+  appVersion: () => delay("0.1.0a3"),
   networkSettings: () =>
     delay({
       proxy_mode: "auto" as const,
@@ -528,10 +528,10 @@ const demo: LauncherApi = {
   // 演示模式假装有一个新版本，这样整块更新面板（版本卡 / 进度条 / 按钮）都能看到
   checkUpdate: () =>
     delay({
-      current: "0.1.0a2",
+      current: "0.1.0a3",
       latest: {
-        version: "0.1.0a3",
-        tag: "v0.1.0a3",
+        version: "0.1.0a4",
+        tag: "v0.1.0a4",
         published_at: new Date().toISOString(),
         html_url: "https://github.com/SuperQuail/SC2Miyin-Launcher/releases",
         notes: [
