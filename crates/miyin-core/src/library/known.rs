@@ -36,33 +36,29 @@ pub struct KnownRemake {
 
 /// 表。
 ///
-/// ## 星际争霸：大规模召回（Starcraft Mass Recall / SCMR）
+/// ## 星际争霸：复刻战役（Starcraft Mass Recall / SCMR）
 ///
-/// 星际争霸 1 的完整复刻。实证：包根有 `Starcraft Mass Recall/` 目录，
-/// 里面分章节放地图，入口是同目录下的 `SCMR Campaign Launcher.SC2Map`。
-/// 它的启动器脚本里写的是 `GameSetNextMap("Starcraft Mass Recall/…")`。
+/// 星际争霸 1 的完整复刻，**一个包就是这一部战役**。
 ///
-/// ## Enslavers Redux
+/// 实证：
 ///
-/// SCMR 团队做的星际 1 隐藏战役复刻，随 SCMR 一起分发。
-/// 实证：包内有 `8. Enslavers Redux/` 章节目录，
-/// 入口是 `Enslavers Redux Campaign Launcher.SC2Map`。
+/// - 包根有 `Starcraft Mass Recall/` 目录，里面分章节放地图
+/// - 入口是同目录下的 `SCMR Campaign Launcher.SC2Map`（1.7 MB）
+/// - 它的启动器脚本里写的是 `GameSetNextMap("Starcraft Mass Recall/…")`
+///   —— 相对 `Maps/`
 ///
-/// **注意**：它和 SCMR 在同一个包里 —— 表按签名匹配，两个都会命中。
-/// 取**最先匹配**的那条，所以顺序有意义：更具体的放前面。
-pub const KNOWN_REMAKES: &[KnownRemake] = &[
-    KnownRemake {
-        name: "星际争霸：大规模召回",
-        // 用**目录前缀**而不是完整路径 —— 作者可能换个文件名，但目录名不会变
-        signatures: &["Starcraft Mass Recall/", "SCMRmod.SC2Mod"],
-        launcher: "SCMR Campaign Launcher.SC2Map",
-    },
-    KnownRemake {
-        name: "Enslavers Redux",
-        signatures: &["Enslavers Redux Campaign Launcher.SC2Map"],
-        launcher: "Enslavers Redux Campaign Launcher.SC2Map",
-    },
-];
+/// **包里的 `Enslavers Redux Campaign Launcher.SC2Map` 不是另一个战役** ——
+/// 那是这部战役里的一个章节（`8. Enslavers Redux/`），不单独成表。
+/// 早先我照着地图列表加了它一条，是**从截图过度推断**，已经删掉。
+///
+/// 表里一条都不许「看着像」就填：填错了用户会以为启动器认对了，
+/// 比不认更糟。
+pub const KNOWN_REMAKES: &[KnownRemake] = &[KnownRemake {
+    name: "星际争霸：复刻战役",
+    // 用**目录前缀**而不是完整路径 —— 作者可能换个文件名，但目录名不会变
+    signatures: &["Starcraft Mass Recall/", "SCMRmod.SC2Mod"],
+    launcher: "SCMR Campaign Launcher.SC2Map",
+}];
 
 /// 从地图列表里认出这是哪部知名复刻的入口；认不出返回 `None`。
 ///
@@ -142,26 +138,41 @@ mod tests {
             map("Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map"),
         ];
 
-        let (path, remake) = find_launcher(&maps).expect("该认出 SCMR");
+        let (path, remake) = find_launcher(&maps).expect("该认出复刻战役");
         assert_eq!(
             path, "Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map",
-            "认出的必须是**它自己的**入口，不是包里那个第三方战役的"
+            "认出的必须是**它自己的**入口，不是章节里那个 Enslavers 的"
         );
-        assert_eq!(remake.name, "星际争霸：大规模召回");
+        assert_eq!(remake.name, "星际争霸：复刻战役");
     }
 
     #[test]
     fn the_shallowest_copy_wins() {
-        // 入口地图同名出现在多处时，真正的入口在**浅层**，副本在 Extras/ 那种地方
+        // 入口地图同名出现在多处时，真正的入口在**浅层**，副本在 Extras/ 那种地方。
+        // 复刻战役的包里就有 Extras/ 一份。
         let maps = vec![
-            map("8. Enslavers Redux/Extras/Enslavers Redux Campaign Launcher.SC2Map"),
-            map("8. Enslavers Redux/Enslavers Redux Campaign Launcher.SC2Map"),
+            map("Starcraft Mass Recall/Extras/SCMR Campaign Launcher.SC2Map"),
+            map("Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map"),
         ];
 
-        let (path, _) = find_launcher(&maps).expect("该认出 Enslavers Redux");
+        let (path, _) = find_launcher(&maps).expect("该认出复刻战役");
         assert_eq!(
-            path, "8. Enslavers Redux/Enslavers Redux Campaign Launcher.SC2Map",
+            path, "Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map",
             "取路径最短的那个"
+        );
+    }
+
+    /// 章节里的启动器**不是**另一个要打表的战役。
+    #[test]
+    fn a_chapter_launcher_does_not_become_its_own_entry() {
+        let maps = vec![map(
+            "Starcraft Mass Recall/8. Enslavers Redux/Enslavers Redux Campaign Launcher.SC2Map",
+        )];
+
+        // 这个包里要是没有复刻战役自己的入口，就不该硬认
+        assert!(
+            find_launcher(&maps).is_none(),
+            "章节启动器不该被当成一个独立的知名战役"
         );
     }
 
