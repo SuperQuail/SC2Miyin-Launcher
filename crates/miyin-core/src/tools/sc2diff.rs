@@ -55,14 +55,23 @@ pub fn missing() -> Error {
 
 /// 跑一条 SC2Diff 命令。
 ///
-/// `repo` 传 `Some` 时会加上 `-C` —— 不改变当前进程的工作目录，
-/// 免得并发调用互相踩。
+/// `repo` 传 `Some` 时加上 `-C` **并把它同时设为子进程的工作目录**。
+///
+/// 两件事都得做，这是实测踩出来的：`-C` 只告诉 SC2Diff「仓库在哪」，
+/// 但 `unpack` 是往**进程的当前目录**写文件的 —— 只传 `-C` 的话，
+/// 组件会被吐到启动器自己的目录里，一次对比撒几十个文件出来。
+///
+/// 用子进程的 `current_dir` 而不是改本进程的 CWD：后者是全局状态，
+/// 并发调用会互相踩。
 pub fn run(data: &Path, repo: Option<&Path>, args: &[&str]) -> Result<Output> {
     let binary = locate(data).ok_or_else(missing)?;
 
     let mut command = Command::new(&binary);
     if let Some(repo) = repo {
         command.arg("-C").arg(repo);
+        if repo.is_dir() {
+            command.current_dir(repo);
+        }
     }
     command.args(args);
     // 中文输出别被代码页搞乱
@@ -87,7 +96,11 @@ pub fn run(data: &Path, repo: Option<&Path>, args: &[&str]) -> Result<Output> {
 /// 2. `commit` 把 A 记为基线
 /// 3. `unpack` 把 B 解成组件，覆盖工作树
 /// 4. `add -A` + `commit` 记为改动
-/// 5. `diff HEAD~1` 拿到语义 diff
+/// 5. `diff HEAD~1 HEAD` 拿到语义 diff
+///
+/// **第 5 步必须显式给两个版本**：只写 `diff HEAD~1` 的话，SC2Diff 比的是
+/// 「上一个提交 vs 工作树」，而我们刚提交完、工作树跟 HEAD 一样，结果永远是
+/// `(no changes)`。这个是拿真实地图实测出来的 —— 一开始就是这么写错的。
 ///
 /// 任何一步失败都把原始输出带回去 —— 与其吞掉，不如让用户看见 SC2Diff 怎么说。
 pub fn semantic_diff(data: &Path, before: &Path, after: &Path, repo: &Path) -> Result<String> {
@@ -111,6 +124,6 @@ pub fn semantic_diff(data: &Path, before: &Path, after: &Path, repo: &Path) -> R
     step(&["add", "-A"])?;
     step(&["commit", "-m", "after"])?;
 
-    let diff = step(&["diff", "HEAD~1"])?;
+    let diff = step(&["diff", "HEAD~1", "HEAD"])?;
     Ok(diff.combined())
 }
