@@ -4,8 +4,10 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
+import type { ViewId } from "./composables/useLauncher";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
+import CheatsView from "./views/CheatsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const {
@@ -23,8 +25,9 @@ const {
   launcherVersion,
 } = useLauncher();
 
-const tabs: { id: "campaigns" | "settings"; label: string }[] = [
+const tabs: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
+  { id: "cheats", label: "作弊码" },
   { id: "settings", label: "设置" },
 ];
 
@@ -137,7 +140,11 @@ onUnmounted(() => stopWatching?.());
     </div>
 
     <main class="content">
-      <CampaignsView v-if="currentView === 'campaigns'" @open-settings="currentView = 'settings'" />
+      <CampaignsView
+        v-if="currentView === 'campaigns'"
+        @open-settings="currentView = 'settings'"
+      />
+      <CheatsView v-else-if="currentView === 'cheats'" />
       <SettingsView v-else />
     </main>
 
