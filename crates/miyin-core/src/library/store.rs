@@ -188,11 +188,15 @@ pub fn remove_variant(
     }
 
     if slot.active.as_deref() == Some(variant_id) {
-        // 正在启用：必须先撤下来，否则会把还铺在游戏目录里的文件抽走
-        super::deactivate(library, installation)?;
-        if let Some(slot) = index.slots.get_mut(slot_slug) {
-            slot.active = None;
-        }
+        // 正在启用：必须先撤下来，否则会把还铺在游戏目录里的文件抽走。
+        //
+        // **只撤这个槽位**（activate 传 None 表示「这个槽位什么都不启用」）。
+        // 早先这里调的是 deactivate，而统一安装引擎之后 deactivate 的含义变成了
+        // 「撤掉**所有**战役」—— 那样删 A 战役的一个版本会把 B 战役也一起卸掉。
+        //
+        // activate 会自己保存索引，所以这里要把本地那份重新读一遍。
+        super::activate(library, installation, slot_slug, None)?;
+        index = library.index();
     }
 
     let slot_dir = library.slot_dir(slot_slug);

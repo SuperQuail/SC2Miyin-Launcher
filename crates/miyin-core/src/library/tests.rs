@@ -1985,3 +1985,74 @@ fn a_package_shaped_like_the_game_root_keeps_map_folders() {
         "没有 Mods/ 信号就不敢动结构，按老规矩拍平"
     );
 }
+#[test]
+fn deleting_one_slots_variant_leaves_the_other_slot_alone() {
+    // 踩过：remove_variant 里为了「删正在启用的版本」调了 deactivate，
+    // 而统一安装引擎之后 deactivate 的含义变成了「撤掉**所有**战役」——
+    // 于是删自由之翼的一个版本，把虫群之心也一起卸了。
+    let fixture = fixture();
+
+    let wol_zip = build_zip(
+        fixture.work.path(),
+        "wol.zip",
+        &[
+            (
+                "WolPack/metadata.txt",
+                "title=自由改版\nauthor=某人\ncampaign=WOL\nversion=1.0\n",
+            ),
+            ("WolPack/maps/wol01.SC2Map", "stub"),
+        ],
+    );
+    let hots_zip = build_zip(
+        fixture.work.path(),
+        "hots.zip",
+        &[
+            (
+                "HotsPack/metadata.txt",
+                "title=虫心改版\nauthor=某人\ncampaign=HOTS\nversion=1.0\n",
+            ),
+            ("HotsPack/maps/hots01.SC2Map", "stub"),
+        ],
+    );
+
+    let wol = import(&fixture.library, &wol_zip, "wol", Default::default()).expect("导入 wol");
+    let hots = import(&fixture.library, &hots_zip, "hots", Default::default()).expect("导入 hots");
+
+    activate(
+        &fixture.library,
+        &fixture.installation,
+        "wol",
+        Some(&wol.id),
+    )
+    .expect("启用 wol");
+    activate(
+        &fixture.library,
+        &fixture.installation,
+        "hots",
+        Some(&hots.id),
+    )
+    .expect("启用 hots");
+
+    let wol_map = fixture.installation.campaign_maps_root.join("wol01.SC2Map");
+    let hots_map = fixture
+        .installation
+        .campaign_maps_root
+        .join("swarm")
+        .join("hots01.SC2Map");
+    assert!(wol_map.is_file(), "wol 的装上了");
+    assert!(hots_map.is_file(), "hots 的也装上了");
+
+    // 删掉正在启用的 wol 那一版
+    remove_variant(&fixture.library, &fixture.installation, "wol", &wol.id).expect("删 wol");
+
+    assert!(!wol_map.exists(), "wol 的该撤掉");
+    assert!(
+        hots_map.is_file(),
+        "**hots 的不该受影响** —— 只撤被删的那个槽位"
+    );
+    assert_eq!(
+        slot(&fixture, "hots").active.as_deref(),
+        Some(hots.id.as_str()),
+        "别的槽位仍然处于启用状态"
+    );
+}

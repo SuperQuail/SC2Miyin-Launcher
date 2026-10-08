@@ -94,6 +94,8 @@ const inspectedVariant = computed(
 
 /** 正在读的说明文档。 */
 const openedDoc = ref<DocInfo | null>(null);
+/** 等待确认删除的那个版本 —— 删战役不可逆，先问一句。 */
+const confirming = ref<Variant | null>(null);
 
 const { activate, removeVariant, launch, busy, refresh, notify, libraryRoot } = useLauncher();
 const menu = useContextMenu();
@@ -120,8 +122,21 @@ async function applyAndPlay(): Promise<void> {
   if (ok) await launch();
 }
 
-/** 删除一个已导入的版本。 */
-async function drop(variant: Variant): Promise<void> {
+/**
+ * 删一个已导入的版本。
+ *
+ * **先弹确认** —— 这是整部战役，删了就得重新导入，不该一次点击就没了。
+ */
+function drop(variant: Variant): void {
+  confirming.value = variant;
+}
+
+/** 用户在确认框里点了「删除」。 */
+async function confirmDrop(): Promise<void> {
+  const variant = confirming.value;
+  if (!variant) return;
+  confirming.value = null;
+
   const ok = await removeVariant(props.slot.slug, variant.id);
   if (ok && selected.value === variant.id) selected.value = null;
 }
@@ -631,6 +646,21 @@ async function doExport(mergePatches: boolean): Promise<void> {
       :doc="openedDoc"
       @close="openedDoc = null"
     />
+
+    <!-- 删版本：先确认 -->
+    <div v-if="confirming" class="sheet" @click.self="confirming = null">
+      <div class="sheet__card">
+        <h3 class="sheet__title">删除「{{ confirming.name }}」？</h3>
+        <p class="sheet__text">
+          会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
+          <strong>删了就得重新导入。</strong>
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="confirming = null">取消</button>
+          <button class="btn btn-primary" type="button" @click="confirmDrop()">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

@@ -8,17 +8,20 @@
  */
 import { computed, onMounted, ref } from "vue";
 
+import { api } from "../api/bridge";
 import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
 import DocViewer from "../components/DocViewer.vue";
 import ImportDialog from "../components/ImportDialog.vue";
 import VariantCard from "../components/VariantCard.vue";
 import { useContextMenu } from "../composables/useContextMenu";
 import { useLauncher } from "../composables/useLauncher";
-import type { DocInfo } from "../api/types";
+import type { DocInfo, Variant } from "../api/types";
+import { errorText } from "../composables/useLauncher";
 
 const emit = defineEmits<{ "open-cheats": [] }>();
 
-const { slots, loading, refresh, bootstrap } = useLauncher();
+const { slots, loading, refresh, bootstrap, activate, removeVariant, notify, libraryRoot } =
+  useLauncher();
 const menu = useContextMenu();
 
 const importer = ref<InstanceType<typeof ImportDialog> | null>(null);
@@ -26,6 +29,8 @@ const importer = ref<InstanceType<typeof ImportDialog> | null>(null);
 const opened = ref<string | null>(null);
 /** 正在读的说明文档。 */
 const openedDoc = ref<DocInfo | null>(null);
+/** 等待确认删除的那个版本 —— 删战役是不可逆的，先问一句。 */
+const confirming = ref<Variant | null>(null);
 
 onMounted(() => void bootstrap());
 
@@ -39,6 +44,91 @@ const openedVariant = computed(
 function onImported(): void {
   const newest = variants.value[0];
   if (newest) opened.value = newest.id;
+}
+
+/**
+ * **版本卡片上的右键菜单**。
+ *
+ * 卡片自己会 emit menu / drop（删除按钮也在卡片上），但这一页原来**两个都没接** ——
+ * 于是「删除」点了没反应（假按钮），右键也没菜单。
+ */
+function showVariantMenu(event: MouseEvent, variant: Variant): void {
+  menu.show(
+    event,
+    [
+      { id: "open", label: opened.value === variant.id ? "已打开" : "打开（看地图和模组）" },
+      {
+        id: "toggle",
+        label: customSlot.value?.active === variant.id ? "停用" : "启用",
+      },
+      { id: "export", label: "导出这个包…", separatorBefore: true },
+      { id: "copy", label: "复制版本目录路径" },
+      { id: "drop", label: "从库中删除", danger: true, separatorBefore: true },
+    ],
+    (id) => {
+      if (id === "open") opened.value = variant.id;
+      if (id === "toggle") void toggleActive(variant);
+      if (id === "export") void doExport(variant);
+      if (id === "copy") void copyVariantPath(variant);
+      if (id === "drop") void drop(variant);
+    },
+  );
+}
+
+/** 启用 / 停用某部自制战役。 */
+async function toggleActive(variant: Variant): Promise<void> {
+  const active = customSlot.value?.active === variant.id;
+  const ok = await activate("custom", active ? null : variant.id);
+  if (ok) notify("success", active ? "已停用" : "已启用");
+}
+
+/**
+ * 删一个版本。
+ *
+ * **先弹确认** —— 这是整部战役（可能上 G），删了就得重新导入，
+ * 不该一次点击就没了。
+ */
+function drop(variant: Variant): void {
+  confirming.value = variant;
+}
+
+/** 用户在确认框里点了「删除」。 */
+async function confirmDrop(): Promise<void> {
+  const variant = confirming.value;
+  if (!variant) return;
+  confirming.value = null;
+
+  const ok = await removeVariant("custom", variant.id);
+  if (ok && opened.value === variant.id) opened.value = null;
+}
+
+/** 把版本目录路径塞进剪贴板，方便自己去翻地图。 */
+async function copyVariantPath(variant: Variant): Promise<void> {
+  // 反斜杠用 fromCharCode 拼，免得在源码里写转义写错（写过一次，字符串直接断了）
+  const sep = String.fromCharCode(92);
+  const path = [libraryRoot.value, "campaigns", "custom", variant.id].join(sep);
+  try {
+    await navigator.clipboard.writeText(path);
+    notify("success", "已复制：" + path);
+  } catch {
+    notify("info", path);
+  }
+}
+
+/** 导出成一个包。 */
+async function doExport(variant: Variant): Promise<void> {
+  try {
+    const destination = await api.pickExportPath(variant.name);
+    if (!destination) return;
+
+    const report = await api.exportVariant("custom", variant.id, destination, false);
+    notify(
+      "success",
+      "已导出：" + [report.maps + " 张地图", report.mods + " 个模组"].join(" · "),
+    );
+  } catch (error) {
+    notify("error", errorText(error));
+  }
 }
 
 /**
@@ -128,7 +218,24 @@ function openTools(event: MouseEvent): void {
         :active="customSlot?.active === item.id"
         :selected="opened === item.id"
         @pick="opened = item.id"
+        @drop="drop(item)"
+        @menu="showVariantMenu($event, item)"
       />
+    </div>
+
+    <!-- 删版本：先确认 -->
+    <div v-if="confirming" class="sheet" @click.self="confirming = null">
+      <div class="sheet__card">
+        <h3 class="sheet__title">删除「{{ confirming.name }}」？</h3>
+        <p class="sheet__text">
+          会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
+          <strong>删了就得重新导入。</strong>
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="confirming = null">取消</button>
+          <button class="btn btn-primary" type="button" @click="confirmDrop()">删除</button>
+        </div>
+      </div>
     </div>
 
     <CustomCampaignPanel
