@@ -61,7 +61,8 @@ const desktop: LauncherApi = {
   pickGameDirectory: () => invoke<string | null>("pick_game_directory"),
   variantCover: (slot, variantId) => invoke<string | null>("variant_cover", { slot, variantId }),
 
-  prepareImport: (path) => invoke<ImportPreview>("prepare_import", { path }),
+  prepareImport: (path, entry) =>
+    invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null }),
   importPackageWith: (path, slot, mode) =>
     invoke<Variant>("import_package", { path, slot, mode }),
   updateVariant: (slot, variantId, changes) =>
@@ -545,13 +546,13 @@ const demo: LauncherApi = {
   // 演示数据没有真实图片文件，统一返回 null，界面会退回官方美术
   variantCover: () => delay(null),
 
-  prepareImport: (path) =>
+  prepareImport: (path, entry) =>
     delay({
       path,
       inspection: demoInspection,
-      // 演示里故意标成"自动识别"，好把尽力而为的措辞也演示出来
-      source: "inferred" as const,
-      slot: "hots",
+      // 自制战役入口：归属由入口定死，不演示识别
+      source: (entry === "custom" ? "manual" : "inferred") as "manual" | "inferred",
+      slot: entry === "custom" ? "custom" : "hots",
       conflict: null,
     }),
 

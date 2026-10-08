@@ -110,7 +110,7 @@ function openTools(event: MouseEvent): void {
       </div>
     </section>
 
-    <ImportDialog ref="importer" @imported="onImported" />
+    <ImportDialog ref="importer" entry="custom" @imported="onImported" />
 
     <section v-if="!variants.length" class="empty">
       <p class="empty__title">还没有自制战役</p>
@@ -135,6 +135,7 @@ function openTools(event: MouseEvent): void {
       v-if="openedVariant && customSlot"
       :slot="customSlot.slug"
       :variant="openedVariant"
+      :active="customSlot.active === openedVariant.id"
       @open-doc="openedDoc = $event"
     />
 

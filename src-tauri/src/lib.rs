@@ -240,13 +240,29 @@ struct ImportPreview {
 }
 
 /// 选完文件后的第一步：预检、判断归属、查冲突。**不写任何文件。**
+///
+/// `entry` 是**用户从哪个入口点的导入**：
+///
+/// - `None` / `campaign`：正常走识别链
+/// - `custom`：用户已经站在「自制战役」页了，**意图够明确，不再判断归属**。
+///   没有元数据也不去猜它属于哪部原版战役 —— 它就是自制战役。
+///   （踩过：在这里照样跑识别，一个没元数据的包被认出「虚空之遗」，
+///   于是用户在自制战役页点导入，战役却进了虚空之遗。）
 #[tauri::command(async)]
-fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPreview, String> {
+fn prepare_import(
+    path: String,
+    entry: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ImportPreview, String> {
     let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
 
-    // 补丁不自动挑战役 —— 它是覆盖层，要挂到哪个战役上由用户定
+    let from_custom = entry.as_deref() == Some("custom");
+
     let slot = match inspection.kind {
+        // 补丁不自动挑战役 —— 它是覆盖层，要挂到哪个战役上由用户定
         PackageKind::Patch => None,
+        // 用户站在自制战役页，意图明确，不用猜
+        _ if from_custom => Some("custom".to_string()),
         PackageKind::Campaign => library::slot_for(&inspection.campaign_type).map(str::to_string),
     };
 
@@ -261,7 +277,10 @@ fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPrev
     });
 
     // 有元数据且元数据说得清归属 -> 以数据为准；否则看证据链；都没有就得问用户
-    let source = if inspection.identification.is_none()
+    let source = if from_custom {
+        // 用户自己选的「自制战役」，不是识别出来的，别把它说成自动识别
+        ImportSource::Manual
+    } else if inspection.identification.is_none()
         && matches!(
             inspection.format,
             miyin_core::campaign::CampaignFormat::Ccm

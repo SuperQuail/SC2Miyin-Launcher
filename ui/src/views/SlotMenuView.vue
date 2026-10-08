@@ -417,6 +417,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
       v-if="isCustom && inspectedVariant"
       :slot="slot.slug"
       :variant="inspectedVariant"
+      :active="slot.active === inspectedVariant.id"
       @open-doc="openedDoc = $event"
     />
 

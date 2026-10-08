@@ -1831,3 +1831,96 @@ fn a_custom_campaign_lands_in_custom_campaigns() {
         "自制战役绝不能进官方 Maps/Campaign"
     );
 }
+#[test]
+fn an_explicit_slot_always_beats_auto_detection() {
+    // 「用户说了算」的底线：从自制战役页点导入时传的是 custom，
+    // 那就**必须**是自制战役 —— 包内声明了什么、识别链认出了什么都不算数。
+    //
+    // 踩过：用户在自制战役页导入一个没有元数据的包，识别链把它认成某部原版战役，
+    // 战役就跑到那部战役底下去了，跟用户点的按钮完全对不上。
+    let fixture = fixture();
+
+    let zip = build_zip(
+        fixture.work.path(),
+        "looks-like-lotv.zip",
+        &[
+            (
+                "Pack/metadata.txt",
+                "title=看着像虚空之遗\nauthor=某人\ncampaign=lotv\nversion=1.0\n",
+            ),
+            ("Pack/maps/void01.SC2Map", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &zip, "custom", Default::default()).expect("导入");
+
+    assert_eq!(
+        slot(&fixture, "custom").variants.len(),
+        1,
+        "用户选的自制战役"
+    );
+    assert!(
+        slot(&fixture, "lotv").variants.is_empty(),
+        "包内写着 lotv 也不能自己跑过去"
+    );
+
+    // 反过来：不指定槽位、由调用方按识别结果传 lotv，那就该进 lotv
+    let zip2 = build_zip(
+        fixture.work.path(),
+        "really-lotv.zip",
+        &[
+            (
+                "Pack2/metadata.txt",
+                "title=确实虚空\nauthor=某人\ncampaign=lotv\nversion=1.0\n",
+            ),
+            ("Pack2/maps/void02.SC2Map", "stub"),
+        ],
+    );
+    import(&fixture.library, &zip2, "lotv", Default::default()).expect("导入 2");
+    assert_eq!(slot(&fixture, "lotv").variants.len(), 1);
+    let _ = variant;
+}
+#[test]
+fn a_root_level_entry_map_is_picked_automatically() {
+    let entry = |path: &str, name: &str| MapEntry {
+        path: path.to_string(),
+        name: name.to_string(),
+        chapter: None,
+        size: 0,
+        is_main: false,
+    };
+
+    // **子目录里**那张叫 Launcher 的排在前面 —— 就是要证明它不会被选中。
+    // 条件必须是「在包根 + 名字像入口」，放宽一点点就会把普通关卡认成入口。
+    let maps = vec![
+        entry("1. Rebel Yell/Launcher.SC2Map", "Launcher"),
+        entry("1. Rebel Yell/Terran01.SC2Map", "Terran01"),
+        entry("SCMR Campaign Launcher.SC2Map", "SCMR Campaign Launcher"),
+    ];
+
+    let choice = resolve_main_map(&maps, None);
+    assert_eq!(
+        choice.path.as_deref(),
+        Some("SCMR Campaign Launcher.SC2Map"),
+        "包根的入口地图应当被认出来（真实样本就是 SCMR 那张）"
+    );
+    assert!(choice.automatic, "是替你选的，用户一次点击就能改");
+    assert!(choice.warning.is_none());
+
+    // 声明了主地图时，**声明优先于入口启发式**
+    let declared = resolve_main_map(&maps, Some("1. Rebel Yell/Terran01.SC2Map"));
+    assert_eq!(
+        declared.path.as_deref(),
+        Some("1. Rebel Yell/Terran01.SC2Map")
+    );
+    assert!(!declared.automatic);
+
+    // 没有入口地图、也没声明 -> 还是不猜
+    let plain = vec![
+        entry("1. Rebel Yell/Terran01.SC2Map", "Terran01"),
+        entry("2. Overmind/Zerg01.SC2Map", "Zerg01"),
+    ];
+    let unset = resolve_main_map(&plain, None);
+    assert_eq!(unset.path, None);
+    assert!(!unset.automatic);
+}

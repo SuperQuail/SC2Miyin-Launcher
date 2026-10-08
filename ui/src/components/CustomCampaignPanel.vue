@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
- * 自制战役的操作面板：挂载模组 + 地图列表 + 启动。
+ * 自制战役的操作面板：启用/停用 + 挂载模组 + 地图列表 + 启动。
  *
- * 自制战役**不进游戏目录** —— 地图躺在库里，得用编辑器打开玩。
- * 所以这个面板是整个自制战役的主界面。
+ * 自制战役会整包装进 `Maps/CustomCampaigns/<战役目录>/`（CCM 认的位置），
+ * 模组进 `Mods/`。**想卸下来就点「停用」** —— 只撤我们记过账的文件。
  */
 import { computed, onMounted, ref, watch } from "vue";
 
@@ -13,7 +13,12 @@ import type { DocInfo, MainMapChoice, MapEntry, ModEntry, Variant } from "../api
 import { errorText, useLauncher } from "../composables/useLauncher";
 import { useContextMenu } from "../composables/useContextMenu";
 
-const props = defineProps<{ slot: string; variant: Variant }>();
+const props = defineProps<{
+  slot: string;
+  variant: Variant;
+  /** 这个版本是不是当前启用的那个。 */
+  active: boolean;
+}>();
 const emit = defineEmits<{ (event: "open-doc", doc: DocInfo): void }>();
 
 const { notify, refresh } = useLauncher();
@@ -35,6 +40,25 @@ const showMountWarning = ref(false);
 
 onMounted(load);
 watch(() => props.variant.id, load);
+
+/**
+ * 启用 / 停用这个版本。
+ *
+ * **停用就是把装进去的东西撤回来** —— 自制战役以前没有这个入口，
+ * 用户装进去就卸不掉了。传 null 表示「这个槽位什么都不启用」。
+ */
+async function toggleActive(): Promise<void> {
+  busy.value = true;
+  try {
+    await api.activateVariant(props.slot, props.active ? null : props.variant.id);
+    await refresh();
+    notify("success", props.active ? "已停用，装进去的文件都撤回了" : "已启用");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -231,13 +255,23 @@ async function launchAnyway(): Promise<void> {
       <div class="banner__body">
         <h3 class="banner__title">{{ variant.name }}</h3>
         <p class="banner__sub">
-          地图不装进游戏目录，用编辑器打开来玩。
+          <template v-if="active">已装进游戏目录，随时可以停用卸下。</template>
+          <template v-else>还没装进游戏目录 —— 点「启用」装进去，或直接用编辑器打开地图。</template>
           <span v-if="maps.length">共 {{ maps.length }} 张地图。</span>
         </p>
       </div>
       <div class="banner__actions">
         <button v-if="doc" class="btn btn-text banner__btn" type="button" @click="emit('open-doc', doc)">
           查看说明
+        </button>
+        <button
+          class="btn btn-text banner__btn"
+          type="button"
+          :disabled="busy || loading"
+          :title="active ? '把装进游戏目录的文件撤回' : '装进游戏目录'"
+          @click="toggleActive()"
+        >
+          {{ active ? "停用" : "启用" }}
         </button>
         <button
           class="btn btn-primary banner__btn"

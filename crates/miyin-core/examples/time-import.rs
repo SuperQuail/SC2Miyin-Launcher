@@ -50,18 +50,52 @@ fn main() {
         inspect_ms, inspection.entry_count, inspection.map_count, inspection.mod_count
     );
 
+    // 识别结果 —— 界面就是拿这个决定往哪个战役导的
+    println!("   识别: campaign_type={:?}", inspection.campaign_type);
+    println!(
+        "         evidence={}",
+        inspection
+            .identification
+            .as_ref()
+            .map(|found| format!("{:?}", found.evidence))
+            .unwrap_or_else(|| "无（包里没有线索）".to_string())
+    );
+    println!("         suggested_slot={:?}", inspection.suggested_slot);
+    println!(
+        "   载荷: {} 个（地图 {} / 模组 {}）",
+        inspection.payloads.len(),
+        inspection
+            .payloads
+            .iter()
+            .filter(|item| !item.is_mod)
+            .count(),
+        inspection
+            .payloads
+            .iter()
+            .filter(|item| item.is_mod)
+            .count()
+    );
+    println!("   主地图 main_map = {:?}", inspection.main_map);
+    println!("   声明依赖 declared_mods = {:?}", inspection.declared_mods);
+    println!("   地图名样本（前 6）：");
+    for payload in inspection
+        .payloads
+        .iter()
+        .filter(|item| !item.is_mod)
+        .take(6)
+    {
+        println!("      {}", payload.source);
+    }
+    println!();
+
+    let slot = inspection
+        .suggested_slot
+        .clone()
+        .unwrap_or_else(|| "wol".to_string());
+
     // 2) 导入 —— 解包进库
     let start = Instant::now();
-    let variant = library::import(
-        &library,
-        &package,
-        &inspection
-            .suggested_slot
-            .clone()
-            .unwrap_or_else(|| "wol".to_string()),
-        Default::default(),
-    )
-    .expect("导入");
+    let variant = library::import(&library, &package, &slot, Default::default()).expect("导入");
     println!(
         "2) 导入 import           {:>7} ms",
         start.elapsed().as_millis()
@@ -69,7 +103,7 @@ fn main() {
 
     // 3) 启用 —— 铺进游戏目录
     let start = Instant::now();
-    library::activate(&library, &installation, "wol", Some(&variant.id)).expect("启用");
+    library::activate(&library, &installation, &slot, Some(&variant.id)).expect("启用");
     println!(
         "3) 启用 activate         {:>7} ms",
         start.elapsed().as_millis()

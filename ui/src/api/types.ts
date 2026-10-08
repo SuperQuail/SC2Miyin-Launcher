@@ -559,7 +559,13 @@ export interface LauncherApi {
   variantCover(slot: string, variantId: string): Promise<string | null>;
 
   /** 选完文件后的第一步：预检、判断归属、查冲突。不写任何文件。 */
-  prepareImport(path: string): Promise<ImportPreview>;
+  /**
+   * 预检一个包。
+   *
+   * `entry` 是**用户从哪个入口点的导入**：`custom` 表示站在「自制战役」页 ——
+   * 那就不再判断它属于哪部原版战役，直接按自制战役来。
+   */
+  prepareImport(path: string, entry?: "campaign" | "custom"): Promise<ImportPreview>;
   /** 按指定战役导入；传了 slot 就按传的来，覆盖自动判定。 */
   importPackageWith(
     path: string,

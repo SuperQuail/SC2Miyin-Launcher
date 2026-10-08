@@ -406,8 +406,16 @@ impl MainMapChoice {
 /// | 设了主地图，且**确实存在** | 用它 |
 /// | 设了，但找不到 | 给个警告，退回「没定」 |
 /// | 没设，且整个版本只有一张地图 | 自动用它（省用户一次点击） |
+/// | 没设，但包根有一张 **入口地图** | 自动用它（见下） |
 /// | 其余 | 没定，让用户自己挑 |
 ///
+/// 「入口地图」的判定很窄：**放在包根**（不在章节子目录里）**且名字里带
+/// launcher / 启动 / 入口**。真实样本教我们的 —— 复刻战役（SCMR）会在包根放一张
+/// `SCMR Campaign Launcher.SC2Map`，那就是它的入口，不认出来用户就得在
+/// 138 张地图里自己翻。
+///
+/// 这里敢猜是因为**猜错很便宜**：界面上一次点击就能改，不像「这个包属于哪部战役」
+/// 那种猜错了整个装错地方。
 /// 路径比较**忽略大小写与斜杠方向** —— 作者在包里写 `1. Rebel Yell\a.SC2Map`
 /// 还是 `1. Rebel Yell/a.SC2Map` 都得认。
 pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapChoice {
@@ -451,7 +459,30 @@ pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapCho
         };
     }
 
+    // 没声明，但包根摆了一张「入口地图」—— 多半就是它
+    if let Some(map) = maps.iter().find(|map| looks_like_entry_map(map)) {
+        return MainMapChoice {
+            path: Some(map.path.clone()),
+            automatic: true,
+            warning: None,
+        };
+    }
+
     MainMapChoice::unset()
+}
+
+/// 这张地图看起来是不是整部战役的**入口**。
+///
+/// 两条都满足才算：**在包根**（路径里没有子目录）**且名字里有入口字样**。
+/// 条件收得这么窄，是因为放宽一点点就会把普通关卡认成入口。
+fn looks_like_entry_map(map: &MapEntry) -> bool {
+    let name = map.name.to_lowercase();
+    let at_root = !map.path.contains('/') && !map.path.contains('\\');
+    at_root
+        && (name.contains("launcher")
+            || name.contains("启动")
+            || name.contains("入口")
+            || name.contains("entry"))
 }
 
 /// 一个官方资料片槽位。

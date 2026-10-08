@@ -13,7 +13,24 @@ import { formatBytes } from "../api/art";
 import type { ImportMode, ImportPreview } from "../api/types";
 import { errorText, useLauncher } from "../composables/useLauncher";
 
+const props = withDefaults(
+  defineProps<{
+    /**
+     * 从哪个入口打开的。
+     *
+     * `custom` 表示用户已经站在「自制战役」页 —— 那就**不要再判断它属于哪部
+     * 原版战役**。用户点的是这一页的导入按钮，意图已经够明确了；
+     * 没有元数据也不该被识别链带去别的战役。
+     */
+    entry?: "campaign" | "custom";
+  }>(),
+  { entry: "campaign" },
+);
+
 const emit = defineEmits<{ imported: [string] }>();
+
+/** 是不是从「自制战役」页进来的。 */
+const isCustomEntry = computed(() => props.entry === "custom");
 
 const { slots, notify, refresh, droppedPackage } = useLauncher();
 
@@ -37,7 +54,9 @@ const isPatch = computed(() => inspection.value?.kind === "patch");
 const packageMods = computed(() => inspection.value?.mod_count ?? 0);
 
 /** 没有自动认出归属时才需要用户选；但**永远允许**改。 */
-const needsTarget = computed(() => pending.value !== null && pending.value.preview.slot === null);
+const needsTarget = computed(
+    () => !isCustomEntry.value && pending.value !== null && pending.value.preview.slot === null,
+  );
 
 const pendingName = computed(
   () => inspection.value?.name ?? inspection.value?.suggested_dir_name ?? "未命名战役",
@@ -85,7 +104,10 @@ const targetChanged = computed(
  * 这种改法多半会让战役装错地方 —— 地图不在游戏期待的子目录里，进去就找不到关卡。
  * 所以拦一下，但**不禁止**：作者有时确实知道自己在干什么。
  */
-const overrideWarning = computed(() => highConfidence.value && targetChanged.value);
+const overrideWarning = computed(
+    // 自制战役入口是用户自己定的，没有「改错了」这回事
+    () => !isCustomEntry.value && highConfidence.value && targetChanged.value,
+  );
 
 /** 被识别出来的那个槽位叫什么，用在提示里。 */
 const identifiedName = computed(() => {
@@ -134,8 +156,13 @@ async function startImport(): Promise<void> {
 async function prepare(path: string): Promise<void> {
   importing.value = true;
   try {
-    const result = await api.prepareImport(path);
-    pending.value = { preview: result, slot: result.slot ?? "", mode: "rename" };
+    const result = await api.prepareImport(path, props.entry);
+    // 自制战役入口：槽位由入口定死，不采信识别结果
+    pending.value = {
+      preview: result,
+      slot: isCustomEntry.value ? "custom" : (result.slot ?? ""),
+      mode: "rename",
+    };
     mountMods.value = true;
   } catch (error) {
     notify("error", errorText(error));
@@ -267,8 +294,14 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
     </p>
 
     <template v-else>
+      <!-- 自制战役入口：归属已定，不显示选择器，也不显示识别结果 -->
+      <div v-if="isCustomEntry" class="import__field">
+        <span class="import__label">导入到：</span>
+        <span class="import__fixed">自制战役</span>
+      </div>
+
       <!-- 目标：**始终可选**，默认填自动识别的结果 -->
-      <div class="import__field">
+      <div v-else class="import__field">
         <span class="import__label">导入到：</span>
         <div class="targets">
           <button
@@ -454,6 +487,15 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
   font-size: 12.5px;
   font-weight: 600;
   color: var(--on-surface-variant);
+}
+
+.import__fixed {
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--primary-container, #d6e4ff);
+  color: var(--on-primary-container, #0b3d91);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .import__ask {

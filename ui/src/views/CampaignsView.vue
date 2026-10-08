@@ -179,7 +179,7 @@ function onImported(slot: string): void {
         点开可以导入并切换不同玩家制作的版本，多个版本同时保留、互不覆盖。
       </p>
 
-      <ImportDialog ref="importer" @imported="onImported" />
+      <ImportDialog ref="importer" entry="campaign" @imported="onImported" />
 
       <div class="grid">
           <SlotCard
