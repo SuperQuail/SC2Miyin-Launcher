@@ -141,9 +141,17 @@ pub fn import(
         source: package
             .file_name()
             .map(|name| name.to_string_lossy().into_owned()),
-        map_count: stats.maps,
-        mod_count: stats.mods,
+        // 用预检算好的 —— 它按**载荷**数（解开的目录树也算一个），
+        // 而不是 extract_to 那个按文件扩展名数的（目录树里全是 xml，
+        // 那样会得到「0 张地图」）。
+        map_count: inspection.map_count,
+        mod_count: inspection.mod_count,
         size_bytes: stats.bytes,
+        main_map: inspection.main_map.clone(),
+        // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
+        mounted_mods: None,
+        declared_mods: inspection.declared_mods.clone(),
+        doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,
         cover,
         tags: inspection.tags.clone(),
@@ -180,11 +188,15 @@ pub fn remove_variant(
     }
 
     if slot.active.as_deref() == Some(variant_id) {
-        // 正在启用：必须先撤下来，否则会把还铺在游戏目录里的文件抽走
-        super::deactivate(library, installation)?;
-        if let Some(slot) = index.slots.get_mut(slot_slug) {
-            slot.active = None;
-        }
+        // 正在启用：必须先撤下来，否则会把还铺在游戏目录里的文件抽走。
+        //
+        // **只撤这个槽位**（activate 传 None 表示「这个槽位什么都不启用」）。
+        // 早先这里调的是 deactivate，而统一安装引擎之后 deactivate 的含义变成了
+        // 「撤掉**所有**战役」—— 那样删 A 战役的一个版本会把 B 战役也一起卸掉。
+        //
+        // activate 会自己保存索引，所以这里要把本地那份重新读一遍。
+        super::activate(library, installation, slot_slug, None)?;
+        index = library.index();
     }
 
     let slot_dir = library.slot_dir(slot_slug);
@@ -208,7 +220,14 @@ pub struct VariantChanges {
     pub name: Option<String>,
     pub author: Option<String>,
     pub registration_id: Option<String>,
+    /// 版本号。填进来的会先过格式校验，不合规直接拒。
+    pub version: Option<String>,
     pub description: Option<String>,
+    /// 包内**声明为依赖**的模组键；`None` 表示这一项不动。
+    ///
+    /// 空数组是有效值 —— 表示「作者改主意了，一个都不依赖」。
+    #[serde(default)]
+    pub declared_mods: Option<Vec<String>>,
 }
 
 impl VariantChanges {
@@ -217,7 +236,9 @@ impl VariantChanges {
         self.name.is_none()
             && self.author.is_none()
             && self.registration_id.is_none()
+            && self.version.is_none()
             && self.description.is_none()
+            && self.declared_mods.is_none()
     }
 }
 
@@ -263,9 +284,36 @@ pub fn update_variant(
         let trimmed = id.trim();
         variant.registration_id = (!trimmed.is_empty()).then(|| trimmed.to_string());
     }
+    if let Some(version) = changes.version {
+        let trimmed = version.trim();
+        if trimmed.is_empty() {
+            // 空 = 清掉版本号（有些包本来就没写）
+            variant.version = None;
+        } else {
+            // **格式校验放后端** —— 界面那份提示是给人看的，这里才是闸门
+            if let Some(problem) = super::naming::version_error(trimmed) {
+                return Err(Error::PackageRejected(problem));
+            }
+            variant.version = Some(super::naming::normalize_version(trimmed));
+        }
+    }
     if let Some(description) = changes.description {
         let trimmed = description.trim();
         variant.description = (!trimmed.is_empty()).then(|| trimmed.to_string());
+    }
+    if let Some(declared) = changes.declared_mods {
+        // 只留这个版本里真实存在的模组 —— 免得界面上传来一个手改的键，
+        // 之后导出 / 核对时对不上
+        let known: Vec<String> = variant
+            .payloads
+            .iter()
+            .filter_map(|payload| super::mod_identity(payload).map(|found| found.key))
+            .collect();
+
+        variant.declared_mods = declared
+            .into_iter()
+            .filter(|key| known.contains(key))
+            .collect();
     }
 
     let updated = variant.clone();
@@ -326,6 +374,57 @@ fn resolve_cover(root: &Path, declared: Option<&str>) -> Option<String> {
         return Some(found);
     }
     find_cover(root)
+}
+
+/// 决定版本的说明文档：包自报的优先，其次按文件名特征找。
+fn resolve_doc(root: &Path, declared: Option<&str>) -> Option<String> {
+    if let Some(declared) = declared
+        && let Some(found) = relative_file(root, declared)
+    {
+        return Some(found);
+    }
+    find_doc(root)
+}
+
+/// 按文件名特征在版本目录里找说明文档。
+///
+/// 认这些名字（不分大小写）：说明 / readme / manual / doc / 攻略 / guide。
+/// 都没有时退回根目录下的第一份 PDF。
+fn find_doc(root: &Path) -> Option<String> {
+    const STEMS: &[&str] = &["说明", "readme", "manual", "doc", "guide", "攻略"];
+
+    let mut fallback: Option<PathBuf> = None;
+
+    for entry in WalkDir::new(root)
+        .max_depth(2)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if !path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            continue;
+        }
+
+        let stem = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+
+        if STEMS.iter().any(|wanted| stem.contains(wanted)) {
+            return relative_to(root, path);
+        }
+        if fallback.is_none() {
+            fallback = Some(path.to_path_buf());
+        }
+    }
+
+    fallback.and_then(|path| relative_to(root, &path))
 }
 
 /// 把包内声明的相对路径解析成版本目录内的相对路径；越界或不存在都返回 `None`。

@@ -1,106 +1,45 @@
-//! 启用 / 停用：把库里的某个版本铺进游戏目录，并能精确回滚。
+//! 启用 / 停用战役：把某个版本的内容铺进游戏目录，或者切回原版。
 //!
-//! # 安全约定（参考实现在这里翻过车）
+//! **安装本身不在这里做** —— 白名单校验、备份还原、记账、回滚全在
+//! `super::install` 那个统一引擎里。这里只负责一件事：
+//! 把「这个版本该有哪些文件、各落到哪」算出来，攒成一份 `Plan` 交出去。
 //!
-//! - **只删除我们放进去的文件**：清单之外的任何东西都不碰。
-//! - **官方文件先挪走再还原**：不覆盖、不删除官方战役地图。
-//! - **绝不对官方目录做递归删除**：全程只做单文件操作。
-//!
-//! 这样即使中途出错，最坏情况是"多留了几个文件"，而不是"官方战役没了"。
-
-use std::path::{Path, PathBuf};
-
-use serde::{Deserialize, Serialize};
-use walkdir::WalkDir;
+//! 这样战役和独立模组走的是**同一条写盘路径**，不会再出现
+//! 「两边各写一份清单、互相不知道对方放了什么」那种事。
 
 use crate::error::{Error, Result};
-use crate::safety;
 use crate::sc2::Installation;
 
-use super::compose::{self, Layer};
+use super::compose::{self};
+use super::install::{Manifest, Owner, Plan};
 use super::{Library, require_slot};
 
-/// 一个被我们放进游戏目录的文件。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlacedFile {
-    pub path: PathBuf,
-}
-
-/// 一个被我们挪走以便腾位置的原文件。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackupFile {
-    /// 它原本所在的位置。
-    pub original: PathBuf,
-    /// 我们把它挪到了哪里。
-    pub backup: PathBuf,
-}
-
-/// 激活清单：记录我们动过什么，以便精确回滚。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ActivationState {
-    /// 当前启用的槽位；None 表示没启用任何东西。
-    pub slot: Option<String>,
-    /// 当前启用的版本 id。
-    pub variant: Option<String>,
-    /// 我们放进游戏目录的文件。
-    pub placed: Vec<PlacedFile>,
-    /// 我们挪走的原文件。
-    pub backups: Vec<BackupFile>,
-}
-
-/// 读取激活清单；文件缺失或损坏都当作「没启用任何东西」。
-pub fn load_state(library: &Library) -> ActivationState {
-    std::fs::read_to_string(library.active_path())
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
-}
-
-/// 写回激活清单。
-fn save_state(library: &Library, state: &ActivationState) -> Result<()> {
-    std::fs::create_dir_all(library.root())?;
-    let text = serde_json::to_string_pretty(state)
-        .map_err(|error| Error::Parse(format!("激活清单序列化失败：{error}")))?;
-    std::fs::write(library.active_path(), text)?;
-    Ok(())
-}
-
-/// 撤下当前启用的一切：删掉我们放进去的文件，还原被挪走的原文件。
+/// 撤下**所有战役**装的东西（独立模组不动）。
+///
+/// 按槽位切回原版请用 `activate(library, installation, slot, None)` ——
+/// 那个只撤这一个槽位的。
 pub fn deactivate(library: &Library, installation: &Installation) -> Result<Vec<String>> {
-    let state = load_state(library);
-    let mut warnings = Vec::new();
+    // 用迁移版：老清单（active.json）里的东西也要认得出来，
+    // 否则那些文件会变成没人认领的孤儿
+    let mut manifest = Manifest::load_migrating(library.root(), installation);
 
-    if state.placed.is_empty() && state.backups.is_empty() {
-        save_state(library, &ActivationState::default())?;
-        return Ok(warnings);
+    let owners: Vec<Owner> = manifest
+        .files
+        .iter()
+        .map(|item| item.owner.clone())
+        .filter(|owner| matches!(owner, Owner::Campaign { .. }))
+        .collect();
+
+    for owner in owners {
+        manifest.remove(library.root(), installation, &owner)?;
     }
 
-    for placed in &state.placed {
-        match allowed_target(installation, &placed.path) {
-            Ok(resolved) => {
-                if resolved.is_file() && std::fs::remove_file(&resolved).is_err() {
-                    warnings.push(format!("无法删除：{}", resolved.display()));
-                }
-            }
-            Err(_) => warnings.push(format!("跳过越界路径：{}", placed.path.display())),
-        }
-    }
-
-    for backup in &state.backups {
-        if backup.backup.is_file() && !backup.original.exists() {
-            if let Some(parent) = backup.original.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::rename(&backup.backup, &backup.original).is_err() {
-                warnings.push(format!("无法还原：{}", backup.original.display()));
-            }
-        }
-    }
-
-    save_state(library, &ActivationState::default())?;
-    Ok(warnings)
+    Ok(Vec::new())
 }
 
+/// 启用某个版本；`variant_id` 传 `None` 表示**切回原版**。
+///
+/// 只影响这一个槽位 —— 别的槽位、以及独立模组装的东西都不动。
 pub fn activate(
     library: &Library,
     installation: &Installation,
@@ -108,17 +47,35 @@ pub fn activate(
     variant_id: Option<&str>,
 ) -> Result<Vec<String>> {
     let kind = require_slot(slot_slug)?;
-
-    // 先撤下上一个启用的版本，再铺新的
-    let mut warnings = deactivate(library, installation)?;
     let mut index = library.index();
+    // 用迁移版：老清单（active.json）里的东西也要认得出来，
+    // 否则那些文件会变成没人认领的孤儿
+    let mut manifest = Manifest::load_migrating(library.root(), installation);
 
+    // 先撤下**这个槽位**原来启用的版本。
+    // 只撤这个槽位的：别的战役和独立模组是别人的账，不该跟着一起没。
+    if let Some(previous) = index
+        .slots
+        .get(slot_slug)
+        .and_then(|slot| slot.active.clone())
+    {
+        manifest.remove(
+            library.root(),
+            installation,
+            &Owner::Campaign {
+                slot: slot_slug.to_string(),
+                variant: previous,
+            },
+        )?;
+    }
+
+    // 切回原版：上面已经撤干净了，把启用状态清掉就完事
     let Some(variant_id) = variant_id else {
         if let Some(slot) = index.slots.get_mut(slot_slug) {
             slot.active = None;
         }
         library.save_index(&index)?;
-        return Ok(warnings);
+        return Ok(Vec::new());
     };
 
     let slot = index.slots.get(slot_slug).cloned().unwrap_or_default();
@@ -134,7 +91,7 @@ pub fn activate(
         return Err(Error::CampaignNotFound(variant.id.clone()));
     }
 
-    // 地图进 Maps/Campaign[/子目录]，模组进 Mods。
+    // 地图进 Maps/Campaign[/子目录]，模组进 Mods，自制战役的地图留在库里。
     // 目标子目录以**版本自己声明的**为准（进化包 -> swarm/evolution），槽位只作兜底。
     let sub = variant
         .target_sub
@@ -149,55 +106,16 @@ pub fn activate(
         ));
     }
 
-    let mut state = ActivationState {
-        slot: Some(slot_slug.to_string()),
-        variant: Some(variant.id.clone()),
-        placed: Vec::new(),
-        backups: Vec::new(),
-    };
-    let backup_root = library.backup_dir().join(slot_slug);
-
+    // 算好的合成结果 -> 一份安装计划
+    let mut plan = Plan::new(Owner::Campaign {
+        slot: slot_slug.to_string(),
+        variant: variant.id.clone(),
+    });
     for item in &composition.files {
-        let relative = item.target.replace('/', std::path::MAIN_SEPARATOR_STR);
-        let target = allowed_target(installation, &installation.root.join(&relative))?;
-
-        // 已存在（多半是官方文件，也可能是被更高优先级的层盖住）：先挪进备份区
-        if target.exists() {
-            let backup = backup_root.join(&relative);
-            if let Some(parent) = backup.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            if backup.exists() {
-                let _ = std::fs::remove_dir_all(&backup);
-                let _ = std::fs::remove_file(&backup);
-            }
-            std::fs::rename(&target, &backup)?;
-            state.backups.push(BackupFile {
-                original: target.clone(),
-                backup,
-            });
-        }
-
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        copy_entry(&item.source, &target)?;
-        state.placed.push(PlacedFile { path: target });
+        plan.push(item.source.clone(), item.target.clone());
     }
 
-    // 让用户知道谁盖了谁
-    for item in &composition.overridden {
-        if matches!(item.layer, Layer::Campaign) {
-            continue;
-        }
-        warnings.push(format!(
-            "{} 覆盖了更低优先级的同名内容：{}",
-            item.layer.label(),
-            item.target
-        ));
-    }
-
-    save_state(library, &state)?;
+    let warnings = manifest.apply(library.root(), installation, &plan)?;
 
     if let Some(slot) = index.slots.get_mut(slot_slug) {
         slot.active = Some(variant.id.clone());
@@ -205,39 +123,4 @@ pub fn activate(
     library.save_index(&index)?;
 
     Ok(warnings)
-}
-
-/// 复制一个载荷：**解开的目录树整体复制**，单文件直接复制。
-///
-/// 真实包里 `.SC2Map` / `.SC2Mod` 两种形态都有，落盘时必须保持原形态。
-fn copy_entry(source: &Path, target: &Path) -> Result<()> {
-    if !source.is_dir() {
-        std::fs::copy(source, target)?;
-        return Ok(());
-    }
-
-    for entry in WalkDir::new(source)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-    {
-        let relative = entry.path().strip_prefix(source).unwrap_or(entry.path());
-        let destination = target.join(relative);
-
-        if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&destination)?;
-        } else {
-            if let Some(parent) = destination.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::copy(entry.path(), &destination)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// 校验目标位于官方战役目录或模组目录之内。
-fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
-    safety::ensure_within(&installation.campaign_maps_root, path)
-        .or_else(|_| safety::ensure_within(&installation.mods_root, path))
 }

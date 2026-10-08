@@ -12,6 +12,20 @@ import type {
   BoundPatch,
   DetectedProxy,
   NetworkSettings,
+  DocInfo,
+  EditorLaunch,
+  GameModEntry,
+  LibraryMod,
+  ModComparison,
+  ModImport,
+  ModPreview,
+  StandaloneMod,
+  ToolEnsure,
+  ToolRelease,
+  ToolStatus,
+  MainMapChoice,
+  MapEntry,
+  ModEntry,
   Staged,
   UpdateCheck,
   UpdateProgress,
@@ -47,7 +61,8 @@ const desktop: LauncherApi = {
   pickGameDirectory: () => invoke<string | null>("pick_game_directory"),
   variantCover: (slot, variantId) => invoke<string | null>("variant_cover", { slot, variantId }),
 
-  prepareImport: (path) => invoke<ImportPreview>("prepare_import", { path }),
+  prepareImport: (path, entry) =>
+    invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null }),
   importPackageWith: (path, slot, mode) =>
     invoke<Variant>("import_package", { path, slot, mode }),
   updateVariant: (slot, variantId, changes) =>
@@ -72,6 +87,45 @@ const desktop: LauncherApi = {
   exportVariant: (slot, variantId, destination, mergePatches) =>
     invoke<ExportReport>("export_variant", { slot, variantId, destination, mergePatches }),
   pickExportPath: (defaultName) => invoke<string | null>("pick_export_path", { defaultName }),
+
+  variantMaps: (slot, variantId) => invoke<MapEntry[]>("variant_maps", { slot, variantId }),
+  variantMods: (slot, variantId) => invoke<ModEntry[]>("variant_mods", { slot, variantId }),
+  setMountedMods: (slot, variantId, mods) =>
+    invoke<Variant>("set_mounted_mods", { slot, variantId, mods }),
+  setMainMap: (slot, variantId, map) =>
+    invoke<Variant>("set_main_map", { slot, variantId, map }),
+  mainMapChoice: (slot, variantId) =>
+    invoke<MainMapChoice>("main_map_choice", { slot, variantId }),
+  openMapInEditor: (slot, variantId, map) =>
+    invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
+  variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
+  listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
+  listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
+  listStandaloneMods: () => invoke<StandaloneMod[]>("list_standalone_mods"),
+  windowMinimize: () => invoke<void>("window_minimize"),
+  windowToggleMaximize: () => invoke<boolean>("window_toggle_maximize"),
+  windowClose: () => invoke<void>("window_close"),
+  windowIsMaximized: () => invoke<boolean>("window_is_maximized"),
+
+  listTools: () => invoke<ToolStatus[]>("list_tools"),
+  ensureTool: (id) => invoke<ToolEnsure>("ensure_tool", { id }),
+  toolReleases: (id) => invoke<ToolRelease[]>("tool_releases", { id }),
+  installTool: (id, version) => invoke<ToolStatus>("install_tool", { id, version }),
+  uninstallTool: (id) => invoke<void>("uninstall_tool", { id }),
+  openToolRepo: (id) => invoke<void>("open_tool_repo", { id }),
+  pickModSource: (kind) => invoke<string | null>("pick_mod_source", { kind }),
+  previewMod: (path) => invoke<ModPreview>("preview_mod", { path }),
+  importMod: (path, mode) => invoke<ModImport>("import_mod", { path, mode: mode ?? null }),
+  updateMod: (id, changes) => invoke<StandaloneMod>("update_mod", { id, changes }),
+  editMod: (recordId, identity, changes) =>
+    invoke<StandaloneMod>("edit_mod", { recordId, identity, changes }),
+  removeMod: (id) => invoke<void>("remove_mod", { id }),
+  exportMod: (id) => invoke<string>("export_mod", { id }),
+  exportMods: (ids) => invoke<string>("export_mods", { ids }),
+  compareMods: (before, after) => invoke<ModComparison>("compare_mods", { before, after }),
+  setModEnabled: (id, enabled) => invoke<StandaloneMod>("set_mod_enabled", { id, enabled }),
+  readDoc: (slot, variantId) =>
+    invoke<ArrayBuffer>("read_doc", { slot, variantId }),
 
   appVersion: () => invoke<string>("app_version"),
   networkSettings: () => invoke<NetworkSettings>("network_settings"),
@@ -215,6 +269,8 @@ function variant(
     cover: null,
     tags: [],
     registration_id: null,
+    declared_mods: [],
+    doc: null,
   };
 }
 
@@ -266,9 +322,136 @@ const demoslots: SlotView[] = [
     active_name: null,
     notice: null,
   },
+  {
+    slug: "custom",
+    display_name: "自制战役",
+    sub_directory: null,
+    variants: [
+      Object.assign(
+        variant(
+          "Starcraft Mass Recall 8.0",
+          "Starcraft Mass Recall",
+          "SCMR Team",
+          "8.0",
+          138,
+          1_414_700_000,
+        ),
+        { mod_count: 4, doc: null },
+      ),
+    ],
+    active: "Starcraft Mass Recall 8.0",
+    active_name: "Starcraft Mass Recall",
+    notice: null,
+  },
 ];
 
 /** 让演示模式也有「正在处理」的观感。 */
+/** 演示模式的库内模组。 */
+function demoLibraryMods(): LibraryMod[] {
+  const rows: LibraryMod[] = [];
+  const push = (
+    slot: string,
+    slotName: string,
+    variantId: string,
+    variantName: string,
+    origin: LibraryMod["origin"],
+    names: string[],
+  ) => {
+    for (const name of names) {
+      rows.push({
+        slot,
+        slot_name: slotName,
+        variant_id: variantId,
+        variant_name: variantName,
+        path: name,
+        name,
+        mounted: true,
+        parts: name === "Alenger" ? 18 : 1,
+        origin,
+        required: name === "Alenger",
+        standalone_id: null,
+        modid: name,
+        version: "1.0",
+        folder: null,
+        kind: null,
+        mod_record_id: null,
+        source_kind: "campaign",
+      });
+    }
+  };
+  push("wol", "自由之翼", "wol-reborn", "自由之翼：重生 v1.4", "official_campaign", [
+    "Alenger",
+    "RebornData",
+  ]);
+  push("custom", "自制战役", "scmr-8", "Starcraft Mass Recall", "custom_campaign", [
+    "SCMRmod",
+    "SCMRlocal",
+    "SCMRassets",
+    "SCMRcinematics",
+  ]);
+  // 单独导入的
+  rows.push({
+    slot: "",
+    slot_name: "独立模组",
+    variant_id: "",
+    variant_name: "",
+    path: "手搓单位包",
+    name: "手搓单位包",
+    mounted: false,
+    parts: 3,
+    origin: "standalone",
+    required: false,
+    standalone_id: "手搓单位包",
+    modid: "手搓单位包",
+    version: "1.0",
+    folder: "手搓单位包",
+    kind: "folder",
+    mod_record_id: "手搓单位包",
+    source_kind: "library",
+  });
+  return rows;
+}
+
+/** 演示模式的游戏目录模组。 */
+function demoGameMods(): GameModEntry[] {
+  return [
+    { display: "RebornData", name: "RebornData.SC2Mod", expanded: false, size_bytes: 12_345_678 },
+    { display: "SCMRmod", name: "SCMRmod.SC2Mod", expanded: false, size_bytes: 45_678_901 },
+  ];
+}
+
+/** 演示模式的地图列表 —— 照 SCMR 的样子来。 */
+function demoMaps(): MapEntry[] {
+  const chapters: [string, string[]][] = [
+    ["1. Rebel Yell", ["Terran00t", "Terran01", "Terran02", "Terran10"]],
+    ["2. Overmind", ["Zerg01", "Zerg02", "Zerg10"]],
+    ["3. The Fall", ["Protoss01", "Protoss02"]],
+  ];
+  const maps: MapEntry[] = [];
+  for (const [chapter, names] of chapters) {
+    for (const name of names) {
+      maps.push({
+        path: chapter + "/" + name + ".SC2Map",
+        name,
+        chapter,
+        size: 961_100,
+        is_main: name === "Terran01",
+      });
+    }
+  }
+  return maps;
+}
+
+/** 演示模式的模组列表。 */
+function demoMods(): ModEntry[] {
+  return ["SCMRmod", "SCMRlocal", "SCMRassets", "SCMRcinematics"].map((name) => ({
+    path: name + ".SC2Mod",
+    name,
+    mounted: true,
+    parts: 1,
+  }));
+}
+
 function delay<T>(value: T, ms = 220): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
@@ -363,13 +546,13 @@ const demo: LauncherApi = {
   // 演示数据没有真实图片文件，统一返回 null，界面会退回官方美术
   variantCover: () => delay(null),
 
-  prepareImport: (path) =>
+  prepareImport: (path, entry) =>
     delay({
       path,
       inspection: demoInspection,
-      // 演示里故意标成"自动识别"，好把尽力而为的措辞也演示出来
-      source: "inferred" as const,
-      slot: "hots",
+      // 自制战役入口：归属由入口定死，不演示识别
+      source: (entry === "custom" ? "manual" : "inferred") as "manual" | "inferred",
+      slot: entry === "custom" ? "custom" : "hots",
       conflict: null,
     }),
 
@@ -514,6 +697,113 @@ const demo: LauncherApi = {
       ],
       overridden: [],
     }),
+
+  variantMaps: (_slot, _variantId) => delay(demoMaps()),
+  variantMods: (_slot, _variantId) => delay(demoMods()),
+  setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
+  setMainMap: (_slot, _variantId, _map) => delay({} as never),
+  mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  openMapInEditor: (_slot, _variantId, map) =>
+    delay({
+      editor: "D:\\Game\\BLZ\\StarCraft II\\Support64\\SC2Editor_x64.exe",
+      map,
+      guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。",
+    }),
+  variantDoc: () => delay(null),
+  listLibraryMods: () => delay(demoLibraryMods()),
+  listGameMods: () => delay(demoGameMods()),
+  listStandaloneMods: () => delay([]),
+  windowMinimize: () => delay(undefined),
+  windowToggleMaximize: () => delay(false),
+  windowClose: () => delay(undefined),
+  windowIsMaximized: () => delay(false),
+
+  ensureTool: () => delay({ id: "sc2diff", name: "SC2Diff", ready: false, action: "skipped", error: null, message: null } as ToolEnsure),
+  listTools: () =>
+    delay([
+      {
+        id: "sc2diff",
+        name: "SC2Diff",
+        about: "对地图和模组做语义 diff 与版本控制，模组「只存差异」靠它",
+        repo: "SuperQuail/SC2Diff",
+        installed: false,
+        version: null,
+        path: null,
+        size_bytes: 0,
+        auto_failed: false,
+        auto_error: null,
+      },
+    ]),
+  toolReleases: () =>
+    delay([
+      {
+        version: "0.1.0a2",
+        tag: "v0.1.0a2",
+        published_at: "2026-10-08T05:21:12Z",
+        prerelease: true,
+        download_url: "https://example.invalid/sc2diff.exe",
+        size: 1_410_000,
+        has_asset: true,
+      },
+    ]),
+  installTool: () =>
+    delay({
+      id: "sc2diff",
+      name: "SC2Diff",
+      about: "演示",
+      repo: "SuperQuail/SC2Diff",
+      installed: true,
+      version: "0.1.0a2",
+      path: "D:\\demo\\sc2diff.exe",
+      size_bytes: 1_410_000,
+      auto_failed: false,
+      auto_error: null,
+    } as ToolStatus),
+  uninstallTool: () => delay(undefined),
+  openToolRepo: () => delay(undefined),
+  pickModSource: () => delay(null),
+  previewMod: () =>
+    delay({ name: "演示模组", folder: "演示模组", mod_count: 1, modid: "demo", fingerprint: "", existing: [], duplicate: false, suggested_version: "1.0" } as ModPreview),
+  importMod: () =>
+    delay({
+      record: {
+        id: "demo",
+        name: "演示模组",
+        modid: "demo",
+        fingerprint: "",
+        folder: "演示模组",
+        kind: "folder",
+        author: null,
+        version: "1.0",
+        description: null,
+        enabled: false,
+        imported_at: 0,
+        size_bytes: 0,
+        parts: 1,
+      } as StandaloneMod,
+      records: [],
+      action: "added",
+      existing: null,
+      message: "已导入「演示模组」",
+    } as ModImport),
+  editMod: () => delay(
+    { id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", source: { kind: "library" }, author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod,
+  ),
+  updateMod: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
+  removeMod: () => delay(undefined),
+  exportMod: () => delay("D:\\demo.zip"),
+  exportMods: () => delay("3 个文件 -> D:\\demo.zip"),
+  compareMods: () =>
+    delay({
+      before: {} as never,
+      after: {} as never,
+      identical: false,
+      files: [],
+      semantic: [],
+      semantic_note: "演示模式不做对比",
+    } as ModComparison),
+  setModEnabled: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", author: null, version: null, description: null, enabled: true, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
+  readDoc: () => delay(new ArrayBuffer(0)),
 
   appVersion: () => delay("0.1.0a3"),
   networkSettings: () =>

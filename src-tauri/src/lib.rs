@@ -12,9 +12,11 @@ use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
 use miyin_core::campaign::scanner;
 use miyin_core::library::{
-    self, Binding, Conflict, ImportMode, Library, Patch, SlotView, Variant, VariantChanges,
+    self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
+    ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
 };
-use miyin_core::sc2::{DiscoverySource, Installation};
+use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
+use miyin_core::tools::{self, ToolRelease, ToolStatus};
 use miyin_core::update::Reporter;
 use miyin_core::update::apply::Staged;
 use miyin_core::update::check::UpdateCheck;
@@ -238,13 +240,29 @@ struct ImportPreview {
 }
 
 /// 选完文件后的第一步：预检、判断归属、查冲突。**不写任何文件。**
+///
+/// `entry` 是**用户从哪个入口点的导入**：
+///
+/// - `None` / `campaign`：正常走识别链
+/// - `custom`：用户已经站在「自制战役」页了，**意图够明确，不再判断归属**。
+///   没有元数据也不去猜它属于哪部原版战役 —— 它就是自制战役。
+///   （踩过：在这里照样跑识别，一个没元数据的包被认出「虚空之遗」，
+///   于是用户在自制战役页点导入，战役却进了虚空之遗。）
 #[tauri::command(async)]
-fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPreview, String> {
+fn prepare_import(
+    path: String,
+    entry: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ImportPreview, String> {
     let inspection = package::inspect(Path::new(&path)).map_err(|error| error.to_string())?;
 
-    // 补丁不自动挑战役 —— 它是覆盖层，要挂到哪个战役上由用户定
+    let from_custom = entry.as_deref() == Some("custom");
+
     let slot = match inspection.kind {
+        // 补丁不自动挑战役 —— 它是覆盖层，要挂到哪个战役上由用户定
         PackageKind::Patch => None,
+        // 用户站在自制战役页，意图明确，不用猜
+        _ if from_custom => Some("custom".to_string()),
         PackageKind::Campaign => library::slot_for(&inspection.campaign_type).map(str::to_string),
     };
 
@@ -259,7 +277,10 @@ fn prepare_import(path: String, state: State<'_, AppState>) -> Result<ImportPrev
     });
 
     // 有元数据且元数据说得清归属 -> 以数据为准；否则看证据链；都没有就得问用户
-    let source = if inspection.identification.is_none()
+    let source = if from_custom {
+        // 用户自己选的「自制战役」，不是识别出来的，别把它说成自动识别
+        ImportSource::Manual
+    } else if inspection.identification.is_none()
         && matches!(
             inspection.format,
             miyin_core::campaign::CampaignFormat::Ccm
@@ -320,6 +341,591 @@ fn activate_variant(
     let installation = require_installation(&state)?;
     library::activate(&state.library, &installation, &slot, variant_id.as_deref())
         .map_err(|error| error.to_string())
+}
+
+/// 列出某个版本里的地图（自制战役主要用这个）。
+///
+/// 地图**不进游戏目录**，就躺在库里 —— 界面把它们列出来，
+/// 用户挑一张交给编辑器打开。
+#[tauri::command(async)]
+fn variant_maps(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<MapEntry>, String> {
+    Ok(state.library.variant_maps(&slot, &variant_id))
+}
+
+/// 列出某个版本里的模组，并标出各自挂没挂载。
+#[tauri::command(async)]
+fn variant_mods(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ModEntry>, String> {
+    Ok(state.library.variant_mods(&slot, &variant_id))
+}
+
+/// 改某个版本的挂载模组清单。
+#[tauri::command(async)]
+fn set_mounted_mods(
+    slot: String,
+    variant_id: String,
+    mods: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    state
+        .library
+        .set_mounted_mods(&slot, &variant_id, &mods)
+        .map_err(|error| error.to_string())
+}
+
+/// 改某个版本的主地图；传 `null` 表示清空。
+#[tauri::command(async)]
+fn set_main_map(
+    slot: String,
+    variant_id: String,
+    map: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Variant, String> {
+    state
+        .library
+        .set_main_map(&slot, &variant_id, map.as_deref())
+        .map_err(|error| error.to_string())
+}
+
+/// 这个版本该用哪张地图作为游玩入口。
+#[tauri::command(async)]
+fn main_map_choice(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<MainMapChoice, String> {
+    let variant = state
+        .library
+        .variant(&slot, &variant_id)
+        .ok_or_else(|| format!("库里找不到版本 {variant_id}"))?;
+    let maps = state.library.variant_maps(&slot, &variant_id);
+
+    Ok(library::resolve_main_map(
+        &maps,
+        variant.main_map.as_deref(),
+    ))
+}
+
+/// 启动编辑器打开某张地图的结果。
+#[derive(Debug, Clone, serde::Serialize)]
+struct EditorLaunch {
+    /// 用的是哪个编辑器。
+    editor: String,
+    /// 打开了哪张地图（相对路径）。
+    map: String,
+    /// 用户接下来要自己做什么 —— 界面照着念。
+    guidance: String,
+}
+
+/// 用编辑器打开自制战役里的某张地图。
+///
+/// 两步，顺序不能反：
+///
+/// 1. **先把挂载的模组铺进游戏目录** —— 地图里写死了 `Mods\xxx.SC2Mod` 依赖，
+///    模组不在位，打开就是一堆丢失的资源
+/// 2. 再用编辑器打开地图
+///
+/// 之后**不代劳进游戏**：编辑器起来后要用户自己按 Ctrl+F9（测试文档），
+/// 所以我们把这句话原样返回给界面去念。
+#[tauri::command(async)]
+fn open_map_in_editor(
+    slot: String,
+    variant_id: String,
+    map: String,
+    state: State<'_, AppState>,
+) -> Result<EditorLaunch, String> {
+    let installation = require_installation(&state)?;
+    let editor = installation
+        .editor
+        .clone()
+        .ok_or_else(|| "没找到游戏编辑器 —— 到「设置」里重新指定游戏目录试试".to_string())?;
+
+    // 带了模组却一个都没挂：先拦住，别让用户白白等编辑器起来再报错
+    let mods = state.library.variant_mods(&slot, &variant_id);
+    if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
+        return Err(
+            "这个战役带了模组，但你一个都没挂载 —— 这样打开地图会报错。先在「挂载模组」里勾上再试"
+                .to_string(),
+        );
+    }
+
+    // 先把挂载的模组铺进 <游戏>/Mods/
+    library::activate(&state.library, &installation, &slot, Some(&variant_id))
+        .map_err(|error| error.to_string())?;
+
+    let library_path = state
+        .library
+        .map_path(&slot, &variant_id, &map)
+        .map_err(|error| error.to_string())?;
+
+    // **打开游戏目录里那一份**，不是库里那一份。
+    //
+    // 库里那份只是留底（切回原版时能还原）。游戏和编辑器要读的是装好的那份 ——
+    // 而且复刻战役的启动器地图里写的是 GameSetNextMap("Starcraft Mass Recall/…")，
+    // 这种路径**相对 Maps/**，只有装好的那份才处在正确的位置上。
+    // 实测从库里打开会报「无法打开地图」。
+    let path = miyin_core::library::Manifest::load(state.library.root())
+        .target_of(&installation, &library_path)
+        .filter(|candidate| candidate.exists())
+        .unwrap_or(library_path);
+
+    std::process::Command::new(&editor)
+        .arg(&path)
+        .spawn()
+        .map_err(|error| format!("启动编辑器失败：{error}"))?;
+
+    Ok(EditorLaunch {
+        editor: editor.display().to_string(),
+        map,
+        guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
+    })
+}
+
+/// 可选工具的清单与安装状态。
+#[tauri::command(async)]
+fn list_tools(state: State<'_, AppState>) -> Result<Vec<ToolStatus>, String> {
+    let data = state.library.root();
+    Ok(tools::ALL
+        .iter()
+        .map(|spec| tools::status(data, spec))
+        .collect())
+}
+
+/// 找一个工具定义。
+fn find_tool(id: &str) -> Result<tools::ToolSpec, String> {
+    tools::ALL
+        .iter()
+        .copied()
+        .find(|spec| spec.id == id)
+        .ok_or_else(|| format!("不认识这个工具：{id}"))
+}
+
+/// 最小化窗口。
+#[tauri::command(async)]
+fn window_minimize(window: tauri::Window) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+/// 最大化 / 还原。
+#[tauri::command(async)]
+fn window_toggle_maximize(window: tauri::Window) -> Result<bool, String> {
+    let maximized = window.is_maximized().map_err(|error| error.to_string())?;
+    if maximized {
+        window.unmaximize().map_err(|error| error.to_string())?;
+    } else {
+        window.maximize().map_err(|error| error.to_string())?;
+    }
+    Ok(!maximized)
+}
+
+/// 关窗口。
+#[tauri::command(async)]
+fn window_close(window: tauri::Window) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+/// 现在是不是最大化 —— 标题栏的按钮图标要跟着变。
+#[tauri::command(async)]
+fn window_is_maximized(window: tauri::Window) -> Result<bool, String> {
+    window.is_maximized().map_err(|error| error.to_string())
+}
+
+/// 启动时调：**没装就静默装上**。
+///
+/// 失败不等于出错 —— 包成 `ToolEnsure` 返回，界面按 `message` 提示一句就行，
+/// 而且之后不再自动重试（用户可以到设置里手动装）。
+#[tauri::command(async)]
+fn ensure_tool(id: String, state: State<'_, AppState>) -> Result<tools::ToolEnsure, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    Ok(tools::ensure(state.library.root(), &spec, &settings))
+}
+
+/// 某个工具有哪些版本可装。
+#[tauri::command(async)]
+fn tool_releases(id: String, state: State<'_, AppState>) -> Result<Vec<ToolRelease>, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    tools::releases(&spec, &settings, miyin_core::update::Reporter::silent())
+}
+
+/// 装一个工具。version 传 null 表示装最新的。
+///
+/// **静默安装**：不弹浏览器、不用用户解压，点了就下、下完就位。
+#[tauri::command(async)]
+fn install_tool(
+    id: String,
+    version: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ToolStatus, String> {
+    let spec = find_tool(&id)?;
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    let reporter = miyin_core::update::Reporter::silent();
+    let list = tools::releases(&spec, &settings, reporter)?;
+
+    let picked = match &version {
+        Some(wanted) => list
+            .iter()
+            .find(|release| &release.version == wanted || &release.tag == wanted)
+            .ok_or_else(|| format!("没找到 {wanted} 这个版本"))?,
+        None => list
+            .iter()
+            .find(|release| release.has_asset)
+            .ok_or_else(|| format!("{} 还没有可下载的版本", spec.name))?,
+    };
+
+    tools::install(state.library.root(), &spec, picked, &settings, reporter)
+        .map_err(|error| error.to_string())
+}
+
+/// 卸载一个工具。
+#[tauri::command(async)]
+fn uninstall_tool(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let spec = find_tool(&id)?;
+    tools::uninstall(state.library.root(), &spec).map_err(|error| error.to_string())
+}
+
+/// 在系统浏览器里打开工具的仓库。
+#[tauri::command(async)]
+fn open_tool_repo(id: String) -> Result<(), String> {
+    let spec = find_tool(&id)?;
+    let url = format!("https://github.com/{}", spec.repo);
+    open_in_browser(&url).map_err(|error| format!("打不开浏览器：{error}"))
+}
+
+/// 独立模组库：列表。
+#[tauri::command(async)]
+fn list_standalone_mods(state: State<'_, AppState>) -> Result<Vec<StandaloneMod>, String> {
+    Ok(mods::list(state.library.root()))
+}
+
+/// 选一个模组包：文件（压缩包 / .SC2Mod）或文件夹。
+#[tauri::command(async)]
+fn pick_mod_source(kind: String) -> Option<String> {
+    let dialog = rfd::FileDialog::new().set_title("选择模组包");
+
+    if kind == "folder" {
+        return dialog
+            .pick_folder()
+            .map(|path| path.to_string_lossy().into_owned());
+    }
+
+    dialog
+        .add_filter(
+            "模组包",
+            &[
+                "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "xz", "sc2mod",
+            ],
+        )
+        .add_filter("所有文件", &["*"])
+        .pick_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 导入前的预检：这个包是谁、库里有没有同族的。
+///
+/// 界面拿它决定要不要问一句「作为新版本还是独立改版」。
+#[tauri::command(async)]
+fn preview_mod(path: String, state: State<'_, AppState>) -> Result<mods::ModPreview, String> {
+    let source = Path::new(&path);
+    let (declared_id, declared_version) = read_mod_meta(source);
+
+    mods::preview(
+        state.library.root(),
+        source,
+        declared_id.as_deref(),
+        declared_version.as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 从包里读 modid 与版本号（裸目录 / .SC2Mod 没有元数据，返回 None）。
+///
+/// **版本号必须一起读**：不读的话，库里只能从已有版本去推，
+/// 结果「作者发的 1.2 版」会被当成「1.0 撞号」而改名叫 1.0.2。
+fn read_mod_meta(source: &Path) -> (Option<String>, Option<String>) {
+    if !source.is_file() {
+        return (None, None);
+    }
+    match package::inspect(source) {
+        Ok(found) => (found.modid, found.version),
+        Err(_) => (None, None),
+    }
+}
+
+/// 导入一个独立模组包（目录 / .SC2Mod / 压缩包都行）。
+///
+/// `mode` 决定跟库里同 modid 的模组怎么处：
+/// - `version` —— 作为它的**新版本**归到一起，可切换
+/// - `separate` —— 作为**独立改版**单独显示一个
+/// - 不传 —— 自动（同 id 就归并）
+#[tauri::command(async)]
+fn import_mod(
+    path: String,
+    mode: Option<mods::ModImportMode>,
+    state: State<'_, AppState>,
+) -> Result<mods::ModImport, String> {
+    let source = Path::new(&path);
+    let (declared_id, declared_version) = read_mod_meta(source);
+
+    mods::import(
+        state.library.root(),
+        source,
+        declared_id.as_deref(),
+        declared_version.as_deref(),
+        mode.unwrap_or_default(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 改模组信息（只改启动器记录的，不动文件）。
+#[tauri::command(async)]
+fn update_mod(
+    id: String,
+    changes: ModChanges,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    mods::update(state.library.root(), &id, changes).map_err(|error| error.to_string())
+}
+
+/// 跟着战役包来的模组的定位信息 —— 第一次编辑时靠它建记录。
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ModIdentity {
+    slot: String,
+    variant: String,
+    /// 相对版本目录的路径（那个模组文件夹）。
+    path: String,
+    folder: String,
+    name: String,
+    version: Option<String>,
+    /// `file` / `folder`。
+    kind: String,
+    parts: usize,
+}
+
+/// 改一个模组的元数据。
+///
+/// **独立模组和战役包带来的模组走同一条路** —— 都是一条模组记录，
+/// 改的都是记录，不动包里的原始文件：
+///
+/// - `record_id` 有值：直接改那条记录
+/// - 只有 `identity`：说明是战役包带来的、还没记录 —— 先建一条再改
+#[tauri::command(async)]
+fn edit_mod(
+    record_id: Option<String>,
+    identity: Option<ModIdentity>,
+    changes: ModChanges,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    let data = state.library.root();
+
+    let id = match record_id {
+        Some(id) => id,
+        None => {
+            let identity = identity.ok_or_else(|| "不知道该改哪个模组".to_string())?;
+            let kind = if identity.kind == "file" {
+                mods::ModKind::File
+            } else {
+                mods::ModKind::Folder
+            };
+
+            mods::remember_campaign(
+                data,
+                &identity.slot,
+                &identity.variant,
+                &identity.path,
+                &identity.folder,
+                &identity.name,
+                identity.version.as_deref(),
+                kind,
+                identity.parts,
+            )
+            .map_err(|error| error.to_string())?
+            .id
+        }
+    };
+
+    mods::update(data, &id, changes).map_err(|error| error.to_string())
+}
+
+/// 删掉一个独立模组。
+#[tauri::command(async)]
+fn remove_mod(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    mods::remove(state.library.root(), &id).map_err(|error| error.to_string())
+}
+
+/// 把独立模组打包导出成一个 zip，返回写到了哪。
+#[tauri::command(async)]
+fn export_mod(id: String, state: State<'_, AppState>) -> Result<String, String> {
+    let record =
+        mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())?;
+
+    let target = rfd::FileDialog::new()
+        .set_title("导出模组包")
+        .set_file_name(format!("{}.zip", record.name))
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .ok_or_else(|| "已取消".to_string())?;
+
+    mods::export(state.library.root(), &id, &target).map_err(|error| error.to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
+/// 比两个模组版本差在哪。
+///
+/// 装了 SC2Diff 的话还会给出**语义 diff**（改了什么字段/物件），
+/// 没装就只列文件级差异 —— 界面按 `semantic_note` 如实说明。
+#[tauri::command(async)]
+fn compare_mods(
+    before: String,
+    after: String,
+    state: State<'_, AppState>,
+) -> Result<mods::ModComparison, String> {
+    mods::compare(state.library.root(), &before, &after).map_err(|error| error.to_string())
+}
+
+/// 把**选中的若干模组版本**打包成一个 zip。
+///
+/// 让用户挑是刻意的：一个模组攒了十几个版本之后全打包又大又没人要，
+/// 而「把 1.0 和 1.3 一起发过去对比」是很实际的需求。
+#[tauri::command(async)]
+fn export_mods(ids: Vec<String>, state: State<'_, AppState>) -> Result<String, String> {
+    let data = state.library.root();
+
+    let first = ids
+        .first()
+        .and_then(|id| mods::get(data, id))
+        .ok_or_else(|| "没有选中任何版本".to_string())?;
+
+    let target = rfd::FileDialog::new()
+        .set_title("导出模组版本")
+        .set_file_name(format!("{}-版本包.zip", first.name))
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .ok_or_else(|| "已取消".to_string())?;
+
+    let count = mods::export_many(data, &ids, &target).map_err(|error| error.to_string())?;
+    Ok(format!("{} 个文件 -> {}", count, target.to_string_lossy()))
+}
+
+/// 启用 / 停用独立模组。启用会立刻把它铺进 `<游戏>/Mods/`。
+#[tauri::command(async)]
+fn set_mod_enabled(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<StandaloneMod, String> {
+    // 先落状态，再同步 —— 顺序不能反，sync 读的就是这份记录
+    mods::set_enabled(state.library.root(), &id, enabled).map_err(|error| error.to_string())?;
+
+    // 有游戏目录就顺手铺进去；没设游戏目录的话只记状态，等设置好再说
+    if let Ok(installation) = require_installation(&state) {
+        mods::sync(state.library.root(), &installation).map_err(|error| error.to_string())?;
+    }
+
+    mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())
+}
+
+/// **全库模组汇总**：模组管理菜单用。
+#[tauri::command(async)]
+fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, String> {
+    let mut rows = state.library.all_mods();
+
+    // 把独立模组并进来 —— 用户要的是**一张表**，不该分两个地方看
+    for record in mods::list(state.library.root()) {
+        rows.push(LibraryMod {
+            slot: String::new(),
+            slot_name: "独立模组".to_string(),
+            variant_id: String::new(),
+            variant_name: String::new(),
+            path: record.id.clone(),
+            name: record.name.clone(),
+            mounted: record.enabled,
+            parts: record.parts,
+            origin: miyin_core::library::ModOrigin::Standalone,
+            required: false,
+            standalone_id: Some(record.id.clone()),
+            modid: Some(mods::effective_id(&record)),
+            version: record.version.clone(),
+            folder: Some(mods::placed_name(&record)),
+            kind: Some(
+                match record.kind {
+                    mods::ModKind::File => "file",
+                    mods::ModKind::Folder => "folder",
+                }
+                .to_string(),
+            ),
+            mod_record_id: Some(record.id.clone()),
+            source_kind: "library".to_string(),
+        });
+    }
+
+    rows.sort_by(|left, right| {
+        left.slot_name
+            .cmp(&right.slot_name)
+            .then_with(|| left.variant_name.cmp(&right.variant_name))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+
+    Ok(rows)
+}
+
+/// 游戏目录 Mods/ 里实际放着的模组。
+#[tauri::command(async)]
+fn list_game_mods(state: State<'_, AppState>) -> Result<Vec<GameModEntry>, String> {
+    let installation = require_installation(&state)?;
+    Ok(installation.game_mods())
+}
+
+/// 某个版本自带的说明文档（PDF）；没有就是 `None`。
+#[tauri::command(async)]
+fn variant_doc(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<DocInfo>, String> {
+    Ok(state.library.variant_doc(&slot, &variant_id))
+}
+
+/// 读出说明文档的字节，交给界面渲染。
+///
+/// 走 IPC 传原始字节（`tauri::ipc::Response`）而不是让 WebView 去读文件：
+/// 既不用放开文件系统访问，也省掉 asset 协议的配置。
+#[tauri::command(async)]
+fn read_doc(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = state
+        .library
+        .doc_bytes(&slot, &variant_id)
+        .map_err(|error| error.to_string())?;
+
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// 修改一个已导入版本的元数据（名称 / 作者 / 注册 ID / 描述）。
@@ -938,6 +1544,37 @@ pub fn run() {
             prepare_import,
             import_package,
             activate_variant,
+            variant_maps,
+            variant_mods,
+            set_mounted_mods,
+            set_main_map,
+            main_map_choice,
+            open_map_in_editor,
+            variant_doc,
+            list_library_mods,
+            list_standalone_mods,
+            list_tools,
+            ensure_tool,
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
+            window_is_maximized,
+            tool_releases,
+            install_tool,
+            uninstall_tool,
+            open_tool_repo,
+            pick_mod_source,
+            preview_mod,
+            import_mod,
+            update_mod,
+            edit_mod,
+            remove_mod,
+            export_mod,
+            export_mods,
+            compare_mods,
+            set_mod_enabled,
+            list_game_mods,
+            read_doc,
             update_variant,
             delete_variant,
             launch_game,
