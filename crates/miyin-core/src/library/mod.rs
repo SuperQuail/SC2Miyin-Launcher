@@ -37,6 +37,7 @@ use crate::sc2::Installation;
 pub mod activation;
 pub mod compose;
 pub mod install;
+pub mod known;
 pub mod mods;
 pub mod naming;
 
@@ -405,9 +406,15 @@ impl MainMapChoice {
 /// | --- | --- |
 /// | 设了主地图，且**确实存在** | 用它 |
 /// | 设了，但找不到 | 给个警告，退回「没定」 |
+/// | 是**知名复刻战役**（见 `known`） | 用它表里的入口地图 |
 /// | 没设，且整个版本只有一张地图 | 自动用它（省用户一次点击） |
 /// | 没设，但包根有一张 **入口地图** | 自动用它（见下） |
 /// | 其余 | 没定，让用户自己挑 |
+///
+/// **打表排在启发式前面** —— 知名复刻的入口是固定的，表比猜可靠。
+/// 实测教训：SCMR 那种包里躺着第三方战役的启动器
+/// （`Enslavers Redux Campaign Launcher`，在 `8. Enslavers Redux/` 里），
+/// 用户在列表里挑很容易挑错那个；表直接点名自己的入口。
 ///
 /// 「入口地图」的判定很窄：**放在包根**（不在章节子目录里）**且名字里带
 /// launcher / 启动 / 入口**。真实样本教我们的 —— 复刻战役（SCMR）会在包根放一张
@@ -447,6 +454,20 @@ pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapCho
                     "找不到「{wanted}」这张地图，请自己挑一张作为启动入口"
                 )),
             },
+        };
+    }
+
+    // **知名复刻战役：打表认它的入口。**
+    //
+    // 排在启发式前面 —— 这些战役的入口是固定的，表比猜可靠。
+    // 而且表能处理启发式处理不了的：一个知名复刻包里往往还躺着**别的**
+    // 战役（SCMR 包里就有 Enslavers Redux 的启动器），用户很容易挑错。
+    if let Some((path, remake)) = known::find_launcher(maps) {
+        let _ = remake;
+        return MainMapChoice {
+            path: Some(path),
+            automatic: true,
+            warning: None,
         };
     }
 

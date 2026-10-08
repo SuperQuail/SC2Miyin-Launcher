@@ -101,6 +101,17 @@ fn main() {
         start.elapsed().as_millis()
     );
 
+    // 主地图认得对不对 —— 知名复刻走打表，其余走启发式
+    let maps = library.variant_maps(&slot, &variant.id);
+    let choice = miyin_core::library::resolve_main_map(&maps, variant.main_map.as_deref());
+    println!();
+    println!(
+        "   主地图: {:?}  automatic={}  warning={:?}",
+        choice.path, choice.automatic, choice.warning
+    );
+    println!("   地图总数: {}", maps.len());
+    println!();
+
     // 3) 启用 —— 铺进游戏目录
     let start = Instant::now();
     library::activate(&library, &installation, &slot, Some(&variant.id)).expect("启用");
