@@ -19,20 +19,11 @@ const {
   showRestartPrompt,
   autoCheckUpdate,
   applyUpdateNow,
+  currentView,
+  launcherVersion,
 } = useLauncher();
 
-type ViewId = "campaigns" | "settings";
-
-/** 允许用 #settings 直接打开设置页（方便调试与截图）。 */
-function initialView(): ViewId {
-  return typeof window !== "undefined" && window.location.hash.includes("settings")
-    ? "settings"
-    : "campaigns";
-}
-
-const view = ref<ViewId>(initialView());
-
-const tabs: { id: ViewId; label: string }[] = [
+const tabs: { id: "campaigns" | "settings"; label: string }[] = [
   { id: "campaigns", label: "战役" },
   { id: "settings", label: "设置" },
 ];
@@ -66,7 +57,7 @@ onMounted(async () => {
         const path = payload.paths[0];
         if (!path) return;
         // 拖到哪个页面都行：切回战役页，交给它去预检
-        view.value = "campaigns";
+        currentView.value = "campaigns";
         droppedPackage.value = path;
       }
     });
@@ -99,9 +90,9 @@ onUnmounted(() => stopWatching?.());
           v-for="tab in tabs"
           :key="tab.id"
           class="tab"
-          :class="{ 'tab--active': view === tab.id }"
+          :class="{ 'tab--active': currentView === tab.id }"
           type="button"
-          @click="view = tab.id"
+          @click="currentView = tab.id"
         >
           {{ tab.label }}
         </button>
@@ -113,7 +104,7 @@ onUnmounted(() => stopWatching?.());
           class="update-badge"
           type="button"
           title="有新版本可用，点开设置页查看"
-          @click="view = 'settings'"
+          @click="currentView = 'settings'"
         >
           <!-- 下载图标：向下箭头落进托盘，用户一眼就知道是"可以下载新版本" -->
           <svg class="update-badge__icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -124,7 +115,13 @@ onUnmounted(() => stopWatching?.());
           <span>新版本 {{ updateAvailable }}</span>
         </button>
         <span v-if="!isDesktop" class="tag tag--demo">演示模式</span>
-        <span v-if="installation" class="tag">{{ installation.version }}</span>
+        <!-- 启动器自己的版本：以前这里只显示游戏构建号，很容易被当成启动器版本 -->
+        <span v-if="launcherVersion" class="tag tag--app" title="弥音启动器版本">
+          v{{ launcherVersion }}
+        </span>
+        <span v-if="installation" class="tag" title="星际争霸 II 版本">
+          SC2 {{ installation.version }}
+        </span>
       </div>
     </header>
 
@@ -140,7 +137,7 @@ onUnmounted(() => stopWatching?.());
     </div>
 
     <main class="content">
-      <CampaignsView v-if="view === 'campaigns'" @open-settings="view = 'settings'" />
+      <CampaignsView v-if="currentView === 'campaigns'" @open-settings="currentView = 'settings'" />
       <SettingsView v-else />
     </main>
 
@@ -380,6 +377,12 @@ onUnmounted(() => stopWatching?.());
 
 .update-badge:hover {
   background: var(--accent-soft);
+}
+
+.tag--app {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .tag--demo {
