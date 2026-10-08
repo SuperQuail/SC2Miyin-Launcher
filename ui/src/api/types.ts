@@ -384,6 +384,10 @@ export interface LibraryMod {
   /** 同一个模组的多个版本靠它归到一起。 */
   modid: string | null;
   version: string | null;
+  /** 铺进游戏目录时用的名字（原样保留的那个）。 */
+  folder: string | null;
+  /** 铺成文件还是目录。 */
+  kind: "file" | "folder" | null;
 }
 
 /** 独立模组库里的一个模组。 */
@@ -394,6 +398,10 @@ export interface StandaloneMod {
   modid: string | null;
   /** 内容指纹（SHA-256），用来判定「完全一样」。 */
   fingerprint: string;
+  /** 铺进游戏目录时用的名字，原样保留。 */
+  folder: string;
+  /** 铺成文件还是目录。 */
+  kind: "file" | "folder";
   author: string | null;
   version: string | null;
   description: string | null;
@@ -462,6 +470,8 @@ export interface ToolEnsure {
 /** 导入模组的结果。 */
 export interface ModImport {
   record: StandaloneMod;
+  /** 这次涉及的所有模组 —— 一个包的 Mods/ 下可能有好几个。 */
+  records: StandaloneMod[];
   /** 这次怎么处理的。 */
   action: "added" | "new_version" | "duplicate" | "renamed";
   existing: StandaloneMod | null;
@@ -472,6 +482,10 @@ export interface ModImport {
 /** 导入模组前的预检。 */
 export interface ModPreview {
   name: string;
+  /** 铺进游戏目录时用的名字（原样保留）。 */
+  folder: string;
+  /** 这一包里有几个模组。 */
+  mod_count: number;
   /** 认出来的 modid。 */
   modid: string;
   fingerprint: string;

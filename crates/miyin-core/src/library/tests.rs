@@ -1365,3 +1365,210 @@ fn enabling_a_mod_disables_its_siblings() {
         .collect();
     assert_eq!(on, vec![all[1].id.as_str()], "同 modid 只能有一个启用");
 }
+#[test]
+fn imported_mods_keep_their_original_folder_shape() {
+    use crate::library::mods::{self, ModKind};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+
+    // ---- 1) 目录形态：Alenger/ 里两个 .SC2Mod（真实样本有 18 个）----
+    let src = fixture.work.path().join("Alenger");
+    std::fs::create_dir_all(&src).expect("建模组目录");
+    std::fs::write(src.join("1钢铁.SC2Mod"), b"one").expect("写文件");
+    std::fs::write(src.join("通用效果.SC2Mod"), b"two").expect("写文件");
+
+    let one = mods::import(data, &src, None, Some("1.0"), Default::default()).expect("导入目录");
+    assert_eq!(one.record.folder, "Alenger", "名字必须原样保留，不能加后缀");
+    assert_eq!(one.record.kind, ModKind::Folder);
+    assert_eq!(one.record.parts, 2);
+
+    mods::set_enabled(data, &one.record.id, true).expect("启用");
+    mods::sync(data, &fixture.installation).expect("铺进游戏目录");
+
+    let placed = fixture.installation.mods_root.join("Alenger");
+    assert!(placed.is_dir(), "应当铺成 Mods/Alenger/ 目录");
+    assert!(
+        placed.join("1钢铁.SC2Mod").is_file(),
+        "层级不能变：地图里写的是 Mods\\Alenger\\1钢铁.SC2Mod"
+    );
+    assert!(
+        !fixture
+            .installation
+            .mods_root
+            .join("Alenger.SC2Mod")
+            .exists(),
+        "绝不能自作主张加 .SC2Mod 后缀 —— 加了地图就找不到这个模组"
+    );
+
+    // ---- 2) 单文件形态：一个 .SC2Mod 文件 ----
+    let file = fixture.work.path().join("孤单.SC2Mod");
+    std::fs::write(&file, b"alone").expect("写文件");
+
+    let two = mods::import(data, &file, None, Some("1.0"), Default::default()).expect("导入文件");
+    assert_eq!(two.record.folder, "孤单.SC2Mod", "文件名原样保留");
+    assert_eq!(two.record.kind, ModKind::File);
+
+    mods::set_enabled(data, &two.record.id, true).expect("启用 2");
+    mods::sync(data, &fixture.installation).expect("再铺一次");
+
+    assert!(
+        fixture.installation.mods_root.join("孤单.SC2Mod").is_file(),
+        "单文件模组要铺成**文件**，不是目录"
+    );
+}
+
+#[test]
+fn importing_a_campaign_archive_picks_the_mod_inside() {
+    use std::io::Write;
+
+    use crate::library::mods::{self, ModKind};
+
+    let fixture = fixture();
+
+    // 照真实样本（疯批帝国军械库）的摆法：包根一个战役目录，
+    // 里面 Maps/ 是战役地图、Mods/Alenger/ 才是用户要的模组
+    let zip = fixture.work.path().join("pkg.zip");
+    {
+        let file = std::fs::File::create(&zip).expect("建包");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        for (entry, content) in [
+            ("疯批帝国军械库2.3/Maps/Campaign/a.SC2Map", "map"),
+            ("疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod", "one"),
+            ("疯批帝国军械库2.3/Mods/Alenger/2贝希摩斯虫群.SC2Mod", "two"),
+        ] {
+            writer.start_file(entry, options).expect("start");
+            writer.write_all(content.as_bytes()).expect("write");
+        }
+        writer.finish().expect("finish");
+    }
+
+    let one = mods::import(
+        fixture.library.root(),
+        &zip,
+        None,
+        Some("1.0"),
+        Default::default(),
+    )
+    .expect("导入");
+
+    assert_eq!(
+        one.record.folder, "Alenger",
+        "要从战役包里挑出 Mods/ 下那个唯一的模组"
+    );
+    assert_eq!(one.record.kind, ModKind::Folder);
+    assert_eq!(one.record.parts, 2, "只应当有模组自己的两个文件");
+
+    // 地图不能跟着进来 —— 不然它会被当成模组内容一起铺到游戏目录里
+    mods::set_enabled(fixture.library.root(), &one.record.id, true).expect("启用");
+    mods::sync(fixture.library.root(), &fixture.installation).expect("铺");
+
+    let placed = fixture.installation.mods_root.join("Alenger");
+    assert!(placed.join("1钢铁.SC2Mod").is_file());
+    assert!(
+        !fixture.installation.mods_root.join("Maps").exists(),
+        "战役地图不该跟着模组铺进游戏 Mods 目录"
+    );
+}
+#[test]
+fn a_package_with_several_mods_imports_all_of_them() {
+    use std::io::Write;
+
+    use crate::library::mods::{self, ModKind};
+
+    let fixture = fixture();
+
+    // **照真实样本（疯批帝国军械库）一比一摆**：
+    // 包根一个战役目录，里面 Maps/ 是战役地图，Mods/ 下有三个模组 ——
+    // 一个单文件 + 两个目录（其中一个名字带 .SC2Mod 后缀）。
+    let zip = fixture.work.path().join("armory.zip");
+    {
+        let file = std::fs::File::create(&zip).expect("建包");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        for (entry, content) in [
+            ("疯批帝国军械库2.3/Maps/Campaign/a.SC2Map", "map"),
+            ("疯批帝国军械库2.3/Mods/3疯批帝国之翼.SC2Mod", "single"),
+            ("疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod", "one"),
+            ("疯批帝国军械库2.3/Mods/Alenger/2贝希摩斯虫群.SC2Mod", "two"),
+            (
+                "疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/x.dds",
+                "asset",
+            ),
+        ] {
+            writer.start_file(entry, options).expect("start");
+            writer.write_all(content.as_bytes()).expect("write");
+        }
+        writer.finish().expect("finish");
+    }
+
+    let result = mods::import(
+        fixture.library.root(),
+        &zip,
+        None,
+        Some("2.4"),
+        Default::default(),
+    )
+    .expect("导入");
+
+    // 三个模组，一个都不该漏
+    assert_eq!(result.records.len(), 3, "Mods/ 下有三个模组");
+    let folders: Vec<&str> = result
+        .records
+        .iter()
+        .map(|item| item.folder.as_str())
+        .collect();
+    assert_eq!(
+        folders,
+        vec![
+            "3疯批帝国之翼.SC2Mod",
+            "Alenger",
+            "kit_liberty_story.SC2Mod"
+        ],
+        "名字必须原样保留，顺序按名字稳定排序"
+    );
+
+    let alenger = result
+        .records
+        .iter()
+        .find(|item| item.folder == "Alenger")
+        .expect("应当有 Alenger");
+    assert_eq!(alenger.kind, ModKind::Folder);
+    assert_eq!(alenger.parts, 2, "只算它自己的两个 .SC2Mod");
+
+    let single = result
+        .records
+        .iter()
+        .find(|item| item.folder == "3疯批帝国之翼.SC2Mod")
+        .expect("应当有单文件那个");
+    assert_eq!(single.kind, ModKind::File);
+
+    // 全部启用后铺一遍：层级必须和原来一致
+    for record in &result.records {
+        mods::set_enabled(fixture.library.root(), &record.id, true).expect("启用");
+    }
+    mods::sync(fixture.library.root(), &fixture.installation).expect("铺");
+
+    let mods_root = &fixture.installation.mods_root;
+    assert!(
+        mods_root.join("Alenger").join("1钢铁.SC2Mod").is_file(),
+        "目录模组要保持层级"
+    );
+    assert!(
+        mods_root.join("3疯批帝国之翼.SC2Mod").is_file(),
+        "单文件模组要铺成文件"
+    );
+    assert!(
+        mods_root
+            .join("kit_liberty_story.SC2Mod")
+            .join("Assets")
+            .join("x.dds")
+            .is_file(),
+        "带后缀的目录模组同样保持层级"
+    );
+    assert!(
+        !mods_root.join("Maps").exists(),
+        "战役地图绝不能跟着模组铺进游戏 Mods 目录"
+    );
+}

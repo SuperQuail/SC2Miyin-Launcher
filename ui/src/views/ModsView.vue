@@ -502,6 +502,10 @@ function openModsDir(): void {
               v{{ mod.version }}
             </span>
             <span v-if="mod.parts > 1" class="badge">{{ mod.parts }} 个文件</span>
+            <!-- 把「铺进游戏目录时叫什么」显出来：地图里引用的就是这个，用户一眼能核对 -->
+            <span v-if="mod.folder" class="mount" :title="'铺进游戏目录后的样子'">
+              → Mods/{{ mod.folder }}{{ mod.kind === "folder" ? "/" : "" }}
+            </span>
           </div>
 
           <div class="mod__actions">
@@ -648,7 +652,13 @@ function openModsDir(): void {
     <div v-if="choosing" class="sheet" @click.self="choosing = null">
       <div class="sheet__card">
         <h3 class="sheet__title">「{{ choosing.preview.name }}」要怎么放？</h3>
-        <p class="sheet__text">
+        <p v-if="choosing.preview.mod_count > 1" class="sheet__text">
+      这一包里带了 <strong>{{ choosing.preview.mod_count }}</strong> 个模组，
+      下面说的是其中<strong>第一个</strong>（<code>{{ choosing.preview.folder }}</code>）。
+      其余会按各自的名字分别导入。
+    </p>
+
+    <p class="sheet__text">
           库里已经有 <strong>{{ choosing.preview.existing.length }}</strong> 个同为
           <code>{{ choosing.preview.modid }}</code> 的模组：
         </p>
@@ -918,6 +928,16 @@ function openModsDir(): void {
   border-radius: var(--radius-pill);
   background: var(--surface-3);
   color: var(--on-surface-variant);
+  font-size: 10.5px;
+}
+
+.mount {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, #00897b 12%, transparent);
+  color: #00796b;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 10.5px;
 }
 

@@ -182,6 +182,14 @@ pub struct LibraryMod {
     /// 版本号。
     #[serde(default)]
     pub version: Option<String>,
+    /// **铺进游戏目录时用的名字**（原样保留的那个）。
+    ///
+    /// 显示出来是有意义的：地图里写的就是这个名字，用户一眼能看出对不对。
+    #[serde(default)]
+    pub folder: Option<String>,
+    /// 铺成文件还是目录。
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// 版本自带的说明文档。
@@ -696,6 +704,8 @@ impl Library {
                         standalone_id: None,
                         modid: None,
                         version: variant.version.clone(),
+                        folder: None,
+                        kind: None,
                     });
                 }
             }

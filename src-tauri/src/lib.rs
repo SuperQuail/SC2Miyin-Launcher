@@ -779,6 +779,14 @@ fn list_library_mods(state: State<'_, AppState>) -> Result<Vec<LibraryMod>, Stri
             standalone_id: Some(record.id.clone()),
             modid: Some(mods::effective_id(&record)),
             version: record.version.clone(),
+            folder: Some(mods::placed_name(&record)),
+            kind: Some(
+                match record.kind {
+                    mods::ModKind::File => "file",
+                    mods::ModKind::Folder => "folder",
+                }
+                .to_string(),
+            ),
         });
     }
 
