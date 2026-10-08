@@ -14,13 +14,12 @@ import { errorText, useLauncher } from "../composables/useLauncher";
 const {
   notify,
   updateCheck,
-  updateStaged,
   updateDownloading,
   updateNoticeVisible,
   updateNoticeMuted,
   dismissUpdateNotice,
   muteThisVersion,
-  downloadUpdateNow,
+  downloadFromNotice,
 } = useLauncher();
 
 const release = computed(() => updateCheck.value?.latest ?? null);
@@ -84,9 +83,9 @@ function close(): void {
           class="btn btn-primary"
           type="button"
           :disabled="updateDownloading"
-          @click="downloadUpdateNow"
+          @click="downloadFromNotice"
         >
-          {{ updateDownloading ? "下载中…" : updateStaged ? "已下载，去安装" : "下载并安装" }}
+          下载并安装
         </button>
       </div>
     </div>

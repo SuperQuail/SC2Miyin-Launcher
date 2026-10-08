@@ -98,7 +98,7 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │               ├── store.rs        # 导入 / 删除版本
 │               └── activation.rs   # 启用 / 停用（按清单精确回滚）
 ├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
-│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里
+│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
 │   ├── tauri.conf.json
 │   └── icons/                 # 由 scripts/prepare-icons.py 生成
 ├── ui/                        # Vue 3 + TypeScript 前端
@@ -688,3 +688,27 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 - **不确定就不动**：版本号认不出、摘要对不上、包里没有 exe、zip 条目越界 —— 一律拒绝。
 - **更新只换程序本体**：`data/`（战役库、补丁、配置）一个字节都不碰。
 - Windows 上覆盖不了正在运行的 exe，所以走 `.cmd` 重试脚本。
+
+---
+
+## 16. 命令层：一律 `#[tauri::command(async)]`
+
+**这是踩过的一个大坑**：Tauri 2 里**同步命令跑在主线程**上。
+启动器的命令动不动就是几秒到几分钟 —— 读整个压缩包、拷贝几个 GB 的战役、等用户选文件 ——
+同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
+
+所以 `src-tauri/src/lib.rs` 里的命令**全部**写成：
+
+```rust
+#[tauri::command(async)]
+fn import_package(...) -> Result<...> { ... }
+```
+
+`(async)` 让 Tauri 把同步函数体丢到线程池执行，不用改写函数体 —— 一个词的事。
+（Tauri 文档原话：*Commands without the async keyword are executed on the main thread
+unless defined with `#[tauri::command(async)]`*。）
+
+特别长的活（下载更新、检查更新）再加一层 `async fn` +
+`tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
+
+**自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。

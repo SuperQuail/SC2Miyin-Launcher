@@ -45,6 +45,12 @@ const updateChecking = ref(false);
 const updateDownloading = ref(false);
 /** 下载完成后弹的那个"要重启了"对话框。 */
 const showRestartPrompt = ref(false);
+/** 当前页面。放在这里而不是 App.vue 里，是为了让更新公告也能切页面。 */
+const currentView = ref<"campaigns" | "settings">("campaigns");
+
+/** 启动器自己的版本（对外写法，如 0.1.0a3）。顶栏与更新面板共用。 */
+const launcherVersion = ref("");
+
 /** 启动时的更新公告（渲染 Release 正文的那个弹窗）。 */
 const updateNoticeVisible = ref(false);
 /** 公告上的「不再提示这个版本」勾选状态。 */
@@ -193,6 +199,23 @@ async function downloadUpdateNow(): Promise<void> {
   }
 }
 
+/**
+ * 公告里点「下载并安装」。
+ *
+ * **不在公告里直接下载** —— 那样用户只看到一个转圈，看不到进度条和内嵌终端，
+ * 容易以为卡死了。正确做法是：收起公告 -> 跳到设置页的更新面板 -> 在那里开始下载，
+ * 用户能看着它一步步做完。
+ */
+async function downloadFromNotice(): Promise<void> {
+  dismissUpdateNotice();
+  currentView.value = "settings";
+
+  // 等面板挂载并滚到位置，再开始下载。
+  // 太早开始的话，进度条会先于用户视线出现，看着莫名其妙。
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  await downloadUpdateNow();
+}
+
 /** 换上新版本（程序会退出，由替换脚本接管）。 */
 async function applyUpdateNow(): Promise<void> {
   try {
@@ -230,6 +253,16 @@ export function errorText(error: unknown): string {
 
 /** 首次进入时探测游戏并载入战役库。 */
 async function bootstrap(): Promise<void> {
+  // 启动器版本：界面要显示的是**自己**的版本，不是游戏构建号
+  void api
+    .appVersion()
+    .then((version) => {
+      launcherVersion.value = version;
+    })
+    .catch(() => {
+      /* 拿不到就不显示，不该因此打扰用户 */
+    });
+
   if (ready.value) return;
   loading.value = true;
   try {
@@ -344,6 +377,9 @@ async function reveal(path: string): Promise<void> {
 
 export function useLauncher() {
   return {
+    launcherVersion,
+    currentView,
+    downloadFromNotice,
     updateNoticeVisible,
     updateNoticeMuted,
     dismissUpdateNotice,

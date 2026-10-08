@@ -7,6 +7,26 @@
 
 ## [未发布]
 
+## [0.1.0a4] - 2026-10-08
+
+这一版全是修问题。
+
+### 修复
+
+- **下载更新时主程序未响应**：Tauri 2 里**同步命令跑在主线程**上，下载要几十秒，
+  整个窗口就被占死了。现在命令层**全部**加 `(async)`（让 Tauri 丢到线程池），
+  下载与检查更新另外用 `async fn` + `spawn_blocking`
+- **同一个坑还影响导入 / 启用战役 / 导出**：那些命令要读整个压缩包、拷几个 GB，
+  同样是同步的，同样会卡住界面 —— 一并修掉
+
+### 变更
+
+- 公告里点「下载并安装」不再就地开始下载，而是**收起公告 -> 跳到设置页 -> 滚到更新面板**
+  再开始，进度条与内嵌终端全程可见（原来只看到一个不动的弹窗，很容易以为死机）
+- 顶栏补上**启动器版本**（`v0.1.0a4`，高亮），原本只有一个未加标注的
+  `5.0.16.97579` —— 那是星际争霸 II 的构建号，很容易被当成启动器版本；
+  现在游戏版本也标上 `SC2` 前缀
+
 ## [0.1.0a3] - 2026-10-08
 
 主题：**更新提示看得见** + 协作走 PR。
@@ -98,7 +118,8 @@
 - 导出时「解开的目录树」形态的地图，CCM 可能读不了
 - 地图内依赖声明的扫描是尽力而为，拿不到时会干净地下落到下一层
 
-[未发布]: https://github.com/SuperQuail/SC2Miyin-Launcher/compare/v0.1.0a3...dev
+[未发布]: https://github.com/SuperQuail/SC2Miyin-Launcher/compare/v0.1.0a4...dev
+[0.1.0a4]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0a4
 [0.1.0a3]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0a3
 [0.1.0a2]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0a2
 [0.1.0-alpha.1]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0-alpha.1
