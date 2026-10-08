@@ -1588,7 +1588,12 @@ fn mods_inside_a_named_package_keep_their_folder() {
     // **Alenger/ 这一层没了**，地图里声明的 Mods\Alenger\… 自然找不到。
     let campaign = Placement::Campaign { sub: None };
 
-    let nested = payload_target("疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod", true, "");
+    let nested = payload_target(
+        "疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod",
+        true,
+        "",
+        false,
+    );
     assert_eq!(
         payload_target_path(&nested, &campaign).as_deref(),
         Some("Mods/Alenger/1钢铁.SC2Mod"),
@@ -1599,6 +1604,7 @@ fn mods_inside_a_named_package_keep_their_folder() {
         "疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/x.dds",
         true,
         "",
+        false,
     );
     assert_eq!(
         payload_target_path(&expanded, &campaign).as_deref(),
@@ -1610,6 +1616,7 @@ fn mods_inside_a_named_package_keep_their_folder() {
         "疯批帝国军械库2.3/Maps/Campaign/thanson01.SC2Map",
         false,
         "",
+        false,
     );
     assert_eq!(
         payload_target_path(&map, &campaign).as_deref(),
@@ -1617,7 +1624,7 @@ fn mods_inside_a_named_package_keep_their_folder() {
     );
 
     // 顶层就是 Mods/ 的老写法照样对
-    let plain = payload_target("Mods/SCMRmod.SC2Mod", true, "");
+    let plain = payload_target("Mods/SCMRmod.SC2Mod", true, "", false);
     assert_eq!(
         payload_target_path(&plain, &campaign).as_deref(),
         Some("Mods/SCMRmod.SC2Mod")
@@ -1625,7 +1632,7 @@ fn mods_inside_a_named_package_keep_their_folder() {
 
     // 小写 maps/ 是作者的**分类习惯**，不是游戏目录名 ——
     // 不能当镜像（那会送到游戏根下），而是拍平到战役目录里。
-    let lowercase = payload_target("maps/a.SC2Map", false, "");
+    let lowercase = payload_target("maps/a.SC2Map", false, "", false);
     assert_eq!(
         payload_target_path(&lowercase, &campaign).as_deref(),
         Some("Maps/Campaign/a.SC2Map"),
@@ -1923,4 +1930,58 @@ fn a_root_level_entry_map_is_picked_automatically() {
     let unset = resolve_main_map(&plain, None);
     assert_eq!(unset.path, None);
     assert!(!unset.automatic);
+}
+#[test]
+fn a_package_shaped_like_the_game_root_keeps_map_folders() {
+    use crate::campaign::package::{PayloadTarget, payload_target};
+
+    // 复刻战役 SCMR 那种摆法：**包根直接有 Mods/**，兄弟目录
+    // Starcraft Mass Recall/ 里是分章节的地图。
+    //
+    // 它的启动器地图里写的是
+    //   GameSetNextMap("Starcraft Mass Recall/1. Rebel Yell/Terran01")
+    // —— 这个路径**相对 Maps/**。所以装完必须长成
+    //   Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map
+    //
+    // 踩过：这些地图被当成「作者的分类目录」拍平成 Maps/Campaign/Terran01.SC2Map，
+    // 层级一没，启动器地图就联动不了任何关卡 —— 用户看到的是
+    // 「能打开启动器，但点哪一关都进不去」。
+    let mirrored = payload_target(
+        "Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+        false,
+        "",
+        true,
+    );
+    assert_eq!(
+        mirrored,
+        PayloadTarget::Mirror {
+            path: "Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map".to_string(),
+        },
+        "根上有 Mods/ 就说明作者按游戏根目录摆的，结构和名字都要原样保留"
+    );
+
+    // 启动器地图自己也在同一层
+    let launcher = payload_target(
+        "Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map",
+        false,
+        "",
+        true,
+    );
+    assert_eq!(
+        launcher,
+        PayloadTarget::Mirror {
+            path: "Maps/Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map".to_string(),
+        }
+    );
+
+    // **没有**那个信号时维持原样：交给分类目录规则处理（只取文件名），
+    // 免得把作者随手起的分组目录硬塞进游戏目录
+    let plain = payload_target("maps/a.SC2Map", false, "", false);
+    assert_eq!(
+        plain,
+        PayloadTarget::Map {
+            name: "a.SC2Map".to_string(),
+        },
+        "没有 Mods/ 信号就不敢动结构，按老规矩拍平"
+    );
 }

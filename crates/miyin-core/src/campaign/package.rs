@@ -327,6 +327,8 @@ pub fn count_payloads(payloads: &[Payload]) -> (usize, usize) {
 /// 取"根"的办法：一条路径里**第一个**以 `.SC2Map` / `.SC2Mod` 结尾的组件就是载荷根，
 /// 这样无论它是单文件还是解开的目录树都能正确识别。
 fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
+    // 这个包是不是按游戏根目录摆的（根上有 Mods/）—— 决定地图要不要保留目录结构
+    let mirrors = mirrors_game_root(entries);
     let mut roots: Vec<(String, bool)> = Vec::new();
 
     for entry in entries {
@@ -353,7 +355,7 @@ fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
                 strip_prefix(&entry.relative, content_root)
                     .is_some_and(|relative| is_under(&relative, &source))
             });
-            let target = payload_target(&source, is_mod, content_root);
+            let target = payload_target(&source, is_mod, content_root, mirrors);
             Payload {
                 source,
                 target,
@@ -405,6 +407,36 @@ fn is_under(candidate: &Path, root: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 这个包是不是**按游戏根目录摆的**。
+///
+/// 判据：包根直接有个 `Mods/`（不是包名目录下面的）。
+///
+/// 真实样本教我们的 —— 复刻战役 SCMR 长这样：
+///
+/// `@text
+/// Mods/SCMRassets.SC2Mod          <- 已经在游戏根的位置上了
+/// Mods/SCMRmod.SC2Mod
+/// Starcraft Mass Recall/          <- 那这个兄弟目录就是 Maps/ 底下的
+/// ├── 1. Rebel Yell/Terran01.SC2Map
+/// └── SCMR Campaign Launcher.SC2Map
+/// `@
+///
+/// 它的启动器地图里写的是 `GameSetNextMap("Starcraft Mass Recall/1. Rebel Yell/Terran01")`
+/// —— 这个路径**相对 Maps/**。所以装完必须长成
+/// `Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map`。
+///
+/// 踩过：这些地图被当成「作者的分类目录」拍平成 `Maps/Campaign/Terran01.SC2Map`，
+/// 层级一没，启动器地图就联动不了任何关卡 —— 用户看到的就是
+/// 「能打开启动器，但点哪一关都进不去」。
+///
+/// `Mods/` 是作者给出来的**信号**，不是我们在猜。
+fn mirrors_game_root(entries: &[Entry]) -> bool {
+    entries.iter().any(|entry| {
+        let path = entry.relative.to_string_lossy().replace('\\', "/");
+        path.len() > 4 && path.starts_with("Mods/")
+    })
+}
+
 /// 路径里第一段 `Maps` / `Mods`，从那里往后就是游戏目录内的相对路径。
 ///
 /// **为什么不能只看开头**：包常常多一层「包名」目录 ——
@@ -432,10 +464,28 @@ fn game_relative(source: &str) -> Option<String> {
 /// 决定载荷落到游戏目录的哪里。
 ///
 /// 对 crate 内可见是为了能直接测：包名那层怎么剥，只有在这里才说得清。
-pub(crate) fn payload_target(source: &str, is_mod: bool, content_root: &str) -> PayloadTarget {
-    // 包内已经是游戏目录镜像 -> 按原路径落盘（仍然要过白名单校验）。
+pub(crate) fn payload_target(
+    source: &str,
+    is_mod: bool,
+    content_root: &str,
+    mirrors_game_root: bool,
+) -> PayloadTarget {
+    // 包内已经摆好了游戏目录那一层（`Maps/…` 或 `Mods/…`）-> 按原路径落盘
     if let Some(relative) = game_relative(source) {
         return PayloadTarget::Mirror { path: relative };
+    }
+
+    // 包是**按游戏根目录摆的**（根上有 `Mods/`）：那其余顶层目录就是 `Maps/`
+    // 底下的，**结构和名字都要原样保留**。
+    //
+    // 判据来自作者自己：他既然把 `Mods/` 摆在根上，兄弟目录就是 `Maps/` 的内容。
+    // 这里**不能**拍平 —— 复刻战役的启动器地图按 `Starcraft Mass Recall/…`
+    // 这个相对 Maps/ 的路径联动下一关，拍平了它就找不到任何关卡。
+    if mirrors_game_root {
+        let path = source.replace('\\', "/");
+        return PayloadTarget::Mirror {
+            path: format!("Maps/{path}"),
+        };
     }
 
     let path = source.replace('\\', "/");

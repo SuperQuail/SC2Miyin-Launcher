@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<Desc>
+    <Frame type="OptionsDialog" name="OptionsDialog">
+        <Anchor relative="$parent"/>
+
+        <Frame type="Frame" name="OptionsPanel">
+            <Anchor side="Top" relative="$parent" pos="Mid" offset="0"/>
+            <Anchor side="Left" relative="$parent" pos="Mid" offset="0"/>
+            <Anchor side="Bottom" relative="$parent" pos="Mid" offset="0"/>
+            <Anchor side="Right" relative="$parent" pos="Mid" offset="0"/>
+            <Width val="1400"/>
+            <Height val="1170"/>
+
+            <Frame type="Frame" name="BackgroundFrame" template="StandardTemplates/GlueDialogTemplate">
+                <Anchor relative="$parent"/>
+
+                <Frame type="Label" name="TitleLabel">
+                    <Anchor side="Top" relative="$parent" pos="Min" offset="35"/>
+                    <Text val="@UI/Options"/>
+                </Frame>
+            </Frame>
+
+            <Frame type="Button" name="CodexCategoryButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Width val="220"/>
+                <Text val="@UI/Gameplay_Control"/>
+            </Frame>
+
+            <Frame type="Button" name="GameplayButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Text val="@UI/Gameplay_Control"/>
+                <Width val="280"/>
+            </Frame>
+
+            <Frame type="Button" name="GraphicsButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/GameplayButton" pos="Min" offset="2"/>
+                <Anchor side="Left" relative="$parent/GameplayButton" pos="Min" offset="0"/>
+                <Text val="@UI/Visual_Control"/>
+                <Width val="280"/>
+            </Frame>
+
+            <Frame type="Button" name="InterfaceButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/GameplayButton" pos="Min" offset="2"/>
+                <Anchor side="Left" relative="$parent/GameplayButton" pos="Min" offset="0"/>
+                <Text val="@UI/Interface_Control"/>
+                <Width val="280"/>
+            </Frame>
+
+            <Frame type="Button" name="CinematicsButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/GraphicsButton" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent/GraphicsButton" pos="Min" offset="0"/>
+                <Text val="@UI/Cinematics_Control"/>
+            </Frame>
+
+            <Frame type="Button" name="AudioButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/AudioButton" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent/AudioButton" pos="Min" offset="0"/>
+                <Width val="280"/>
+                <Text val="@UI/Audio"/>
+            </Frame>
+
+            <Frame type="Button" name="AudioVOButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/AudioVOButton" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent/AudioVOButton" pos="Min" offset="0"/>
+                <Width val="280"/>
+                <Text val="@UI/Voices"/>
+            </Frame>
+
+            <Frame type="Button" name="ModelButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/ModelButton" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent/ModelButton" pos="Min" offset="0"/>
+                <Width val="280"/>
+                <Text val="@UI/Models"/>
+            </Frame>
+
+            <Frame type="Button" name="EvoChamberButton" template="StandardBattlenetTemplates/BattlenetVerticalTabButtonTemplate">
+                <Anchor side="Top" relative="$parent/EvoChamberButton" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent/EvoChamberButton" pos="Min" offset="0"/>
+                <Width val="280"/>
+                <Text val="@UI/EvoChamber"/>
+            </Frame>
+
+            <Frame type="Button" name="UnlockMapsButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Bottom" relative="$parent" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Width val="215"/>
+                <Text val="@UI/Unlock_Missions"/>
+            </Frame>
+
+            <Frame type="Button" name="CodexButtons" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Bottom" relative="$parent" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Width val="180"/>
+                <Text val="@UI/Unlock_Missions"/>
+            </Frame>
+
+            <Frame type="Button" name="ResetMapsButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Bottom" relative="$parent" pos="Max" offset="2"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Width val="215"/>
+                <Text val="@UI/Reset_Campaign"/>
+            </Frame>
+
+            <Frame type="Button" name="RestoreButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Min" offset="17"/>
+                <Anchor side="Right" relative="$parent" pos="Max" offset="-16"/>
+                <Width val="260"/>
+                <Text val="@UI/RestoreDefaults"/>
+            </Frame>
+
+            <Frame type="Button" name="PuristButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Min" offset="17"/>
+                <Anchor side="Right" relative="$parent" pos="Max" offset="-16"/>
+                <Width val="260"/>
+                <Text val="@UI/ClassicSettings"/>
+            </Frame>
+
+            <Frame type="Button" name="AudioBWButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Min" offset="17"/>
+                <Anchor side="Left" relative="$parent" pos="Max" offset="0"/>
+                <Width val="100"/>
+                <Text val="@UI/RestoreDefaults"/>
+            </Frame>
+
+            <Frame type="Button" name="AudioSCIIButton" template="StandardBattlenetTemplates/StandardBattlenetMiniButtonTemplate">
+                <Anchor side="Top" relative="$parent" pos="Min" offset="17"/>
+                <Anchor side="Left" relative="$parent" pos="Max" offset="130"/>
+                <Width val="100"/>
+                <Text val="@UI/RestoreDefaults"/>
+            </Frame>
+
+            <Frame type="Slider" name="GameSpeedSlider" template="StandardTemplates/StandardSliderTemplate">
+                <Anchor side="Top" relative="$parent" pos="Max" offset="0"/>
+                <Anchor side="Left" relative="$parent" pos="Min" offset="0"/>
+                <Width val="200"/>
+                <Tooltip val="@UI/GameplayOptionsTooltips/GameSpeed"/>
+                <MinValue val="0"/>
+                <MaxValue val="4"/>
+                <StepValue val="1"/>
+                <Continuous val="false"/>
+            </Frame>
+        </Frame>
+    </Frame>
+</Desc>
