@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<terrain version="113">
+    <heightMap tileSet="AvernusEx1" uvtiling="3.000000 3.000000 0.750000 -0.750000 " dim="33 33 " offset="0.000000 0.000000 0.000000 " scale="1.000000e+000 1.000000e+000 1.000000e+000 ">
+        <cliffSetList num="1">
+            <cliffSet i="0" name="AvernusEx1Cliff1"/>
+        </cliffSetList>
+        <vertData quantizeBias="9.000000e+000" quantizeScale="2.746593e-004" standardHeight="8.000000e+000" name="t3HeightMap"/>
+        <masks name="t3TextureMasks"/>
+        <textureList num="8">
+            <texture i="0" name="AvernusMesh"/>
+            <texture i="1" name=""/>
+            <texture i="2" name=""/>
+            <texture i="3" name=""/>
+            <texture i="4" name=""/>
+            <texture i="5" name=""/>
+            <texture i="6" name=""/>
+            <texture i="7" name=""/>
+        </textureList>
+        <cliffCellList num="256" numOccupied="0"/>
+    </heightMap>
+</terrain>

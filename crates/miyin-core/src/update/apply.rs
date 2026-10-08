@@ -178,7 +178,10 @@ pub fn apply(
     reporter.say("启动器即将退出，由脚本完成替换并重启");
 
     // 用 cmd /c 起一个独立进程：主程序退出后它继续跑
-    std::process::Command::new("cmd")
+    let mut command = std::process::Command::new("cmd");
+    // 它要弹黑框跑脚本，但那个框跳出来又关掉，观感很差
+    crate::platform::hide_console(&mut command);
+    command
         .arg("/c")
         .arg(&script)
         .current_dir(updates_dir(data_dir))

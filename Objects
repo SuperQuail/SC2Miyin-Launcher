@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PlacedObjects Version="27">
+    <ObjectCamera Id="918513714" Position="16,7,0" Rotation="6.2304" Scale="1,1,1" Name="City7" Color="0,0,0,0" CameraTarget="16,7">
+        <CameraValue Index="FieldOfView" Value="20"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="0.0292"/>
+        <CameraValue Index="Pitch" Value="352"/>
+        <CameraValue Index="Yaw" Value="356.98"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffStart" Value="0.0002"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="FalloffStartNear" Value="0.0002"/>
+        <CameraValue Index="FalloffEndNear" Value="0.0002"/>
+        <CameraValue Index="BokehFStop" Value="0.146"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="13" Position="10.7343,16.319,0" Rotation="3.14" Scale="1,1,1" Name="Trip" Color="0,0,0,0" CameraTarget="10.7343,16.319">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="4.5942"/>
+        <CameraValue Index="Pitch" Value="56"/>
+        <CameraValue Index="Yaw" Value="179.9025"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="16" Position="31.9848,6.2363,0" Rotation="1.4" Scale="1,1,1" Name="NegativeSun" Color="0,0,0,0" CameraTarget="31.9848,6.2363">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="9.7473"/>
+        <CameraValue Index="Pitch" Value="30.7333"/>
+        <CameraValue Index="Yaw" Value="80.2084"/>
+        <CameraValue Index="HeightOffset" Value="-12.121"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="BokehFStop" Value="0.0097"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="12" Position="19.6196,18.953,0" Rotation="2.7956" Scale="1,1,1" Name="MarSara" Color="0,0,0,0" CameraTarget="19.6196,18.953">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="2.3576"/>
+        <CameraValue Index="Pitch" Value="62.2675"/>
+        <CameraValue Index="Yaw" Value="160.1791"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="651129029" Position="19,11,0" Scale="1,1,1" Name="City5" Color="0,0,0,0" CameraTarget="19,11">
+        <CameraValue Index="FieldOfView" Value="27"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="0.0292"/>
+        <CameraValue Index="Pitch" Value="352"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffStart" Value="0.0002"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="FalloffStartNear" Value="0.0002"/>
+        <CameraValue Index="FalloffEndNear" Value="0.0002"/>
+        <CameraValue Index="BokehFStop" Value="0.146"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="1934098026" Position="11,17,0" Rotation="5.9338" Scale="1,1,1" Name="City8" Color="0,0,0,0" CameraTarget="11,17">
+        <CameraValue Index="FieldOfView" Value="27"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="0.0292"/>
+        <CameraValue Index="Pitch" Value="352"/>
+        <CameraValue Index="Yaw" Value="339.9978"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffStart" Value="0.0002"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="FalloffStartNear" Value="0.0002"/>
+        <CameraValue Index="FalloffEndNear" Value="0.0002"/>
+        <CameraValue Index="BokehFStop" Value="0.146"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="815960109" Position="16,24,0" Rotation="3.1406" Scale="1,1,1" Name="City" Color="0,0,0,0" CameraTarget="16,24">
+        <CameraValue Index="FieldOfView" Value="27"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="0.0292"/>
+        <CameraValue Index="Pitch" Value="352"/>
+        <CameraValue Index="Yaw" Value="179.9584"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffStart" Value="0.0002"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="FalloffStartNear" Value="0.0002"/>
+        <CameraValue Index="FalloffEndNear" Value="0.0002"/>
+        <CameraValue Index="BokehFStop" Value="0.146"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="15" Position="21.8933,17.6232,0" Rotation="3.14" Scale="1,1,1" Name="Nebula" Color="0,0,0,0" CameraTarget="21.8933,17.6232">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="8.9531"/>
+        <CameraValue Index="Pitch" Value="56"/>
+        <CameraValue Index="Yaw" Value="179.9025"/>
+        <CameraValue Index="HeightOffset" Value="-9.149"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="4" Position="18.1782,23.6154,0" Rotation="6.1262" Scale="1,1,1" Name="Camera 001" Color="0,0,0,0" CameraTarget="18.1782,23.6154">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="20000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="15.861"/>
+        <CameraValue Index="Pitch" Value="74.607"/>
+        <CameraValue Index="Yaw" Value="351.0065"/>
+        <CameraValue Index="HeightOffset" Value="-0.1218"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="902633313" Position="18.6958,21.944,0" Rotation="2.8007" Scale="1,1,1" Name="CItyAbove02" Color="0,0,0,0" CameraTarget="18.6958,21.944">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="4.5942"/>
+        <CameraValue Index="Pitch" Value="45.7165"/>
+        <CameraValue Index="Yaw" Value="160.4868"/>
+        <CameraValue Index="HeightOffset" Value="-8.2524"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="BokehFStop" Value="0.0097"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="14" Position="18.6958,21.944,0" Rotation="3.1745" Scale="1,1,1" Name="CityAbove" Color="0,0,0,0" CameraTarget="18.6958,21.944">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="4.5942"/>
+        <CameraValue Index="Pitch" Value="42.0932"/>
+        <CameraValue Index="Yaw" Value="181.889"/>
+        <CameraValue Index="HeightOffset" Value="-8.2524"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="700832945" Position="22,19,0" Rotation="1.5698" Scale="1,1,1" Name="City3" Color="0,0,0,0" CameraTarget="22,19">
+        <CameraValue Index="FieldOfView" Value="27"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="0.0292"/>
+        <CameraValue Index="Pitch" Value="352"/>
+        <CameraValue Index="Yaw" Value="89.9582"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffStart" Value="0.0002"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="FalloffStartNear" Value="0.0002"/>
+        <CameraValue Index="FalloffEndNear" Value="0.0002"/>
+        <CameraValue Index="BokehFStop" Value="0.146"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="9" Position="21.278,7.4077,0" Rotation="3.14" Scale="1,1,1" Name="testcam" Color="0,0,0,0" CameraTarget="21.278,7.4077">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="34"/>
+        <CameraValue Index="Pitch" Value="56"/>
+        <CameraValue Index="Yaw" Value="179.9025"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="10" Position="17.8803,4.8457,0" Rotation="3.14" Scale="1,1,1" Name="Korhal" Color="0,0,0,0" CameraTarget="17.8803,4.8457">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="9.8483"/>
+        <CameraValue Index="Pitch" Value="56"/>
+        <CameraValue Index="Yaw" Value="179.9025"/>
+        <CameraValue Index="HeightOffset" Value="-6.7551"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="1" Position="18.1782,23.6154,0" Rotation="6.1262" Scale="1,1,1" Name="Stars" Color="0,0,0,0" CameraTarget="18.1782,23.6154">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="20000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="15.861"/>
+        <CameraValue Index="Pitch" Value="74.607"/>
+        <CameraValue Index="Yaw" Value="351.0065"/>
+        <CameraValue Index="HeightOffset" Value="-0.1218"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="935684188" Position="18.6958,21.944,0" Rotation="3.0144" Scale="1,1,1" Name="CityAbove03" Color="0,0,0,0" CameraTarget="18.6958,21.944">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="4.5942"/>
+        <CameraValue Index="Pitch" Value="61.6791"/>
+        <CameraValue Index="Yaw" Value="172.7126"/>
+        <CameraValue Index="HeightOffset" Value="-8.2524"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="BokehFStop" Value="0.0178"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+    <ObjectCamera Id="11" Position="18.3466,10.4357,0" Rotation="3.6755" Scale="1,1,1" Name="Char" Color="0,0,0,0" CameraTarget="18.3466,10.4357">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="1.2097"/>
+        <CameraValue Index="Pitch" Value="65.654"/>
+        <CameraValue Index="Yaw" Value="210.5927"/>
+        <CameraValue Index="HeightOffset" Value="-7.9414"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+    </ObjectCamera>
+    <ObjectCamera Id="807488108" Position="18.6958,21.944,0" Rotation="3.1772" Scale="1,1,1" Name="CityAbove04" Color="0,0,0,0" CameraTarget="18.6958,21.944">
+        <CameraValue Index="FieldOfView" Value="27.7998"/>
+        <CameraValue Index="NearClip" Value="0.0998"/>
+        <CameraValue Index="FarClip" Value="40000"/>
+        <CameraValue Index="ShadowClip" Value="300"/>
+        <CameraValue Index="Distance" Value="4.5942"/>
+        <CameraValue Index="Pitch" Value="52.5715"/>
+        <CameraValue Index="Yaw" Value="182.0566"/>
+        <CameraValue Index="HeightOffset" Value="-8.2524"/>
+        <CameraValue Index="FocalDepth" Value="8"/>
+        <CameraValue Index="FalloffEnd" Value="8"/>
+        <CameraValue Index="BokehFStop" Value="0.0178"/>
+        <CameraValue Index="BokehMaxCoC" Value="1"/>
+    </ObjectCamera>
+</PlacedObjects>

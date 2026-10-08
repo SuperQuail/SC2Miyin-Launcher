@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<Catalog>
+    <CModel id="SC1MissileTurret">
+        <Model value="Assets\Units\SC1_MissileTurret.m3"/>
+    </CModel>
+</Catalog>

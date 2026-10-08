@@ -2,10 +2,17 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
+import { api } from "./api/bridge";
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
+import type { ViewId } from "./composables/useLauncher";
+import ContextMenu from "./components/ContextMenu.vue";
+import { contextMenuHandledRecently, useContextMenu } from "./composables/useContextMenu";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
+import CustomView from "./views/CustomView.vue";
+import ModsView from "./views/ModsView.vue";
+import CheatsView from "./views/CheatsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 const {
@@ -21,25 +28,207 @@ const {
   applyUpdateNow,
   currentView,
   launcherVersion,
+  ensureTools,
 } = useLauncher();
 
-const tabs: { id: "campaigns" | "settings"; label: string }[] = [
+/** 会出水波纹的元素。加新组件时把类名补进来就行。 */
+const RIPPLE_TARGETS =
+  ".btn, .chip, .tab, .variant, .slot-card, .map, .target, .ctx__item, .group__head, .update-badge";
+
+const tabs: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
+  // 自制战役是**另一个顶层选项**，不是「战役」里的一个分组 ——
+  // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
+  { id: "custom", label: "自制战役" },
+  { id: "mods", label: "模组" },
   { id: "settings", label: "设置" },
 ];
 
+/** 作弊码这类查询工具走弹层，不占标签位。 */
+const cheatsOpen = ref(false);
+
+const menu = useContextMenu();
+
+/**
+ * 右键：**一律拦掉浏览器原生的那个**。
+ *
+ * WebView 的原生菜单是「刷新 / 另存为 / 检查元素」那一套 —— 放在桌面应用里
+ * 格格不入，而且会把用户导向一个跟本应用无关的世界。所以整个窗口一律拦掉，
+ * 换成我们自己的：
+ *
+ * - 组件自己处理过的（卡片、地图行…）用组件那份菜单 —— 靠时间戳认出来
+ * - **输入框里给复制粘贴** —— 不然用户连粘贴个路径都做不到，这是拦掉的代价
+ * - 其余地方落到默认菜单
+ */
+function onContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  if (contextMenuHandledRecently()) return;
+
+  const editable = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+    "input, textarea, [contenteditable='true']",
+  );
+
+  if (editable) {
+    menu.show(
+      event,
+      [
+        { id: "cut", label: "剪切" },
+        { id: "copy", label: "复制" },
+        { id: "paste", label: "粘贴" },
+        { id: "selectAll", label: "全选", separatorBefore: true },
+      ],
+      (id) => void editAction(editable, id),
+    );
+    return;
+  }
+
+  menu.show(
+    event,
+    [
+      { id: "refresh", label: "刷新数据" },
+      { id: "settings", label: "设置", separatorBefore: true },
+      { id: "repo", label: "项目主页" },
+    ],
+    (id) => {
+      if (id === "refresh") void bootstrap();
+      if (id === "settings") currentView.value = "settings";
+      if (id === "repo") void api.openUrl("https://github.com/SuperQuail/SC2Miyin-Launcher");
+    },
+  );
+}
+
+/** 输入框里的剪切 / 复制 / 粘贴 / 全选。 */
+async function editAction(element: HTMLElement, action: string): Promise<void> {
+  const field = element as HTMLInputElement | HTMLTextAreaElement;
+
+  if (action === "copy" || action === "cut") {
+    const selected = field.value?.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0) ?? "";
+    try {
+      await navigator.clipboard.writeText(selected);
+      if (action === "cut") {
+        const start = field.selectionStart ?? 0;
+        const end = field.selectionEnd ?? 0;
+        field.value = field.value.slice(0, start) + field.value.slice(end);
+        // 改完要通知 Vue —— 不然双向绑定还是旧值
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    } catch {
+      // 剪贴板被挡就算了，不弹红字
+    }
+    return;
+  }
+
+  if (action === "paste") {
+    try {
+      const text = await navigator.clipboard.readText();
+      const start = field.selectionStart ?? field.value.length;
+      const end = field.selectionEnd ?? field.value.length;
+      field.value = field.value.slice(0, start) + text + field.value.slice(end);
+      field.selectionStart = field.selectionEnd = start + text.length;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch {
+      // 读剪贴板需要权限，被拒就安静收场
+    }
+    return;
+  }
+
+  if (action === "selectAll") {
+    field.focus();
+    field.select();
+  }
+}
+
 const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
+
+/**
+ * 窗口按钮。
+ *
+ * 我们关掉了系统边框（`decorations: false`），所以最小化 / 最大化 / 关闭
+ * 得自己画。浏览器演示模式下这些命令不存在，按钮直接不显示。
+ */
+const maximized = ref(false);
+
+/**
+ * 按住顶栏拖动窗口。
+ *
+ * 本来 `data-tauri-drag-region` 就够了，但它有个坑：**只认事件落在
+ * 带这个属性的元素本身**。点了里面带文字的 span、或任何子元素，就不响应 ——
+ * 用户的感觉就是「有时候能拖有时候不能」，很难受。
+ *
+ * 所以自己接管：落点不在按钮/链接/输入框/窗口控件上就调系统的拖动，
+ * 整条顶栏（除了那几个控件）都是有效拖动区。
+ */
+function startWindowDrag(event: MouseEvent): void {
+  if (event.button !== 0) return;
+
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button, a, input, select, textarea, .winctl")) return;
+
+  void (async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startDragging();
+    } catch {
+      // 浏览器演示模式没有这个能力，忽略
+    }
+  })();
+}
+
+onMounted(async () => {
+  if (!isDesktop) return;
+  try {
+    maximized.value = await api.windowIsMaximized();
+  } catch {
+    // 拿不到就当没最大化
+  }
+});
+
+async function toggleMaximize(): Promise<void> {
+  try {
+    maximized.value = await api.windowToggleMaximize();
+  } catch {
+    // 忽略
+  }
+}
 
 /** 有文件被拖到窗口上方。 */
 const dragging = ref(false);
 let stopWatching: (() => void) | null = null;
 
+/**
+ * 点击波纹：在按钮 / 卡片上按一下，从落点扩散一圈。
+ *
+ * 用一个全局监听而不是给每个组件加指令 —— 界面里的可点元素太多，
+ * 与其到处挂，不如在这里按选择器统一处理，新加的组件自动就有。
+ */
+function spawnRipple(event: MouseEvent): void {
+  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(RIPPLE_TARGETS);
+  if (!target || target.hasAttribute("disabled")) return;
+
+  const rect = target.getBoundingClientRect();
+  // 直径取长边两倍，保证从任何角落点都能铺满
+  const size = Math.max(rect.width, rect.height) * 2;
+  const dot = document.createElement("span");
+  dot.className = "ripple";
+  dot.style.width = dot.style.height = size + "px";
+  dot.style.left = event.clientX - rect.left - size / 2 + "px";
+  dot.style.top = event.clientY - rect.top - size / 2 + "px";
+  target.appendChild(dot);
+  window.setTimeout(() => dot.remove(), 620);
+}
+
 onMounted(async () => {
+  window.addEventListener("mousedown", spawnRipple);
+  window.addEventListener("contextmenu", onContextMenu);
   void bootstrap();
 
   // **启动就自动扫描更新**，不需要用户手点。
   // 稍微延后，别和启动时的战役库读取抢时间。
   setTimeout(() => void autoCheckUpdate(), 1200);
+
+  // **可选工具默认静默安装**：没有就装上；装不上只提示一句，之后不再重试。
+  // 排在更新检查后面 —— 那是更要紧的事，工具装不上不影响启动器本身。
+  setTimeout(() => void ensureTools(), 2600);
 
   // 浏览器演示模式没有这个 API，静默跳过
   if (!isDesktop) return;
@@ -66,7 +255,11 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => stopWatching?.());
+onUnmounted(() => {
+  window.removeEventListener("mousedown", spawnRipple);
+  window.removeEventListener("contextmenu", onContextMenu);
+  stopWatching?.();
+});
 </script>
 
 <template>
@@ -74,8 +267,9 @@ onUnmounted(() => stopWatching?.());
     <div class="app-backdrop"></div>
     <div class="app-wallpaper" :style="backdropStyle"></div>
 
-    <header class="topbar">
-      <div class="brand">
+    <!-- 顶栏同时是标题栏：空白处按住可以拖窗口 -->
+    <header class="topbar" data-tauri-drag-region @mousedown="startWindowDrag">
+      <div class="brand" data-tauri-drag-region>
         <span class="brand__avatar">
           <img :src="MIYIN.chibi" alt="弥音" />
         </span>
@@ -85,7 +279,7 @@ onUnmounted(() => stopWatching?.());
         </div>
       </div>
 
-      <nav class="tabs">
+      <nav class="tabs" data-tauri-drag-region>
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -123,6 +317,38 @@ onUnmounted(() => stopWatching?.());
           SC2 {{ installation.version }}
         </span>
       </div>
+
+      <!-- 自绘的窗口按钮：系统边框已经关掉了 -->
+      <div class="winctl">
+        <button class="winctl__btn" type="button" title="最小化" @click="api.windowMinimize()">
+          <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6h7" /></svg>
+        </button>
+        <button
+          class="winctl__btn"
+          type="button"
+          :title="maximized ? '还原' : '最大化'"
+          @click="toggleMaximize"
+        >
+          <svg v-if="maximized" viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2.5" y="4.5" width="5" height="5" rx="1" />
+            <path d="M4.5 4.5v-2h5v5h-2" />
+          </svg>
+          <svg v-else viewBox="0 0 12 12" aria-hidden="true">
+            <rect x="2.5" y="2.5" width="7" height="7" rx="1.5" />
+          </svg>
+        </button>
+        <button
+          class="winctl__btn winctl__btn--close"
+          type="button"
+          title="关闭"
+          @click="api.windowClose()"
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M3 3l6 6" />
+            <path d="M9 3l-6 6" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- 拖拽导入 -->
@@ -137,8 +363,22 @@ onUnmounted(() => stopWatching?.());
     </div>
 
     <main class="content">
-      <CampaignsView v-if="currentView === 'campaigns'" @open-settings="currentView = 'settings'" />
-      <SettingsView v-else />
+      <!-- 切页时淡入上移，两个方向都给一点衔接 -->
+      <Transition name="view" mode="out-in">
+        <CampaignsView
+          v-if="currentView === 'campaigns'"
+          key="campaigns"
+          @open-settings="currentView = 'settings'"
+          @open-cheats="cheatsOpen = true"
+        />
+        <CustomView
+          v-else-if="currentView === 'custom'"
+          key="custom"
+          @open-cheats="cheatsOpen = true"
+        />
+        <ModsView v-else-if="currentView === 'mods'" key="mods" />
+        <SettingsView v-else key="settings" />
+      </Transition>
     </main>
 
     <Transition name="toast">
@@ -146,6 +386,12 @@ onUnmounted(() => stopWatching?.());
         {{ toast.message }}
       </div>
     </Transition>
+    <!-- 作弊码：战役页 / 自制战役页的「小工具」里弹出来 -->
+    <CheatsView v-if="cheatsOpen" @close="cheatsOpen = false" />
+
+    <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
+    <ContextMenu />
+
     <!-- 启动时的更新公告（渲染 Release 正文的 Markdown） -->
     <UpdateNotice />
 
@@ -240,7 +486,8 @@ onUnmounted(() => stopWatching?.());
   align-items: center;
   gap: 24px;
   height: var(--header-height);
-  padding: 0 22px;
+  /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
+  padding: 0 6px 0 22px;
   background: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
   color: #fff;
   box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
@@ -288,6 +535,56 @@ onUnmounted(() => stopWatching?.());
   font-size: 11px;
   opacity: 0.72;
   letter-spacing: 0.6px;
+}
+
+/* ---------- 自绘的窗口按钮 ---------- */
+/*
+ * 窗口按钮。
+ *
+ * 不加负外边距 —— 试过一次 `@margin-right: -18px`@ 想让它贴到窗口边缘，
+ * 结果整组被顶出可视区，界面上直接看不见，而系统边框已经关掉了，
+ * 那就等于没法关窗口。宁可和右边缘留一点间距。
+ */
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 6px;
+  /* 顶栏原本的右内边距对按钮来说太宽，收一点 */
+  margin-right: -14px;
+}
+
+.winctl__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.winctl__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* 关闭按钮悬停要变红 —— 这是所有桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
 }
 
 .tabs {
@@ -411,6 +708,11 @@ onUnmounted(() => stopWatching?.());
   box-shadow: var(--shadow-3);
   border-left: 4px solid var(--accent);
   font-size: 13.5px;
+}
+
+.toast--warning {
+  background: color-mix(in srgb, var(--warning, #b26a00) 92%, transparent);
+  color: #fff;
 }
 
 .toast--success {
