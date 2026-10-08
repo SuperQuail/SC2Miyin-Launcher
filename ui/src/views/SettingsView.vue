@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
+import UpdatePanel from "../components/UpdatePanel.vue";
 
 const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
 
@@ -92,6 +93,8 @@ const rows = computed(() => {
         </li>
       </ul>
     </section>
+
+    <UpdatePanel />
 
     <section class="card panel about">
       <img class="about__art" :src="MIYIN.portrait" alt="弥音" />

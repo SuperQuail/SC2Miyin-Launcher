@@ -242,6 +242,77 @@ export interface ExportReport {
   patches: string[];
 }
 
+/** 代理模式。 */
+export type ProxyMode = "auto" | "off" | "manual";
+
+/** 网络设置。 */
+export interface NetworkSettings {
+  /** auto = 环境变量 -> Windows 系统代理 -> 直连。 */
+  proxy_mode: ProxyMode;
+  /** manual 模式下用的地址。 */
+  proxy_url: string | null;
+  /** 是否允许走 GitHub 镜像加速。 */
+  use_mirrors: boolean;
+  /** 是否包含预发行版本。 */
+  include_prerelease: boolean;
+}
+
+/** 自动探测到的代理。 */
+export interface DetectedProxy {
+  url: string;
+  /** 从哪来的（环境变量 / Windows 系统代理 / 手动设置）。 */
+  source: string;
+}
+
+/** 发行包里的一个文件。 */
+export interface ReleaseAsset {
+  name: string;
+  size: number;
+  download_url: string;
+  sha256: string | null;
+}
+
+/** 一次发行。 */
+export interface ReleaseInfo {
+  version: string;
+  tag: string;
+  published_at: string;
+  html_url: string;
+  notes: string;
+  prerelease: boolean;
+  assets: ReleaseAsset[];
+}
+
+/** 检查更新的结果。 */
+export interface UpdateCheck {
+  current: string;
+  latest: ReleaseInfo | null;
+  available: boolean;
+  /** 走的是什么网络路径。 */
+  via: string | null;
+  /** 查不到时的原因。 */
+  error: string | null;
+}
+
+/** 下载好、等着换上去的更新。 */
+export interface Staged {
+  version: string;
+  archive: string;
+  root: string;
+  executable: string;
+  extras: string[];
+  /** 实际用的下载地址（镜像还是直连）。 */
+  url: string;
+  bytes: number;
+}
+
+/** 下载进度。 */
+export interface UpdateProgress {
+  done: number;
+  total: number | null;
+  percent: number | null;
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
   setInstallation(path: string): Promise<Installation>;
@@ -317,4 +388,18 @@ export interface LauncherApi {
     mergePatches: boolean,
   ): Promise<ExportReport>;
   pickExportPath(defaultName: string): Promise<string | null>;
+
+  /** 当前程序版本。 */
+  appVersion(): Promise<string>;
+  networkSettings(): Promise<NetworkSettings>;
+  setNetworkSettings(settings: NetworkSettings): Promise<void>;
+  /** 当前自动探测到的代理；直连时为 null。 */
+  detectedProxy(): Promise<DetectedProxy | null>;
+  checkUpdate(): Promise<UpdateCheck>;
+  downloadUpdate(version: string): Promise<Staged>;
+  /** 换上新版本并退出程序。 */
+  applyUpdate(): Promise<void>;
+  openUrl(url: string): Promise<void>;
+  /** 订阅下载进度，返回取消订阅的函数。 */
+  onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<() => void>;
 }

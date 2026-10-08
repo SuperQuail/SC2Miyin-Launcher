@@ -1,8 +1,0 @@
-fix(ci): 固定 Rust 工具链版本，并修掉新 clippy 的 sort_by 提示
-
-CI 用的是 stable（当时 1.99），本地是 1.94 —— 新版 clippy 多了
-unnecessary_sort_by，本地根本复现不了，CI 却直接红。
-
-- 加 rust-toolchain.toml 固定 1.94.0（本地与 CI 一起动，不再被 lint 漂移偷袭）
-- identify.rs 的三处 sort_by 改成 sort_by_key + Reverse（本来就是更清楚的写法）
-- 顺手把几个被编辑器写成 CRLF 的前端文件归一成 LF（rustfmt 会报 newline style）

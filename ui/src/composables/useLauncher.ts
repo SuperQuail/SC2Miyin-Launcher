@@ -24,6 +24,19 @@ const ready = ref(false);
 /** 被拖进窗口的压缩包路径；战役页取走后会清空。 */
 const droppedPackage = ref<string | null>(null);
 
+/** 有可用更新时存版本号，供顶栏提示；null 表示没有。 */
+const updateAvailable = ref<string | null>(null);
+
+/** 静默检查一次更新：**失败不打扰用户**，悄悄把提示清掉就行。 */
+async function refreshUpdateBadge(): Promise<void> {
+  try {
+    const result = await api.checkUpdate();
+    updateAvailable.value = result.available ? (result.latest?.version ?? null) : null;
+  } catch {
+    updateAvailable.value = null;
+  }
+}
+
 const toast = ref<Toast | null>(null);
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -160,6 +173,8 @@ async function reveal(path: string): Promise<void> {
 
 export function useLauncher() {
   return {
+    updateAvailable,
+    refreshUpdateBadge,
     droppedPackage,
     isDesktop,
     installation: computed(() => installation.value),

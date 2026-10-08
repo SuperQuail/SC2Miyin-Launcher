@@ -10,6 +10,8 @@ description = "弥音启动器核心库：星际争霸 II 安装发现、战役�
 dirs = "7.0.0"
 encoding_rs = "0.8.35"
 flate2 = "1.1.9"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+sha2 = "0.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.21"

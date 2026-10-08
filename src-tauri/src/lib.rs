@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
+use tauri::Emitter;
 
 use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
@@ -14,6 +15,9 @@ use miyin_core::library::{
     self, Binding, Conflict, ImportMode, Library, Patch, SlotView, Variant, VariantChanges,
 };
 use miyin_core::sc2::{DiscoverySource, Installation};
+use miyin_core::update::apply::Staged;
+use miyin_core::update::check::UpdateCheck;
+use miyin_core::update::net::NetworkSettings;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
@@ -25,11 +29,29 @@ struct Config {
 }
 
 /// 应用运行期状态。
+/// 网络设置的落盘文件名（与既有配置放在同一目录）。
+const NETWORK_FILE: &str = "network.json";
+
 struct AppState {
     installation: Mutex<Option<Installation>>,
     config_path: Mutex<Option<PathBuf>>,
     /// 战役库：存放玩家导入的各个版本（与游戏目录解耦）。
     library: Library,
+    /// 网络设置（代理 / 镜像 / 更新通道），落盘在 `network.json`。
+    network: Mutex<NetworkSettings>,
+    /// 网络设置文件的位置。
+    network_path: PathBuf,
+    /// 已经下载好、等着换上去的更新。
+    staged: Mutex<Option<Staged>>,
+}
+
+/// 下载进度事件（发给前端画进度条）。
+#[derive(Debug, Clone, serde::Serialize)]
+struct ProgressPayload {
+    done: u64,
+    total: Option<u64>,
+    /// 百分比；总长度未知时是 `None`。
+    percent: Option<f64>,
 }
 
 impl AppState {
@@ -42,10 +64,23 @@ impl AppState {
             .and_then(|root| Installation::from_root(root, DiscoverySource::Manual).ok())
             .or_else(|| Installation::discover().ok());
 
+        // 网络设置与既有配置放同一目录
+        let network_path = config_path
+            .parent()
+            .map(|dir| dir.join(NETWORK_FILE))
+            .unwrap_or_else(|| PathBuf::from(NETWORK_FILE));
+        let network = std::fs::read_to_string(&network_path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+
         Self {
             installation: Mutex::new(installation),
             config_path: Mutex::new(Some(config_path)),
             library: Library::new(library_root),
+            network: Mutex::new(network),
+            network_path,
+            staged: Mutex::new(None),
         }
     }
 
@@ -75,6 +110,29 @@ fn load_config(path: &Path) -> Config {
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()
+}
+
+/// 用系统默认浏览器打开链接。
+#[cfg(windows)]
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    // 不能直接 `start url`：cmd 会把 & 当分隔符。用 rundll32 更稳
+    std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(not(windows))]
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
+        .arg(url)
+        .spawn()
+        .map(|_| ())
 }
 
 /// 把锁中毒转成可展示的错误。
@@ -266,6 +324,143 @@ fn update_variant(
 ) -> Result<Variant, String> {
     library::update_variant(&state.library, &slot, &variant_id, changes)
         .map_err(|error| error.to_string())
+}
+
+/// 当前程序版本。
+#[tauri::command]
+fn app_version() -> String {
+    miyin_core::update::current_version().to_string()
+}
+
+/// 当前生效的网络设置。
+#[tauri::command]
+fn network_settings(state: State<'_, AppState>) -> Result<NetworkSettings, String> {
+    state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)
+}
+
+/// 改网络设置并落盘。
+#[tauri::command]
+fn set_network_settings(
+    settings: NetworkSettings,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Ok(mut guard) = state.network.lock() {
+        *guard = settings.clone();
+    }
+    if let Some(parent) = state.network_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let text = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
+    std::fs::write(&state.network_path, text).map_err(|error| error.to_string())
+}
+
+/// 当前自动探测到的代理（界面要如实告诉用户走的是哪条路）。
+#[tauri::command]
+fn detected_proxy(state: State<'_, AppState>) -> Option<miyin_core::update::net::DetectedProxy> {
+    state
+        .network
+        .lock()
+        .ok()
+        .and_then(|guard| miyin_core::update::net::detect_proxy(&guard))
+}
+
+/// 检查更新。**网络失败不算错误**：包在返回值里，界面照常显示"检查失败"。
+#[tauri::command]
+fn check_update(state: State<'_, AppState>) -> Result<UpdateCheck, String> {
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+    Ok(miyin_core::update::check::check(
+        &miyin_core::update::current_version(),
+        &settings,
+    ))
+}
+
+/// 下载更新包（会持续发 ``update://progress`` 事件）。
+#[tauri::command]
+fn download_update(
+    version: String,
+    window: tauri::Window,
+    state: State<'_, AppState>,
+) -> Result<Staged, String> {
+    let settings = state
+        .network
+        .lock()
+        .map(|guard| guard.clone())
+        .map_err(lock_error)?;
+
+    // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
+    let found = miyin_core::update::check::check(&miyin_core::update::current_version(), &settings);
+    let release = found
+        .latest
+        .filter(|release| release.version == version)
+        .ok_or_else(|| format!("没找到 {version} 这个版本，请重新检查更新"))?;
+    let asset = release
+        .platform_asset()
+        .ok_or_else(|| "这个发行版没有适合 Windows 的包".to_string())?
+        .clone();
+
+    let data_dir = state.library.root().to_path_buf();
+    let progress = move |done: u64, total: Option<u64>| {
+        let _ = window.emit(
+            "update://progress",
+            ProgressPayload {
+                done,
+                total,
+                percent: total
+                    .filter(|total| *total > 0)
+                    .map(|total| ((done as f64 / total as f64) * 100.0).min(100.0)),
+            },
+        );
+    };
+
+    let staged = miyin_core::update::stage(&asset, &settings, &data_dir, &version, &progress)
+        .map_err(|error| error.to_string())?;
+
+    if let Ok(mut guard) = state.staged.lock() {
+        *guard = Some(staged.clone());
+    }
+
+    Ok(staged)
+}
+
+/// 换上新版本并退出程序（替换脚本会等我们让出 exe 的锁）。
+#[tauri::command]
+fn apply_update(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let staged = state
+        .staged
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .ok_or_else(|| "还没有下载好的更新".to_string())?;
+
+    let current = std::env::current_exe().map_err(|error| error.to_string())?;
+    let data_dir = state.library.root().to_path_buf();
+
+    miyin_core::update::apply(&staged, &current, &data_dir).map_err(|error| error.to_string())?;
+
+    // 给脚本一点时间起来，然后让出 exe
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        app.exit(0);
+    });
+
+    Ok(())
+}
+
+/// 用系统默认浏览器打开一个链接。
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("只允许打开 http(s) 链接".to_string());
+    }
+    open_in_browser(&url).map_err(|error| error.to_string())
 }
 
 /// 把某个版本导出成 CCM 也能读的战役包。
@@ -659,6 +854,14 @@ pub fn run() {
             list_slots,
             export_variant,
             pick_export_path,
+            app_version,
+            network_settings,
+            set_network_settings,
+            detected_proxy,
+            check_update,
+            download_update,
+            apply_update,
+            open_url,
             list_patches,
             list_bindings,
             list_available_patches,

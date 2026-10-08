@@ -7,7 +7,8 @@ import { useLauncher } from "./composables/useLauncher";
 import CampaignsView from "./views/CampaignsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
-const { installation, toast, bootstrap, isDesktop, droppedPackage } = useLauncher();
+const { installation, toast, bootstrap, isDesktop, droppedPackage, updateAvailable, refreshUpdateBadge } =
+  useLauncher();
 
 type ViewId = "campaigns" | "settings";
 
@@ -33,6 +34,10 @@ let stopWatching: (() => void) | null = null;
 
 onMounted(async () => {
   void bootstrap();
+
+  // 静默检查一次更新：失败也不打扰用户，只是没有提示而已。
+  // 稍微延后，别和启动时的战役库读取抢时间。
+  setTimeout(() => void refreshUpdateBadge(), 1500);
 
   // 浏览器演示模式没有这个 API，静默跳过
   if (!isDesktop) return;
@@ -92,6 +97,14 @@ onUnmounted(() => stopWatching?.());
       </nav>
 
       <div class="topbar__right">
+        <button
+          v-if="updateAvailable"
+          class="update-badge"
+          type="button"
+          @click="view = 'settings'"
+        >
+          有新版本 {{ updateAvailable }}
+        </button>
         <span v-if="!isDesktop" class="tag tag--demo">演示模式</span>
         <span v-if="installation" class="tag">{{ installation.version }}</span>
       </div>
@@ -270,6 +283,22 @@ onUnmounted(() => stopWatching?.());
   background: rgba(255, 255, 255, 0.18);
   font-size: 12px;
   letter-spacing: 0.4px;
+}
+
+.update-badge {
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: #fff;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+.update-badge:hover {
+  background: var(--accent-soft);
 }
 
 .tag--demo {

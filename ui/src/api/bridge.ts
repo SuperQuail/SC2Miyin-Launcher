@@ -6,9 +6,15 @@
  * 导入、切换、删除都会即时反映在界面上。
  */
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import type {
   BoundPatch,
+  DetectedProxy,
+  NetworkSettings,
+  Staged,
+  UpdateCheck,
+  UpdateProgress,
   Composition,
   ExportReport,
   ImportPreview,
@@ -66,6 +72,17 @@ const desktop: LauncherApi = {
   exportVariant: (slot, variantId, destination, mergePatches) =>
     invoke<ExportReport>("export_variant", { slot, variantId, destination, mergePatches }),
   pickExportPath: (defaultName) => invoke<string | null>("pick_export_path", { defaultName }),
+
+  appVersion: () => invoke<string>("app_version"),
+  networkSettings: () => invoke<NetworkSettings>("network_settings"),
+  setNetworkSettings: (settings) => invoke<void>("set_network_settings", { settings }),
+  detectedProxy: () => invoke<DetectedProxy | null>("detected_proxy"),
+  checkUpdate: () => invoke<UpdateCheck>("check_update"),
+  downloadUpdate: (version) => invoke<Staged>("download_update", { version }),
+  applyUpdate: () => invoke<void>("apply_update"),
+  openUrl: (url) => invoke<void>("open_url", { url }),
+  onUpdateProgress: async (handler) =>
+    listen<UpdateProgress>("update://progress", (event) => handler(event.payload)),
 };
 
 /** 演示数据：数值取自开发机的真实安装。 */
@@ -495,6 +512,29 @@ const demo: LauncherApi = {
       ],
       overridden: [],
     }),
+
+  appVersion: () => delay("0.2.0-alpha.1"),
+  networkSettings: () =>
+    delay({
+      proxy_mode: "auto" as const,
+      proxy_url: null,
+      use_mirrors: true,
+      include_prerelease: true,
+    }),
+  setNetworkSettings: () => delay(undefined),
+  detectedProxy: () => delay({ url: "http://127.0.0.1:7897", source: "Windows 系统代理" }),
+  checkUpdate: () =>
+    delay({
+      current: "0.2.0-alpha.1",
+      latest: null,
+      available: false,
+      via: "http://127.0.0.1:7897（Windows 系统代理）",
+      error: null,
+    }),
+  downloadUpdate: () => delay({} as never),
+  applyUpdate: () => delay(undefined),
+  openUrl: () => delay(undefined),
+  onUpdateProgress: async () => () => {},
 
   exportVariant: (_slot, _variantId, destination, mergePatches) =>
     delay({

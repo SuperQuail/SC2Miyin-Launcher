@@ -14,7 +14,7 @@
 | 英文名 | MiYin Launcher |
 | 组织 | [SuperQuail](https://github.com/SuperQuail) |
 | 仓库 | https://github.com/SuperQuail/SC2Miyin-Launcher |
-| 当前版本 | `0.1.0-alpha.1`（在 `Cargo.toml` 的 `[workspace.package] version`） |
+| 当前版本 | **`0.1.0a2`**（对外写法；`Cargo.toml` 里是 `0.1.0-alpha.2`，见 §15.1） |
 | 许可证 | MIT |
 | 曾用名 | HSCL / Hello StarCraft Launcher（历史名称，仅本地目录仍在用） |
 | 本地目录 | `D:\Code\Rust\HSCL`（目录名暂未随改名调整，避免破坏现有工作流） |
@@ -206,7 +206,7 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 
 ### 7.3 发布
 
-版本号遵循 **SemVer**；预发行用 `-alpha.N` / `-beta.N` 后缀，当前 `0.1.0-alpha.1`。
+版本号遵循 SemVer；预发行用 **紧凑写法** `0.1.0a2`（内部是 `0.1.0-alpha.2`，见 §15.1）。
 
 发版流程：
 
@@ -214,17 +214,17 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
    `Cargo.toml` 的 `[workspace.package] version`、`ui/package.json`、
    `src-tauri/tauri.conf.json`。
 2. 写发行说明 `docs/release-notes/v<版本>.md` —— CI 会把它作为 Release 正文，
-   **文件名必须与 tag 完全对应**（`v0.1.0-alpha.1` 对 `v0.1.0-alpha.1.md`）。
+   **文件名必须与 tag 完全对应**（`v0.1.0a2` 对 `v0.1.0a2.md`）。
 3. 更新 `CHANGELOG.md`。
 4. 从 `main` 合到 `release`，打 tag 并推送：
 
    ```bash
    git checkout release && git merge main && git push origin release
-   git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+   git tag v0.1.0a2 && git push origin v0.1.0a2
    ```
 
 5. `.github/workflows/release.yml` 自动构建 Windows 绿色版并附到 Release。
-   版本号里带 `-` 的会**自动标成预发行**。
+   版本号里带字母的（`0.1.0a2` / `0.1.0-alpha.2`）会**自动标成预发行**。
 
 ⚠️ **改完版本号务必确认文件仍是 UTF-8**：PowerShell 的 `Set-Content` 默认按 ANSI 写盘，
 会把中文写成非法字节 —— `cargo` 会直接报 `path was not valid utf-8`。
@@ -401,7 +401,7 @@ StarCraft II/
 - [x] **仓库命名**：`SuperQuail/SC2Miyin-Launcher`。
       本地目录 `HSCL` 暂不改名，避免破坏现有工作流。
 - [x] **CI**：`.github/workflows/ci.yml`（核心测试双平台 / 前端构建 / 桌面端整工作区）。
-- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.10）。
+- [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.11）。
 - [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
 - [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
       （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
@@ -564,7 +564,7 @@ StarCraft II/
 - 绿色版：exe 与 `data/` 同级，整个文件夹拷走即可。
 - 出包前先 `pnpm -C ui build`，否则内嵌的是旧前端。
 
-### 14.10 切换的安全底线
+### 14.11 切换的安全底线
 
 启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
 
@@ -574,3 +574,53 @@ StarCraft II/
 
 因此最坏情况是「多留了几个文件」，而不是「官方战役没了」。
 这部分由 `crates/miyin-core/src/library/tests.rs` 的端到端测试覆盖。
+
+---
+
+## 15. 自动更新
+
+实现在 `crates/miyin-core/src/update/`，四层分工：
+
+| 模块 | 职责 |
+| --- | --- |
+| `version` | 版本比较（两种写法都认、且等价） |
+| `mirror` | GitHub 镜像前缀与 URL 改写 |
+| `net` | 代理自动选择 + **并发竞速**下载 |
+| `check` | 查 Releases、挑最新、校验摘要 |
+| `apply` | 解开更新包、生成替换脚本 |
+
+### 15.1 版本号：内外两种写法
+
+Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' after patch version number`），
+所以：
+
+- `Cargo.toml` / `package.json` / `tauri.conf.json` 写 `0.1.0-alpha.2`
+- **界面、git tag、发行说明**统一写 `0.1.0a2`
+
+由 `update::version::compact()` 转换，`update::current_version()` 返回的是**对外写法**。
+**单一事实来源永远是 `Cargo.toml`**，不要去别处手改版本号。
+
+版本比较器必须让两种写法**等价**（`0.1.0a2 == 0.1.0-alpha.2`），
+且 `a10 > a9` —— 否则 `a1`/`a2` 会被当成同一版，**永远检测不到更新**。
+
+### 15.2 网络：三层代理 + 镜像竞速
+
+代理按 **环境变量 → Windows 系统代理 → 直连** 自动挑；设置在 `data/network.json`。
+
+两条**必须记住**的坑：
+
+1. **reqwest 默认会自己读环境变量代理**。构建客户端时若不显式 `no_proxy()`，
+   `proxy = None`（"直连" / "关掉代理" / "限流后改直连"）会被 `HTTPS_PROXY`
+   悄悄拉回代理，这几条路全是**假的**。
+2. **GitHub API 额度按出口 IP 算**。国内代理多是共享 IP，额度常被用光（实测撞过 403）。
+   所以 `check()` 在代理被限流时会**自动改直连重试一次**，成功则标注"直连（代理被限流）"。
+
+镜像竞速只用在**资产下载**上（镜像基本不代理 `api.github.com`）：
+展开成「直连 + 6 个镜像」，并发开跑，谁先下完谁赢，其余看到赢家就立刻放弃。
+
+### 15.3 底线
+
+- **网络失败不算错误**：包成 `UpdateCheck::error` 返回，界面显示"检查失败"即可。
+- **不确定就不动**：版本号认不出、摘要对不上、包里没有 exe、zip 条目越界 —— 一律拒绝。
+- **更新只换程序本体**：`data/`（战役库、补丁、配置）一个字节都不碰。
+- Windows 上覆盖不了正在运行的 exe，所以走 `.cmd` 重试脚本。

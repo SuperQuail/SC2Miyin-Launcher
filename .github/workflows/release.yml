@@ -53,6 +53,11 @@ jobs:
           Write-Host "打包完成: $stage.zip ($mb MB)"
           "ASSET=$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+          # 预发行判定：0.1.0a2 / 0.1.0-alpha.2 都算预发行，0.1.0 算正式版。
+          # 不能只看 tag 里有没有 '-'，因为对外的紧凑写法本来就不带连字符。
+          $isPre = if ($version -match '[a-zA-Z]') { 'true' } else { 'false' }
+          "PRERELEASE=$isPre" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: 附到 Release
         uses: softprops/action-gh-release@v2
         with:
@@ -60,8 +65,8 @@ jobs:
           # 自动按 PR / commit 归类生成说明，再拼上人工写的发行说明
           generate_release_notes: true
           body_path: docs/release-notes/${{ github.ref_name }}.md
-          # 版本号里带 - 的（如 0.1.0-alpha.1）自动标成预发行
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # 版本号里带字母的（0.1.0a2 / 0.1.0-alpha.2）自动标成预发行
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           draft: false
 
       - name: 归档构建产物（方便排查）
