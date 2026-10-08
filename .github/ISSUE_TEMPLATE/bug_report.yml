@@ -1,0 +1,60 @@
+name: 缺陷报告 / Bug report
+description: 启动器哪里不对
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！**请尽量把下面的信息填全**，尤其是日志与包名 —— 大部分问题看这两样就能定位。
+
+  - type: input
+    id: version
+    attributes:
+      label: 启动器版本
+      description: 在「设置 → 更新」里能看到（形如 0.1.0a2）
+      placeholder: 0.1.0a2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 出问题的环节
+      options:
+        - 导入战役包
+        - 启用 / 切换版本
+        - 补丁
+        - 导出
+        - 自动更新
+        - 界面 / 显示
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 你做了什么、期望怎样、实际怎样。界面上的报错文字请原样贴。
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: |
+        「设置 → 更新」那个内嵌终端里的内容，或者启动器目录下 data/library.json。
+        （**注意别把包含个人路径的内容贴进来**，先扫一眼。）
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: package
+    attributes:
+      label: 出问题的包名
+      description: 如果是导入某个包出的问题，请写出它的文件名（以及来源）
+    validations:
+      required: false

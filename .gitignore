@@ -79,3 +79,7 @@ Desktop.ini
 # ---------- 本地沙箱 / 测试数据（可能含游戏版权内容，体积大）----------
 /sandbox/
 /testdata/StarCraft*
+
+# 本地起 vite preview 时产生的日志
+/ui/preview.*
+

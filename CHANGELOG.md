@@ -7,6 +7,38 @@
 
 ## [未发布]
 
+## [0.1.0a3] - 2026-10-08
+
+主题：**更新提示看得见** + 协作走 PR。
+
+### 新增
+
+- **启动弹更新公告**：每次启动检查一次，有新版直接弹窗，不再只靠角标
+  - 正文是 GitHub Release 的 Markdown 渲染结果（marked 解析 + DOMPurify 净化）
+  - 标题、列表、表格、代码块、引用、链接都能显示
+  - 可勾「不再提示这个版本」，勾了只留角标，等出更新的版本再弹
+  - 公告里的链接交给系统浏览器，不在 WebView 里跳转
+- 顶栏角标加上**下载图标**并轻微呼吸，一眼看出可以下载
+- 设置页更新面板加**进度条**（总长度未知时用不确定态）与**内嵌终端**
+  （逐行写清刚才做了什么，自动滚到底）
+
+### 变更
+
+- **项目改用 PR 流程**：`feat/*` → `dev` → `main` → `release` → tag，
+  三个分支都开了保护，直推会被拒
+- 新增 `.github/workflows/pr.yml`：校验 PR 标题符合 Conventional Commits，
+  并校验目标分支流向合法（不许跳级或倒流）
+- 补上 PR 模板、Issue 模板（缺陷 / 功能建议）、`CONTRIBUTING.md`
+- CSP 的 `img-src` 放行 `https:`，公告里的截图才能显示
+- 新增依赖 `marked` 与 `dompurify`
+
+### 修复
+
+- 对话框的 `.sheet` 系列样式原本写在组件的 `<style scoped>` 里，
+  别的组件用同名类时完全没有样式（弹窗退化成普通方块）—— 已提到全局样式表
+- 订阅更新事件时多了一层 `isDesktop` 判断，导致浏览器演示模式收不到日志
+- 清掉误提交的 `ui/preview.err`
+
 ## [0.1.0a2] - 2026-10-08
 
 主题：**自动更新**与**国内可用性**。
@@ -66,6 +98,7 @@
 - 导出时「解开的目录树」形态的地图，CCM 可能读不了
 - 地图内依赖声明的扫描是尽力而为，拿不到时会干净地下落到下一层
 
-[未发布]: https://github.com/SuperQuail/SC2Miyin-Launcher/compare/v0.1.0a2...dev
+[未发布]: https://github.com/SuperQuail/SC2Miyin-Launcher/compare/v0.1.0a3...dev
+[0.1.0a3]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0a3
 [0.1.0a2]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0a2
 [0.1.0-alpha.1]: https://github.com/SuperQuail/SC2Miyin-Launcher/releases/tag/v0.1.0-alpha.1

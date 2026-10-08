@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { BACKDROP, MIYIN } from "./api/art";
 import { useLauncher } from "./composables/useLauncher";
+import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -148,6 +149,9 @@ onUnmounted(() => stopWatching?.());
         {{ toast.message }}
       </div>
     </Transition>
+    <!-- 启动时的更新公告（渲染 Release 正文的 Markdown） -->
+    <UpdateNotice />
+
     <!-- 更新下载完成后提示重启 -->
     <div v-if="showRestartPrompt" class="sheet">
       <div class="sheet__card">

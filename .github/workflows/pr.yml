@@ -1,0 +1,76 @@
+name: PR 规范
+
+# 只校验标题与改动范围，不重复跑测试 —— 测试由 ci.yml 负责。
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title:
+    name: 标题符合 Conventional Commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验标题
+        shell: bash
+        env:
+          TITLE: `${{ github.event.pull_request.title }}`
+        run: |
+          # 不引第三方 action：就一条正则，自己跑更省事也更好查
+          pattern='^(feat|fix|chore|refactor|docs|test|build|ci|perf)(\([a-z0-9./-]+\))?!?: .+'
+          if [[ ! "`${TITLE}`" =~ `${pattern}` ]]; then
+            echo "::error::PR 标题不符合 Conventional Commits：`${TITLE}`"
+            echo "格式：<type>(<scope>): <subject>"
+            echo "例：feat(core): 支持从注册表发现安装路径"
+            echo "type 只能是：feat fix chore refactor docs test build ci perf"
+            exit 1
+          fi
+
+          length=`${#TITLE}`
+          if (( length > 80 )); then
+            echo "::error::标题过长（`${length}` 字符，上限 80）"
+            exit 1
+          fi
+
+          echo "标题没问题：`${TITLE}`"
+
+  base:
+    name: 目标分支合法
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验目标分支
+        shell: bash
+        env:
+          BASE: `${{ github.event.pull_request.base.ref }}`
+          HEAD: `${{ github.event.pull_request.head.ref }}`
+        run: |
+          # 流向固定：feat/* -> dev -> main -> release
+          case "`${BASE}`" in
+            dev)
+              # 合进 dev 的应当是特性分支，不该是 main/release 往下倒流
+              if [[ "`${HEAD}`" == "main" || "`${HEAD}`" == "release" ]]; then
+                echo "::error::不要把 main/release 合回 dev"
+                exit 1
+              fi
+              ;;
+            main)
+              if [[ "`${HEAD}`" != "dev" ]]; then
+                echo "::error::合进 main 只接受来自 dev 的分支（当前是 `${HEAD}`）"
+                exit 1
+              fi
+              ;;
+            release)
+              if [[ "`${HEAD}`" != "main" ]]; then
+                echo "::error::合进 release 只接受来自 main 的分支（当前是 `${HEAD}`）"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::notice::目标分支是 `${BASE}`，不做流向校验"
+              ;;
+          esac
+
+          echo "流向没问题：`${HEAD}` -> `${BASE}`"
