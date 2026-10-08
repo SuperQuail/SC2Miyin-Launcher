@@ -8,6 +8,7 @@ import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
 import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
+import CustomView from "./views/CustomView.vue";
 import CheatsView from "./views/CheatsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
@@ -32,9 +33,14 @@ const RIPPLE_TARGETS =
 
 const tabs: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
-  { id: "cheats", label: "作弊码" },
+  // 自制战役是**另一个顶层选项**，不是「战役」里的一个分组 ——
+  // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
+  { id: "custom", label: "自制战役" },
   { id: "settings", label: "设置" },
 ];
+
+/** 作弊码这类查询工具走弹层，不占标签位。 */
+const cheatsOpen = ref(false);
 
 const backdropStyle = { backgroundImage: "url(" + BACKDROP + ")" };
 
@@ -171,12 +177,20 @@ onUnmounted(() => {
     </div>
 
     <main class="content">
-      <CampaignsView
-        v-if="currentView === 'campaigns'"
-        @open-settings="currentView = 'settings'"
-      />
-      <CheatsView v-else-if="currentView === 'cheats'" />
-      <SettingsView v-else />
+      <!-- 切页时淡入上移，两个方向都给一点衔接 -->
+      <Transition name="view" mode="out-in">
+        <CampaignsView
+          v-if="currentView === 'campaigns'"
+          key="campaigns"
+          @open-settings="currentView = 'settings'"
+        />
+        <CustomView
+          v-else-if="currentView === 'custom'"
+          key="custom"
+          @open-cheats="cheatsOpen = true"
+        />
+        <SettingsView v-else key="settings" />
+      </Transition>
     </main>
 
     <Transition name="toast">
@@ -184,6 +198,9 @@ onUnmounted(() => {
         {{ toast.message }}
       </div>
     </Transition>
+    <!-- 作弊码：战役页 / 自制战役页的「小工具」里弹出来 -->
+    <CheatsView v-if="cheatsOpen" @close="cheatsOpen = false" />
+
     <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
     <ContextMenu />
 

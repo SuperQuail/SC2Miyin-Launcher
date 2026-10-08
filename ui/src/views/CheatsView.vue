@@ -6,12 +6,22 @@
  * 复制优先用 Clipboard API，被权限挡住时退回选中文本框再 execCommand ——
  * WebView 里这两条路哪条通不一定，两条都留着。
  */
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { CHEATS, CHEAT_SCOPES, matchCheats, type Cheat, type CheatScope } from "../api/cheats";
 import { useLauncher } from "../composables/useLauncher";
 
+const emit = defineEmits<{ close: [] }>();
+
 const { notify } = useLauncher();
+
+/** Esc 关掉；这是覆盖层不是页面，得有个退路。 */
+function onKey(event: KeyboardEvent): void {
+  if (event.key === "Escape") emit("close");
+}
+
+onMounted(() => window.addEventListener("keydown", onKey));
+onUnmounted(() => window.removeEventListener("keydown", onKey));
 
 const keyword = ref("");
 const scope = ref<CheatScope | "全部">("全部");
@@ -67,9 +77,13 @@ async function writeClipboard(text: string): Promise<boolean> {
 </script>
 
 <template>
+  <div class="sheet" @click.self="emit('close')">
   <section class="cheats">
     <header class="cheats__head">
       <h2 class="cheats__title">作弊码</h2>
+      <button class="btn btn-text btn--tiny cheats__close" type="button" @click="emit('close')">
+        关闭
+      </button>
       <p class="cheats__hint">
         在战役里按 <kbd>Enter</kbd> 打开聊天框，粘贴后回车。<strong>单人战役有效，对战时无效。</strong>
       </p>
@@ -127,10 +141,15 @@ async function writeClipboard(text: string): Promise<boolean> {
       共 {{ CHEATS.length }} 条。带战役名的只在对应战役里生效，其余通用。
     </footer>
   </section>
+  </div>
 </template>
 
 <style scoped>
+/* 覆盖层：作弊码是小工具，从战役页 / 自制战役页弹出来，不占标签位 */
 .cheats {
+  width: min(880px, 94vw);
+  max-height: min(86vh, 820px);
+  overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -139,6 +158,10 @@ async function writeClipboard(text: string): Promise<boolean> {
   background: var(--surface-1);
   border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
   box-shadow: var(--shadow-2);
+}
+
+.cheats__close {
+  margin-left: auto;
 }
 
 .cheats__head {

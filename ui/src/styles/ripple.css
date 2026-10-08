@@ -60,3 +60,39 @@
     transform: none;
   }
 }
+
+
+/* ---------- 页面切换 ----------
+ *
+ * mode="out-in"：旧的先走、新的再来，两边都淡一下并轻微位移，
+ * 免得页面像被"啪"地换掉。位移方向统一往上，读起来是"往下翻"。
+ */
+.view-enter-active {
+  transition: opacity 0.2s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.view-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.view-enter-from {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.view-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-enter-active,
+  .view-leave-active {
+    transition: none;
+  }
+
+  .view-enter-from,
+  .view-leave-to {
+    transform: none;
+  }
+}
