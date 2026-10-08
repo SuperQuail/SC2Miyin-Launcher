@@ -1267,8 +1267,9 @@ mod payload_tests {
                 &crate::library::compose::Placement::Campaign {
                     sub: Some("swarm".into())
                 },
-            ),
-            "Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map")
         );
     }
 
@@ -1293,8 +1294,9 @@ mod payload_tests {
                 &crate::library::compose::Placement::Campaign {
                     sub: Some("void".into())
                 },
-            ),
-            "Maps/Campaign/void/paiur01.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/paiur01.SC2Map")
         );
 
         let prologue = payloads
@@ -1307,8 +1309,9 @@ mod payload_tests {
                 &crate::library::compose::Placement::Campaign {
                     sub: Some("void".into())
                 },
-            ),
-            "Maps/Campaign/voidprologue/voidprologue01.SC2Map",
+            )
+            .as_deref(),
+            Some("Maps/Campaign/voidprologue/voidprologue01.SC2Map"),
             "官方目录名要当绝对路径用，而不是塞进 void/ 下面"
         );
     }
@@ -1327,8 +1330,9 @@ mod payload_tests {
                 &crate::library::compose::Placement::Campaign {
                     sub: Some("void".into())
                 },
-            ),
-            "Maps/Campaign/void/01.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/01.SC2Map")
         );
     }
 }

@@ -96,34 +96,35 @@ impl Composition {
 
 /// 载荷在游戏目录里的落点基址。
 ///
-/// 官方战役与自制战役**落盘位置不一样**，这是 SC2 自己的规矩：
+/// 两类战役的**安装方式根本不同**：
 ///
-/// | 类型 | 落点 |
-/// | --- | --- |
-/// | 官方战役（含其改版） | `Maps/Campaign[/子目录]/` |
-/// | 自制战役 | `Maps/CustomCampaigns/<名字>/` |
+/// | 类型 | 地图 | 模组 |
+/// | --- | --- | --- |
+/// | 原版战役（含改版） | 进 `Maps/Campaign[/子目录]/` | 进 `Mods/` |
+/// | 自制战役 | **留在库里，不进游戏目录** | 进 `Mods/` |
 ///
-/// 搞混的后果：自制战役被塞进 `Maps/Campaign` 会污染官方目录，
-/// 而且游戏压根不会把它当自制战役列出来。
+/// 自制战役为什么地图不进游戏目录：**SC2 本来就不支持自制战役**，
+/// 放进 `Maps/Campaign` 只会污染官方目录，游戏也不会把它列出来。
+/// 正确玩法是用编辑器直接打开地图（见 `open_map_in_editor`）。
+///
+/// 那为什么模组还是要进游戏目录：**地图里写死了依赖路径**。
+/// 实测 SCMR 的 `Terran01.SC2Map` 里声明的是 `Mods\SCMRmod.SC2Mod` ——
+/// 这是相对游戏根目录的路径，游戏与编辑器只会去 `<游戏>/Mods/` 下找。
+/// 不把模组放过去，地图打开就是一堆丢失的资源。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placement {
-    /// 官方战役：`Maps/Campaign[/子目录]`。
+    /// 原版战役：`Maps/Campaign[/子目录]`。
     Campaign { sub: Option<String> },
-    /// 自制战役：整包落到 `Maps/CustomCampaigns/<文件夹>/`。
-    Custom { folder: String },
+    /// 自制战役：地图留在库里，只有模组进游戏目录。
+    Custom,
 }
 
 impl Placement {
-    /// 由槽位与版本推出来。
-    ///
-    /// 槽位是 `custom` 时按自制战役走，文件夹用版本自己的 id
-    /// （导入时已经安全化过，可以直接当目录名）。
-    pub fn of(slot_slug: &str, variant_id: &str, target_sub: Option<&str>) -> Self {
+    /// 由槽位与版本推出来。槽位是 `custom` 时按自制战役走。
+    pub fn of(slot_slug: &str, target_sub: Option<&str>) -> Self {
         let is_custom = CampaignType::from_slug(slot_slug).is_some_and(|kind| kind.is_custom());
         if is_custom {
-            Self::Custom {
-                folder: variant_id.to_string(),
-            }
+            Self::Custom
         } else {
             Self::Campaign {
                 sub: target_sub.map(str::to_string),
@@ -131,34 +132,41 @@ impl Placement {
         }
     }
 
-    /// 这一层内容最终落在游戏目录的哪个基址下。
-    pub fn base(&self) -> &'static str {
+    /// 这一层内容最终落在游戏目录的哪个基址下；不进游戏目录时返回 `None`。
+    pub fn base(&self) -> Option<&'static str> {
         match self {
-            Self::Campaign { .. } => "Maps/Campaign",
-            Self::Custom { .. } => "Maps/CustomCampaigns",
+            Self::Campaign { .. } => Some("Maps/Campaign"),
+            // 自制战役只有模组进游戏目录，地图不进
+            Self::Custom => None,
         }
     }
 }
 
 /// 把一个载荷的落点展开成游戏目录内的相对路径。
-pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> String {
+///
+/// 返回 `None` 表示**这个载荷不进游戏目录**（自制战役的地图就是这样，
+/// 它留在库里等着被编辑器打开）。
+pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> Option<String> {
     match target {
-        PayloadTarget::Mirror { path } => path.replace('`', "/"),
-        PayloadTarget::Mod { name } => format!("Mods/{name}"),
+        PayloadTarget::Mirror { path } => Some(path.replace('\\', "/")),
+        // 模组两类战役都要进 Mods/ —— 地图依赖它
+        PayloadTarget::Mod { name } => Some(format!("Mods/{name}")),
         PayloadTarget::Map { name } => {
-            // 包内已经按官方结构摆了（voidprologue/…、swarm/evolution/…）-> 直接用。
-            // 注意：这条只对官方战役有意义 —— 自制战役里不该出现这种路径，
-            // 真出现了说明包本身是照官方布局打的，照原样放才是对的。
-            if known_campaign_prefix(name).is_some() {
-                return format!("Maps/Campaign/{name}");
+            // 自制战役的地图留在库里，不铺到游戏目录
+            if matches!(placement, Placement::Custom) {
+                return None;
             }
-            match placement {
-                Placement::Custom { folder } => format!("Maps/CustomCampaigns/{folder}/{name}"),
+
+            // 包内已经按官方结构摆了（voidprologue/…、swarm/evolution/…）-> 直接用
+            if known_campaign_prefix(name).is_some() {
+                return Some(format!("Maps/Campaign/{name}"));
+            }
+            Some(match placement {
                 Placement::Campaign { sub: Some(sub) } if !sub.is_empty() => {
                     format!("Maps/Campaign/{sub}/{name}")
                 }
-                Placement::Campaign { .. } => format!("Maps/Campaign/{name}"),
-            }
+                _ => format!("Maps/Campaign/{name}"),
+            })
         }
     }
 }
@@ -173,7 +181,11 @@ fn stack_layer(
     overridden: &mut Vec<ComposedFile>,
 ) {
     for payload in payloads {
-        let target = payload_target_path(&payload.target, placement);
+        // 自制战役的地图不进游戏目录 —— 它们留在库里等着被编辑器打开
+        let Some(target) = payload_target_path(&payload.target, placement) else {
+            continue;
+        };
+
         let source = root.join(payload.source.replace('/', std::path::MAIN_SEPARATOR_STR));
         let item = ComposedFile {
             target: target.clone(),
@@ -201,7 +213,7 @@ pub fn compose(
     let mut overridden: Vec<ComposedFile> = Vec::new();
 
     // 官方战役还是自制战役 —— 落点不一样
-    let placement = Placement::of(slot_slug, &variant.id, sub);
+    let placement = Placement::of(slot_slug, sub);
 
     // 第 0 层：战役本体
     let variant_dir = library.slot_dir(slot_slug).join(&variant.id);
@@ -311,8 +323,9 @@ mod tests {
                 &Placement::Campaign {
                     sub: Some("void".into())
                 }
-            ),
-            "Maps/Campaign/void/paiur01.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/paiur01.SC2Map")
         );
         assert_eq!(
             payload_target_path(
@@ -320,13 +333,14 @@ mod tests {
                 &Placement::Campaign {
                     sub: Some("swarm/evolution".into())
                 }
-            ),
-            "Maps/Campaign/swarm/evolution/paiur01.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/swarm/evolution/paiur01.SC2Map")
         );
         // 自由之翼没有子目录
         assert_eq!(
-            payload_target_path(&map, &Placement::Campaign { sub: None }),
-            "Maps/Campaign/paiur01.SC2Map"
+            payload_target_path(&map, &Placement::Campaign { sub: None }).as_deref(),
+            Some("Maps/Campaign/paiur01.SC2Map")
         );
     }
 
@@ -341,8 +355,9 @@ mod tests {
                 &Placement::Campaign {
                     sub: Some("void".into())
                 }
-            ),
-            "Mods/X.SC2Mod"
+            )
+            .as_deref(),
+            Some("Mods/X.SC2Mod")
         );
 
         // 镜像路径不受子目录影响 —— 包作者已经写死了落点
@@ -355,8 +370,9 @@ mod tests {
                 &Placement::Campaign {
                     sub: Some("void".into())
                 }
-            ),
-            "Maps/Campaign/voidprologue/x.SC2Map"
+            )
+            .as_deref(),
+            Some("Maps/Campaign/voidprologue/x.SC2Map")
         );
     }
 
@@ -412,38 +428,38 @@ mod tests {
     }
 
     #[test]
-    fn custom_campaigns_land_in_the_custom_folder() {
+    fn custom_campaigns_keep_maps_in_the_library() {
         let map = PayloadTarget::Map {
-            name: "stage01.SC2Map".to_string(),
+            name: "1. Rebel Yell/Terran01.SC2Map".to_string(),
         };
 
-        // 自制战役：整包进 Maps/CustomCampaigns/<名字>/
-        let custom = Placement::of("custom", "MyCampaign", None);
+        // 自制战役：地图**不进游戏目录** —— SC2 本来就不支持自制战役，
+        // 放进去只会污染官方目录，正确玩法是用编辑器打开
+        let custom = Placement::of("custom", None);
+        assert_eq!(custom, Placement::Custom);
+        assert_eq!(custom.base(), None, "自制战役没有落盘基址");
+        assert_eq!(payload_target_path(&map, &custom), None, "地图应当留在库里");
+
+        // 但模组**必须**进 Mods/ —— 实测 SCMR 的地图里写死了
+        // Mods\SCMRmod.SC2Mod 这个依赖路径，游戏与编辑器只去那里找
+        let mod_target = PayloadTarget::Mod {
+            name: "SCMRmod.SC2Mod".to_string(),
+        };
         assert_eq!(
-            custom,
-            Placement::Custom {
-                folder: "MyCampaign".to_string()
-            }
-        );
-        assert_eq!(custom.base(), "Maps/CustomCampaigns");
-        assert_eq!(
-            payload_target_path(&map, &custom),
-            "Maps/CustomCampaigns/MyCampaign/stage01.SC2Map"
+            payload_target_path(&mod_target, &custom).as_deref(),
+            Some("Mods/SCMRmod.SC2Mod")
         );
 
         // 官方战役（含其改版）还是老地方
-        let official = Placement::of("lotv", "v1", Some("void"));
-        assert_eq!(official.base(), "Maps/Campaign");
+        let official = Placement::of("lotv", Some("void"));
+        assert_eq!(official.base(), Some("Maps/Campaign"));
         assert_eq!(
-            payload_target_path(&map, &official),
-            "Maps/Campaign/void/stage01.SC2Map"
+            payload_target_path(&map, &official).as_deref(),
+            Some("Maps/Campaign/void/1. Rebel Yell/Terran01.SC2Map")
         );
-
-        // 模组两边都进 Mods
-        let mod_target = PayloadTarget::Mod {
-            name: "X.SC2Mod".to_string(),
-        };
-        assert_eq!(payload_target_path(&mod_target, &custom), "Mods/X.SC2Mod");
-        assert_eq!(payload_target_path(&mod_target, &official), "Mods/X.SC2Mod");
+        assert_eq!(
+            payload_target_path(&mod_target, &official).as_deref(),
+            Some("Mods/SCMRmod.SC2Mod")
+        );
     }
 }
