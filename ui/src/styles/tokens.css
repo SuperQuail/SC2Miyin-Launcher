@@ -17,6 +17,9 @@
   --on-accent: #ffffff;
 
   /* 表面层级 */
+  --rail: #eef2fa;
+  /* 顶栏那条渐变：日间是品牌蓝，夜间跟着 VS Code 的标题栏走 */
+  --topbar: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
   --surface: #fbfcff;
   --surface-1: #ffffff;
   --surface-2: #f3f6fd;
@@ -59,30 +62,35 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --accent: #a8c4ff;
-  --accent-hover: #c0d4ff;
-  --accent-pressed: #8fb2f5;
-  --accent-soft: #2b3f70;
-  --accent-softer: #1e2c4d;
-  --on-accent: #07203f;
+  /* 区域分层照 VS Code：活动栏最亮、侧栏次之、编辑区最深。
+     它靠这三档把「哪里是壳、哪里是内容」分得很清楚，我们之前只有一档。 */
+  --rail: #333333;
+  --topbar: linear-gradient(120deg, #3c3c3c 0%, #333333 55%, #2b2b2b 100%);
+  --surface: #1e1e1e;
+  --surface-1: #252526;
+  --surface-2: #2d2d30;
+  --surface-3: #3c3c3c;
 
-  --surface: #101318;
-  --surface-1: #181c23;
-  --surface-2: #20252e;
-  --surface-3: #2a303a;
-  --on-surface: #e3e6ec;
-  --on-surface-variant: #bfc6d4;
-  --outline: #414855;
-  --outline-strong: #5b6473;
+  --on-surface: #cccccc;
+  --on-surface-variant: #9d9d9d;
+  --outline: #3c3c3c;
+  --outline-strong: #545454;
 
-  --success: #8fd694;
-  --success-soft: #1f3a22;
-  --warning: #ffb866;
-  --warning-soft: #402a10;
-  --danger: #ffb4ab;
-  --danger-soft: #4a1414;
+  --accent: #0e639c;
+  --accent-hover: #1177bb;
+  --accent-pressed: #0a4d7a;
+  --accent-soft: #094771;
+  --accent-softer: #1b2b3a;
+  --on-accent: #ffffff;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.45);
-  --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+  --success: #89d185;
+  --success-soft: #1d3a24;
+  --warning: #cca700;
+  --warning-soft: #3d3418;
+  --danger: #f14c4c;
+  --danger-soft: #4b1e1e;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.7);
 }

@@ -509,7 +509,7 @@ onUnmounted(() => {
   height: var(--header-height);
   /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
   padding: 0 6px 0 18px;
-  background: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
+  background: var(--topbar);
   color: #fff;
   box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
 }
