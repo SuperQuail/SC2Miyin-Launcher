@@ -738,3 +738,39 @@ unless defined with `#[tauri::command(async)]`*。）
 `tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
 
 **自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。
+
+
+---
+
+## 18. 双前端：用户侧 Vue，开发者侧 React
+
+**两个入口，不是两套框架混在一页。**
+
+```text
+ui/index.html → src/main.ts     → Vue 3      用户侧（战役 / 模组 / 设置）
+ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台）
+```
+
+**为什么**：开发者页要用 JetBrains 官方的 [Ring UI](https://github.com/JetBrains/ring-ui)，
+它是 React 组件库；用户侧已经用 Vue 写完，重写一遍不值。两边各用各的，靠 IPC 说话。
+
+**硬规矩**（越过这条，构建和样式会一起出鬼）：
+
+1. **用户侧只准 import `src/` 下 Vue 的那部分**；反过来也一样。两边**不共享组件**。
+2. 想共享的只能是**框架无关的纯 TS**（现在是 `api/bridge.ts`、`api/types.ts`、`api/markdown.ts`）。
+   共享文件里**不许出现 `vue` 或 `react` 的 import**。
+3. 跨页跳转是**换入口**（整页加载），不是路由跳转 —— 别假装它们在一个 SPA 里。
+4. 别为了"顺手"把某个 Ring UI 组件搬进 Vue 页面。要那个控件就在 IDE 页里用。
+
+**Ring UI 的三个坑**（都踩过）：
+
+| 坑 | 说明 |
+| --- | --- |
+| 用 `@jetbrains/ring-ui-built`，**不是** `@jetbrains/ring-ui` | 后者是源码包，`.js` 里带裸 JSX，rolldown 不转 `node_modules` |
+| 必须手动引 `@jetbrains/ring-ui-built/components/style.css` | 不带样式就等于没装（控件渲染成原生，标签还会叠字） |
+| `icon` 要**组件类型**，不是 `<svg/>` 元素 | 传元素会炸在 `Element type is invalid` |
+
+React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`）。
+
+**它的 `Tabs` 不要用**：那是"切换面板"的组件，在自定义容器里排不出多个标签，
+而我们要的是"文档标签页"。用 `Button` + 自己的下划线（见 `src/ide/IdeApp.tsx` 的 `.doc`）。
