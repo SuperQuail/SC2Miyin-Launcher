@@ -22,9 +22,8 @@ const {
   checkUpdateNow,
   downloadUpdateNow,
   applyUpdateNow,
+  launcherVersion,
 } = useLauncher();
-
-const current = ref("");
 const network = ref<NetworkSettings>({
   proxy_mode: "auto",
   proxy_url: null,
@@ -40,7 +39,6 @@ const panelBox = ref<HTMLElement | null>(null);
 
 onMounted(async () => {
   try {
-    current.value = await api.appVersion();
     network.value = await api.networkSettings();
     proxy.value = await api.detectedProxy();
   } catch (error) {
@@ -116,7 +114,7 @@ const notes = computed(() => latest.value?.notes?.trim() ?? "");
   <section ref="panelBox" class="panel">
     <header class="panel__head">
       <h4 class="panel__title">更新</h4>
-      <span class="panel__version">当前 {{ current || "…" }}</span>
+      <span class="panel__version">当前 {{ launcherVersion || "…" }}</span>
     </header>
 
     <p class="panel__note">

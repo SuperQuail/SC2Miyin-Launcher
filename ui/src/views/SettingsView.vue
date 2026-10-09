@@ -6,7 +6,8 @@ import { useLauncher } from "../composables/useLauncher";
 import ToolsPanel from "../components/ToolsPanel.vue";
 import UpdatePanel from "../components/UpdatePanel.vue";
 
-const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
+const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop, launcherVersion } =
+  useLauncher();
 
 const rows = computed(() => {
   const current = installation.value;
@@ -102,7 +103,7 @@ const rows = computed(() => {
       <div class="about__body">
         <header class="panel__head">
           <h3 class="panel__title">关于</h3>
-          <span class="version">v0.1.0</span>
+          <span class="version">v{{ launcherVersion || "…" }}</span>
         </header>
         <p class="hint">
           弥音启动器（MiYin Launcher）—— 用 Rust 编写的星际争霸 II 战役与 Mod 管理器。

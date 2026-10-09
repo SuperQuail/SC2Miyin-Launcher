@@ -400,13 +400,14 @@ async function doExport(mergePatches: boolean): Promise<void> {
     <div class="section-head">
       <h3 class="section-head__title">
         可选版本
-        <span class="section-head__count">{{ slot.variants.length + 1 }}</span>
+        <span class="section-head__count">{{ slot.variants.length + (isCustom ? 0 : 1) }}</span>
       </h3>
       <span class="section-head__hint">导入新版本请回到战役列表页</span>
     </div>
 
     <div class="grid">
       <VariantCard
+        v-if="!isCustom"
         :slot="slot"
         :variant="null"
         :active="slot.active === null"
@@ -540,7 +541,12 @@ async function doExport(mergePatches: boolean): Promise<void> {
       >
         导出（含补丁）
       </button>
-      <button class="btn btn-outline" type="button" :disabled="busy" @click="applyAndPlay">
+      <button
+        class="btn btn-outline"
+        type="button"
+        :disabled="busy || !dirty"
+        @click="applyAndPlay"
+      >
         启用并开始游戏
       </button>
       <button class="btn btn-primary" type="button" :disabled="!dirty || busy" @click="apply">

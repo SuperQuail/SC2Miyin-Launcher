@@ -33,7 +33,7 @@ const {
 
 /** 会出水波纹的元素。加新组件时把类名补进来就行。 */
 const RIPPLE_TARGETS =
-  ".btn, .chip, .tab, .variant, .slot-card, .map, .target, .ctx__item, .group__head, .update-badge";
+  ".btn, .chip, .tab, .variant, .slot, .map, .target, .ctx__item, .group__head, .update-badge";
 
 const tabs: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
@@ -174,13 +174,19 @@ function startWindowDrag(event: MouseEvent): void {
   })();
 }
 
-onMounted(async () => {
-  if (!isDesktop) return;
+/** 读一次最大化状态。双击标题栏 / Win+↑ 是系统改的，只能靠 resize 补上。 */
+async function syncMaximized(): Promise<void> {
   try {
     maximized.value = await api.windowIsMaximized();
   } catch {
     // 拿不到就当没最大化
   }
+}
+
+onMounted(() => {
+  if (!isDesktop) return;
+  void syncMaximized();
+  window.addEventListener("resize", () => void syncMaximized());
 });
 
 async function toggleMaximize(): Promise<void> {
@@ -204,6 +210,9 @@ let stopWatching: (() => void) | null = null;
 function spawnRipple(event: MouseEvent): void {
   const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(RIPPLE_TARGETS);
   if (!target || target.hasAttribute("disabled")) return;
+
+  // 宿主样式（定位 + 裁剪）在这里打类，免得 CSS 再抄一份选择器
+  target.classList.add("ripple-host");
 
   const rect = target.getBoundingClientRect();
   // 直径取长边两倍，保证从任何角落点都能铺满
