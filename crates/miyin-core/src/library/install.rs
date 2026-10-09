@@ -429,34 +429,6 @@ impl Manifest {
 
         Ok(())
     }
-
-    /// 把清单里已经不存在的文件清掉（用户手删了之类）。
-    pub fn prune(&mut self, data: &Path, installation: &Installation) -> Result<()> {
-        let before = self.files.len();
-        let mut keep = Vec::new();
-
-        for item in self.files.drain(..) {
-            let target = resolve(installation, &item.target)?;
-            if target.exists() {
-                keep.push(item);
-            } else if let Some(relative) = &item.backup {
-                // 文件没了但备份还在 —— 说明是用户手删的，把备份还原回去
-                let backup = Self::backup_root(data).join(relative);
-                if backup.exists()
-                    && let Some(parent) = target.parent()
-                {
-                    let _ = std::fs::create_dir_all(parent);
-                    let _ = std::fs::rename(&backup, &target);
-                }
-            }
-        }
-
-        self.files = keep;
-        if self.files.len() != before {
-            self.save(data)?;
-        }
-        Ok(())
-    }
 }
 
 /// 把相对路径解析成游戏目录下的绝对路径，并过白名单校验。

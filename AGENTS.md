@@ -90,13 +90,19 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │           ├── campaign/      # 战役包领域（与游戏目录耦合的那部分）
 │           │   ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
 │           │   ├── sanitize.rs    # 目录名安全化（防目录穿越）
-│           │   ├── package.rs     # zip 预检：格式识别、zip-slip、体积上限、解压
-│           │   ├── installer.rs   # 直接装进游戏目录（旧路径，保留）
-│           │   └── scanner.rs     # 目录扫描与核对
+│           │   ├── package.rs     # 包预检：格式识别、zip-slip、体积上限、解压
+│           │   ├── contents.rs    # 任意打包形式的读取（zip / 7z / rar / tar）
+│           │   └── identify.rs    # 没有元数据时按证据链判定归属
 │           └── library/       # **战役库**：多版本共存与切换（见 §14）
-│               ├── mod.rs          # 索引模型、槽位、封面与路径规则
-│               ├── store.rs        # 导入 / 删除版本
-│               └── activation.rs   # 启用 / 停用（按清单精确回滚）
+│               ├── mod.rs          # 索引模型、槽位、路径规则
+│               ├── compose.rs      # 分层合成：落点与补丁覆盖
+│               ├── install.rs      # 统一安装引擎（白名单 + 清单记账）
+│               ├── store.rs        # 导入 / 删除 / 编辑版本
+│               ├── mods.rs         # 模组的独立版本管理
+│               ├── activation.rs   # 启用 / 停用（按清单精确回滚）
+│               ├── export.rs       # 导出 CCM 兼容包
+│               ├── naming.rs       # 注册 ID 与版本号校验
+│               └── known.rs        # 已知复刻战役的落点与启动器地图
 ├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
 │   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
 │   ├── tauri.conf.json
@@ -436,7 +442,7 @@ StarCraft II/
 - [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.11）。
 - [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
 - [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
-      （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
+      （`campaign::package` 已经能读目录形态的包，缺的是接进库的导入流程）。
 - [x] **包格式规范**：已写成 `docs/package-format.md`（兼容 CCM 与枢纽标准 + 弥音扩展）。
 - [ ] 包格式的**可视化说明**：给包作者一份带示例的打包指南（放 `docs/`）。
 - [x] `README.md` / `LICENSE` / `CHANGELOG.md` / CI 工作流。

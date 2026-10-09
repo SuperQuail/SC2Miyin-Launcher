@@ -10,7 +10,6 @@ use tauri::Emitter;
 
 use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
-use miyin_core::campaign::scanner;
 use miyin_core::library::{
     self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
     ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
@@ -1413,7 +1412,8 @@ fn pick_game_directory() -> Option<String> {
 /// 读取战役目录内的封面图，返回 data URL 供界面直接显示。
 #[tauri::command(async)]
 fn campaign_cover(dir: String) -> Option<String> {
-    let cover = scanner::find_cover_for(&PathBuf::from(dir))?;
+    let dir = PathBuf::from(dir);
+    let cover = miyin_core::library::store::find_cover(&dir).map(|found| dir.join(found))?;
     file_to_data_url(&cover)
 }
 

@@ -1475,36 +1475,3 @@ fn same_bytes(left: &Path, right: &Path) -> bool {
         _ => false,
     }
 }
-
-/// 模组目录里有没有 `.SC2Mod`。
-pub fn looks_like_mod(path: &Path) -> bool {
-    if path.is_file() {
-        return path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("sc2mod"));
-    }
-
-    walkdir::WalkDir::new(path)
-        .max_depth(2)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-        .any(|entry| {
-            entry.file_type().is_dir()
-                && entry
-                    .file_name()
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .ends_with(".sc2mod")
-        })
-        || walkdir::WalkDir::new(path)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(std::result::Result::ok)
-            .any(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .to_ascii_lowercase()
-                    .ends_with(".sc2mod")
-            })
-}

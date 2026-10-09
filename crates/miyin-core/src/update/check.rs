@@ -16,11 +16,6 @@ fn releases_api() -> String {
     format!("https://api.github.com/repos/{REPO}/releases?per_page=30")
 }
 
-/// 项目主页。
-pub fn homepage() -> String {
-    format!("https://github.com/{REPO}")
-}
-
 /// 一个可下载的资产。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseAsset {

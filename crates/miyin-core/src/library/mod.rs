@@ -391,11 +391,6 @@ impl MainMapChoice {
             warning: None,
         }
     }
-
-    /// 有没有能直接启动的入口。
-    pub fn is_ready(&self) -> bool {
-        self.path.is_some()
-    }
 }
 
 /// 从地图列表里挑出该用哪张作为入口。
@@ -630,11 +625,6 @@ impl Library {
     /// 索引文件。
     pub fn index_path(&self) -> PathBuf {
         self.root.join("library.json")
-    }
-
-    /// 激活清单文件。
-    pub fn active_path(&self) -> PathBuf {
-        self.root.join("active.json")
     }
 
     /// 各版本的实际存放目录。
