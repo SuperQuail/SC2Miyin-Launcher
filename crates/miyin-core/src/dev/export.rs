@@ -106,6 +106,25 @@ pub struct ExportFile {
 /// - 附一份 `metadata.json`；
 /// - 目录项自动补齐（解压工具不至于把路径当平铺文件名）。
 pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<ExportReport> {
+    // **先把来源全查一遍再动手**。
+    //
+    // 以前是一边写一边查：写到一半发现某个文件没了，就直接返回错误 ——
+    // 磁盘上留下一个"有内容、没元数据"的半成品。用户拿到它只会看到
+    // 「包内没有 metadata.json」，完全不知道是导出失败留下的。
+    preflight(meta, files)?;
+
+    match write_zip(dest, meta, files) {
+        Ok(report) => Ok(report),
+        Err(error) => {
+            // 半成品比没有更糟：它会冒充一个能用的包
+            let _ = std::fs::remove_file(dest);
+            Err(error)
+        }
+    }
+}
+
+/// 导出前把每个来源都查一遍：缺文件、缺目录、路径不合法，一个都不放过。
+fn preflight(meta: &PackageMeta, files: &[ExportFile]) -> Result<()> {
     if files.is_empty() {
         return Err(Error::PackageRejected(
             "一个都没勾 —— 先把要打进去的东西选上".to_string(),
@@ -117,7 +136,38 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
             files.len()
         )));
     }
+    if meta.name.trim().is_empty() {
+        return Err(Error::PackageRejected("包还没有名字".to_string()));
+    }
 
+    for item in files {
+        let entry = item.path.trim_start_matches('/').replace('\\', "/");
+        if entry.is_empty() || entry.contains("..") {
+            return Err(Error::PackageRejected(format!(
+                "包内路径不合法：{}",
+                item.path
+            )));
+        }
+        let source = PathBuf::from(&item.abs);
+        let ok = if item.is_dir {
+            source.is_dir()
+        } else {
+            source.is_file()
+        };
+        if !ok {
+            return Err(Error::PackageRejected(format!(
+                "找不到{}：{}（导出前请重新扫描一次）",
+                if item.is_dir { "目录" } else { "文件" },
+                item.abs
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 真正写 zip。**metadata.json 写在最前面** —— 就算后面出事，
+/// 留下的半成品至少还是个能被解析器读懂的包。
+fn write_zip(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<ExportReport> {
     let file = std::fs::File::create(dest)?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
@@ -126,6 +176,16 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
     let mut bytes = 0u64;
     let mut written = 0usize;
     let mut dirs: Vec<String> = Vec::new();
+
+    // 元数据先写：它是"这是什么包"的唯一凭据，绝不能因为后面出错就没了
+    zip.start_file("metadata.json", options)?;
+    zip.write_all(metadata_json(meta)?.as_bytes())?;
+
+    // 再补一份 CCM 认的 `metadata.txt`（键=值）。
+    // 解析器**优先读 JSON**（字段更全），所以这份是给别家工具看的 ——
+    // 我们一直说"尽量对 CCM 兼容"，包里连一份 CCM 元数据都没有是说不过去的。
+    zip.start_file("metadata.txt", options)?;
+    zip.write_all(ccm_metadata(meta).as_bytes())?;
 
     for item in files {
         let source = PathBuf::from(&item.abs);
@@ -173,8 +233,6 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
         written += 1;
     }
 
-    zip.start_file("metadata.json", options)?;
-    zip.write_all(metadata_json(meta)?.as_bytes())?;
     zip.finish()?;
 
     // 自检：把自己刚写出来的包交给真正的解析器读一遍
@@ -200,6 +258,35 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
         bytes,
         read_back,
     })
+}
+
+/// 拼 CCM 那种 `键=值` 的 `metadata.txt`。
+fn ccm_metadata(meta: &PackageMeta) -> String {
+    let mut lines = vec![
+        format!("title={}", meta.name),
+        format!(
+            "campaign={}",
+            meta.campaign
+                .clone()
+                .unwrap_or_else(|| "custom".to_string())
+        ),
+    ];
+    for (key, value) in [
+        ("author", meta.author.as_ref()),
+        ("version", meta.version.as_ref()),
+        ("description", meta.description.as_ref()),
+        ("modid", meta.modid.as_ref()),
+    ] {
+        if let Some(text) = value.filter(|text| !text.trim().is_empty()) {
+            // 换行会破坏"键=值"的行结构，替换掉
+            lines.push(format!("{key}={}", text.replace(['\n', '\r'], " ")));
+        }
+    }
+    if !meta.mods.is_empty() {
+        lines.push(format!("mods={}", meta.mods.join(", ")));
+    }
+    lines.push(String::new());
+    lines.join("\n")
 }
 
 /// 拼 `metadata.json`。
@@ -496,6 +583,18 @@ mod tests {
         assert_eq!(inspection.cover.as_deref(), Some("cover.png"), "封面");
         assert_eq!(inspection.payloads.len(), 1, "载荷");
 
+        // CCM 那份也要在（别家工具只认它）；解析器优先读 JSON，所以字段不受影响
+        let archive = std::fs::File::open(&dest).expect("开包");
+        let mut zip = zip::ZipArchive::new(archive).expect("读包");
+        let mut ccm = String::new();
+        std::io::Read::read_to_string(
+            &mut zip.by_name("metadata.txt").expect("CCM 元数据"),
+            &mut ccm,
+        )
+        .expect("读");
+        assert!(ccm.contains("title=往返测试"), "CCM 那份标题：{ccm}");
+        assert!(ccm.contains("author=作者名"), "CCM 那份作者：{ccm}");
+
         // 光解析出来还不算"读得到" —— 用户是**导入之后**在版本卡上看作者。
         // 所以再走一遍真正的导入，看落进库里的那条记录。
         let library_root = tmp.path().join("data");
@@ -567,7 +666,11 @@ mod tests {
             is_dir: true,
         }];
         let dest = tmp.path().join("空目录.zip");
-        let report = export(&dest, &PackageMeta::default(), &files).expect("导出");
+        let meta = PackageMeta {
+            name: "空目录".to_string(),
+            ..PackageMeta::default()
+        };
+        let report = export(&dest, &meta, &files).expect("导出");
         assert_eq!(report.files, 1);
 
         let archive = std::fs::File::open(&dest).expect("开包");
@@ -579,6 +682,69 @@ mod tests {
             names.contains(&"Maps/CustomCampaigns/留个位置/".to_string()),
             "空目录要以目录项进包，实得：{names:?}"
         );
+    }
+
+    /// 导出中途出错，**磁盘上不能留下半个包** —— 那种包会冒充成能用的包。
+    #[test]
+    fn a_failed_export_leaves_nothing_behind() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let good = tmp.path().join("a.SC2Map");
+        std::fs::write(&good, "x").expect("写");
+        let missing = tmp.path().join("没有了.SC2Map");
+
+        let dest = tmp.path().join("半成品.zip");
+        let files = vec![
+            ExportFile {
+                path: "Maps/a.SC2Map".to_string(),
+                abs: good.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+            ExportFile {
+                path: "Maps/没有了.SC2Map".to_string(),
+                abs: missing.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+        ];
+        let error = export(
+            &dest,
+            &PackageMeta {
+                name: "半成品".to_string(),
+                ..PackageMeta::default()
+            },
+            &files,
+        )
+        .expect_err("缺文件就该报错，不该悄悄出一个包");
+        assert!(
+            error.to_string().contains("找不到文件"),
+            "错误要说清是哪个：{error}"
+        );
+        assert!(!dest.exists(), "半成品必须删掉");
+    }
+
+    /// metadata.json 要是**第一条** —— 后面万一出错，留下的包至少还能被读懂。
+    #[test]
+    fn metadata_is_written_first() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let map = tmp.path().join("a.SC2Map");
+        std::fs::write(&map, "x").expect("写");
+        let dest = tmp.path().join("顺序.zip");
+        export(
+            &dest,
+            &PackageMeta {
+                name: "顺序".to_string(),
+                ..PackageMeta::default()
+            },
+            &[ExportFile {
+                path: "Maps/a.SC2Map".to_string(),
+                abs: map.to_string_lossy().into_owned(),
+                is_dir: false,
+            }],
+        )
+        .expect("导出");
+
+        let archive = std::fs::File::open(&dest).expect("开包");
+        let mut zip = zip::ZipArchive::new(archive).expect("读包");
+        assert_eq!(zip.by_index(0).expect("第一条").name(), "metadata.json");
     }
 
     #[test]
