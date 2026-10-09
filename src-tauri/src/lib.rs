@@ -390,6 +390,7 @@ fn dev_commit(
     message: String,
     label: Option<String>,
     files: Vec<CommitFile>,
+    meta: Option<miyin_core::dev::export::PackageMeta>,
     state: State<'_, AppState>,
 ) -> Result<miyin_core::dev::history::Commit, String> {
     let pairs: Vec<(String, std::path::PathBuf)> = files
@@ -402,6 +403,7 @@ fn dev_commit(
         &message,
         label.as_deref(),
         &pairs,
+        meta,
     )
     .map_err(|error| error.to_string())
 }

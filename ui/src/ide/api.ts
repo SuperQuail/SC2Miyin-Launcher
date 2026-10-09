@@ -92,6 +92,8 @@ export type CommitRecord = {
   message: string;
   at: number;
   files: CommitSnapshot[];
+  /** 提交那一刻的包信息 —— 可捡回来用 */
+  meta?: PackageMeta | null;
 };
 
 export type HistoryDiff = {
@@ -117,10 +119,11 @@ export async function commit(
   message: string,
   label: string | null,
   files: { path: string; abs: string }[],
+  meta: PackageMeta,
 ): Promise<CommitRecord | null> {
   if (!isDesktop) return null;
   try {
-    return await invoke<CommitRecord>("dev_commit", { pkg, message, label, files });
+    return await invoke<CommitRecord>("dev_commit", { pkg, message, label, files, meta });
   } catch {
     return null;
   }

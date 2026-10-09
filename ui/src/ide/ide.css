@@ -977,3 +977,37 @@ body {
   font-size: 11.5px;
   color: var(--on-surface-variant);
 }
+
+/* ---------- 右键菜单（开发者页自己的一份） ---------- */
+.ctx {
+  position: fixed;
+  z-index: 40;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+}
+.ctx__item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--on-surface);
+  font-size: 12.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ctx__item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ldactions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}

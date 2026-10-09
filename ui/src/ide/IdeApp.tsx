@@ -31,16 +31,65 @@ import {
  * 包名一开始是空的，写什么由用户决定（只记住"上次用的那个"）。
  */
 
-/** 包名存在本地：它是"我在给哪个包干活"，不是随包走的数据。 */
-const PACKAGE_KEY = "miyin.dev.campaign";
+/**
+ * 开发者页的设置存在本地：包名、包信息、封面与说明书的路径。
+ *
+ * 这些都是**手填的**，重开一次页面就没了太亏 —— 下次打开原样回来。
+ * （提交历史里也存了一份当时的包信息，可以随时捡回来。）
+ */
+const SETTINGS_KEY = "miyin.dev.settings";
 
-function loadPackageName(): string {
+/** 表单里的包信息。字段与 `PackageMeta` 对齐，只是多两个"选中的文件路径"。 */
+type DevSettings = {
+  pkg: string;
+  meta: DevMeta;
+  cover: string;
+  doc: string;
+};
+
+function loadSettings(): DevSettings | null {
   try {
-    return localStorage.getItem(PACKAGE_KEY) ?? "";
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    return raw ? (JSON.parse(raw) as DevSettings) : null;
   } catch {
-    return "";
+    return null;
   }
 }
+
+function saveSettings(settings: DevSettings): void {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // 隐私模式下存不了，当次有效就行
+  }
+}
+
+/** 表单里的包信息。 */
+type DevMeta = {
+  author: string;
+  version: string;
+  description: string;
+  tags: string;
+  id: string;
+  kind: string;
+  campaign: string;
+  mainMap: string;
+  modid: string;
+  mods: string;
+};
+
+const EMPTY_META: DevMeta = {
+  author: "",
+  version: "",
+  description: "",
+  tags: "",
+  id: "",
+  kind: "campaign",
+  campaign: "",
+  mainMap: "",
+  modid: "",
+  mods: "",
+};
 
 /** 树：目录节点没有 entry，文件节点有。 */
 type TreeNode = { name: string; path: string; entry?: DevEntry; children: TreeNode[] };
@@ -210,22 +259,11 @@ export function IdeApp() {
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState(isDesktop ? "正在扫描游戏目录…" : "浏览器预览：没有 IPC，数据是示例");
-  const [pkg, setPkg] = useState(loadPackageName);
-  const [meta, setMeta] = useState({
-    author: "",
-    version: "",
-    description: "",
-    tags: "",
-    id: "",
-    kind: "campaign",
-    campaign: "",
-    mainMap: "",
-    modid: "",
-    mods: "",
-  });
+  const [pkg, setPkg] = useState(() => loadSettings()?.pkg ?? "");
+  const [meta, setMeta] = useState<DevMeta>(() => loadSettings()?.meta ?? EMPTY_META);
   // 封面 / 说明书是从**别的目录**挑的文件，导出时按包内路径一起带上
-  const [coverPath, setCoverPath] = useState("");
-  const [docPath, setDocPath] = useState("");
+  const [coverPath, setCoverPath] = useState(() => loadSettings()?.cover ?? "");
+  const [docPath, setDocPath] = useState(() => loadSettings()?.doc ?? "");
 
   /**
    * 版本号校验。
@@ -247,6 +285,25 @@ export function IdeApp() {
   const [pendingDiff, setPendingDiff] = useState<HistoryDiff | null>(null);
   const [message, setMessage] = useState("");
   const [maximized, setMaximized] = useState(false);
+  /** 右键菜单：落点 + 针对哪个节点。null 表示没开。 */
+  const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+
+  // 点别处 / 按 Esc 关掉菜单
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
+    addEventListener("click", close);
+    addEventListener("contextmenu", close);
+    addEventListener("keydown", onKey);
+    return () => {
+      removeEventListener("click", close);
+      removeEventListener("contextmenu", close);
+      removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
 
   // 双击标题栏 / Win+↑ 是系统改的最大化状态，只能靠 resize 补上
   useEffect(() => {
@@ -257,14 +314,12 @@ export function IdeApp() {
     return () => removeEventListener("resize", sync);
   }, []);
 
-  const renamePackage = (value: string) => {
-    setPkg(value);
-    try {
-      localStorage.setItem(PACKAGE_KEY, value);
-    } catch {
-      // 隐私模式下存不了，当次有效就行
-    }
-  };
+  const renamePackage = (value: string) => setPkg(value);
+
+  // 包信息一变就存 —— 重开页面原样回来
+  useEffect(() => {
+    saveSettings({ pkg, meta, cover: coverPath, doc: docPath });
+  }, [pkg, meta, coverPath, docPath]);
 
   const refresh = useCallback(async (extra: string[]) => {
     setStatus("正在扫描游戏目录…");
@@ -330,6 +385,14 @@ export function IdeApp() {
     setPicked((prev) => (prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path]));
 
   /** 目录：整棵子树一起选 / 一起撤。 */
+  const isDirOf = (node: TreeNode) => !node.entry || node.entry.is_dir;
+
+  /** 这个节点是不是已经整棵都勾上了。 */
+  const isPicked = (node: TreeNode) => {
+    const all = selectionUnder(node);
+    return all.length > 0 && all.every((path) => picked.includes(path));
+  };
+
   const toggleNode = (node: TreeNode) => {
     const all = selectionUnder(node);
     const every = all.every((path) => picked.includes(path));
@@ -389,7 +452,21 @@ export function IdeApp() {
     const files = entries
       .filter((entry) => picked.includes(entry.path) && !entry.is_dir)
       .map((entry) => ({ path: entry.path, abs: entry.abs }));
-    const item = await commitVersion(pkg.trim(), message, null, files);
+    const item = await commitVersion(pkg.trim(), message, null, files, {
+      name: pkg.trim(),
+      author: meta.author.trim() || null,
+      version: meta.version.trim() || null,
+      description: meta.description.trim() || null,
+      campaign: meta.campaign.trim() || null,
+      kind: meta.kind || null,
+      id: meta.id.trim() || null,
+      tags: meta.tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
+      main_map: meta.campaign === "" ? meta.mainMap || null : null,
+      cover: coverPath ? "cover" + (coverPath.match(/\.[A-Za-z0-9]+$/)?.[0] ?? "") : null,
+      doc: docPath ? (docPath.split(/[\\/]/).pop() ?? null) : null,
+      modid: meta.modid.trim() || null,
+      mods: meta.mods.split(/[,，]/).map((mod) => mod.trim()).filter(Boolean),
+    });
     if (!item) {
       setStatus(isDesktop ? "提交失败" : "浏览器预览提交不了 —— 没有 IPC");
       return;
@@ -409,6 +486,51 @@ export function IdeApp() {
     const path = await pickDocFile("doc");
     if (path) setDocPath(path);
   }, []);
+
+  /**
+   * 把包信息恢复成某次提交时的样子 —— 手填的东西不用再填一遍。
+   */
+  const applyMeta = useCallback((item: CommitRecord) => {
+    const saved = item.meta;
+    if (!saved) return;
+    if (saved.name) renamePackage(saved.name);
+    setMeta({
+      author: saved.author ?? "",
+      version: saved.version ?? "",
+      description: saved.description ?? "",
+      tags: (saved.tags ?? []).join(", "),
+      id: saved.id ?? "",
+      kind: saved.kind ?? "campaign",
+      campaign: saved.campaign ?? "",
+      mainMap: saved.main_map ?? "",
+      modid: saved.modid ?? "",
+      mods: (saved.mods ?? []).join(", "),
+    });
+    setStatus("包信息已恢复成 #" + item.id + " 那一版");
+  }, []);
+
+  /**
+   * 回到某次提交：**把勾选恢复成那一版的文件清单**。
+   *
+   * 说清楚一件事：我们只记了路径 + 大小 + 修改时间，**没有存内容副本**，
+   * 所以这是"回到那一版的选择"，不是"把文件内容回退"。
+   * 内容级的回退要 SC2Diff（见 docs/developer-workflow.md §4.3）。
+   */
+  const applyCommit = useCallback(
+    (item: CommitRecord) => {
+      const known = new Set(entries.map((entry) => entry.path));
+      const paths = item.files.map((file) => file.path).filter((path) => known.has(path));
+      const missing = item.files.length - paths.length;
+      setPicked(paths);
+      if (item.meta) applyMeta(item);
+      setStatus(
+        "已回到 #" + item.id + " 的勾选：" + paths.length + " 个文件" +
+          (missing > 0 ? "（有 " + missing + " 个现在扫不到了，没勾上）" : "") +
+          " —— 注意：这是勾选回退，内容回退要 SC2Diff",
+      );
+    },
+    [entries, applyMeta],
+  );
 
   const exportNow = useCallback(async () => {
     if (!pkg.trim()) {
@@ -484,6 +606,11 @@ export function IdeApp() {
             } else if (node.entry) {
               void open(node.entry);
             }
+          }}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setMenu({ x: event.clientX, y: event.clientY, node });
           }}
         >
           {isDir && node.children.length > 0 ? (
@@ -817,6 +944,16 @@ export function IdeApp() {
                             比上一版：新增 {pendingDiff.added.length} · 改动 {pendingDiff.changed.length} · 删掉 {pendingDiff.removed.length}
                           </p>
                         )}
+                        <p className="ldactions">
+                          <button className="btn btn-tonal" type="button" onClick={() => void applyCommit(item)}>
+                            回到这次提交
+                          </button>
+                          {item.meta && (
+                            <button className="btn btn-text" type="button" onClick={() => applyMeta(item)}>
+                              只用它的包信息
+                            </button>
+                          )}
+                        </p>
                         <p className="ldmsg">这一版有 {item.files.length} 个文件：</p>
                         <ul className="mini">
                           {item.files.slice(0, 8).map((file) => (
@@ -832,6 +969,55 @@ export function IdeApp() {
           </section>
         </div>
       </div>
+
+      {menu && (
+        <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
+          {!isDirOf(menu.node) && menu.node.entry && (
+            <button className="ctx__item" type="button" onClick={() => { void open(menu.node.entry!); setMenu(null); }}>
+              打开
+            </button>
+          )}
+          <button className="ctx__item" type="button" onClick={() => { toggleNode(menu.node); setMenu(null); }}>
+            {isPicked(menu.node) ? "取消勾选（含子目录）" : "勾选（含子目录）"}
+          </button>
+          {isDirOf(menu.node) && (
+            <button className="ctx__item" type="button" onClick={() => { toggleExpand(menu.node.path); setMenu(null); }}>
+              {expanded.includes(menu.node.path) ? "收起" : "展开"}
+            </button>
+          )}
+          <button
+            className="ctx__item"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(menu.node.entry?.abs || menu.node.path);
+              setStatus("路径已复制");
+              setMenu(null);
+            }}
+          >
+            复制路径
+          </button>
+          <button
+            className="ctx__item"
+            type="button"
+            onClick={() => {
+              if (menu.node.entry?.abs) void launcher.revealPath(menu.node.entry.abs).catch(() => {});
+              setMenu(null);
+            }}
+          >
+            在资源管理器里打开
+          </button>
+          {/几\.(png|jpg|jpeg|webp|gif)$/i.test(menu.node.path) && menu.node.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setCoverPath(menu.node.entry!.abs); setMenu(null); }}>
+              设为封面图
+            </button>
+          )}
+          {/\.pdf$/i.test(menu.node.path) && menu.node.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setDocPath(menu.node.entry!.abs); setMenu(null); }}>
+              设为说明书
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

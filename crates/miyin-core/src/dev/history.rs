@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::export::PackageMeta;
+
 use crate::error::Result;
 
 /// 提交里的一条：一个文件在提交那一刻的样子。
@@ -34,6 +36,12 @@ pub struct Commit {
     /// Unix 秒。
     pub at: u64,
     pub files: Vec<Snapshot>,
+    /// 提交那一刻的包信息（名称 / 作者 / 版本 / 封面 / 说明书 …）。
+    ///
+    /// 存下来是为了**能捡回来** —— 包信息是手填的，重开一次页面就没了太亏；
+    /// 顺手也让"这次提交用的是什么设置"有个凭据。老记录里没有这个字段，读出来是 `None`。
+    #[serde(default)]
+    pub meta: Option<PackageMeta>,
 }
 
 /// 两版之间的差异。
@@ -104,6 +112,7 @@ pub fn commit(
     message: &str,
     label: Option<&str>,
     files: &[(String, PathBuf)],
+    meta: Option<PackageMeta>,
 ) -> Result<Commit> {
     let mut history = log(root, pkg)?;
 
@@ -128,6 +137,7 @@ pub fn commit(
         message: message.trim().to_string(),
         at: now_seconds(),
         files: snapshots,
+        meta,
     };
     history.push(item.clone());
 
@@ -191,6 +201,12 @@ mod tests {
         let a = touch(&files_dir, "a.SC2Map", "第一版".as_bytes());
         let b = touch(&files_dir, "b.SC2Mod", "模组".as_bytes());
 
+        let meta = PackageMeta {
+            name: "复刻战役".to_string(),
+            version: Some("8.0".to_string()),
+            main_map: Some("Maps/a.SC2Map".to_string()),
+            ..PackageMeta::default()
+        };
         let first = commit(
             &root,
             pkg,
@@ -200,9 +216,15 @@ mod tests {
                 ("Maps/a.SC2Map".to_string(), a.clone()),
                 ("Mods/b.SC2Mod".to_string(), b.clone()),
             ],
+            Some(meta),
         )
         .expect("第一次提交");
         assert_eq!(first.id, 1);
+        assert_eq!(
+            first.meta.as_ref().and_then(|item| item.version.clone()),
+            Some("8.0".to_string()),
+            "包信息要跟着提交存下来"
+        );
         assert_eq!(first.label.as_deref(), Some("v8.0"));
         assert_eq!(first.files.len(), 2);
 
@@ -218,12 +240,25 @@ mod tests {
                 ("Maps/a.SC2Map".to_string(), a.clone()),
                 ("说明/c.txt".to_string(), c),
             ],
+            None,
         )
         .expect("第二次提交");
         assert_eq!(second.id, 2);
 
         let history = log(&root, pkg).expect("读历史");
         assert_eq!(history.len(), 2, "两次都记下来了");
+        assert_eq!(
+            history[0].meta.as_ref().map(|item| item.name.clone()),
+            Some("复刻战役".to_string()),
+            "读回来的历史要带着当时的包信息"
+        );
+        assert!(history[1].meta.is_none(), "没给包信息的那次就是 None");
+        assert_eq!(
+            history[0].meta.as_ref().map(|item| item.name.clone()),
+            Some("复刻战役".to_string()),
+            "读回来的历史要带着当时的包信息"
+        );
+        assert!(history[1].meta.is_none(), "没给包信息的那次就是 None");
 
         let delta = diff(&history[0], &history[1]);
         assert_eq!(delta.added, vec!["说明/c.txt".to_string()]);
