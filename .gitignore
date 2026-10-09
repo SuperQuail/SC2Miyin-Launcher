@@ -83,3 +83,6 @@ Desktop.ini
 # 本地起 vite preview 时产生的日志
 /ui/preview.*
 
+# 界面方案预览件（AGENTS.md §17）：出方案用的一次性渲染件，不入库
+/ui/src/preview/
+
