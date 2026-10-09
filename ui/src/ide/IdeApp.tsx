@@ -384,11 +384,18 @@ export function IdeApp() {
     const files = isDir ? filesUnder(node) : [node.path];
     const selected = files.filter((file) => picked.includes(file)).length;
     const isOpen = !isDir || expanded.includes(node.path) || search.trim().length > 0;
+    // 目录里一个文件都没有（只有空壳子）—— 没什么可勾的，得让用户看出来
+    const isEmpty = isDir && files.length === 0;
 
     return (
       <div key={node.path} className="tnode">
         <div
-          className={"trow2" + (active && node.entry && active === node.entry.abs ? " is-open" : "")}
+          className={
+            "trow2" +
+            (active && node.entry && active === node.entry.abs ? " is-open" : "") +
+            (isEmpty ? " trow2--empty" : "")
+          }
+          title={isEmpty ? "这个目录里没有文件（可能只有空壳子目录），所以没什么可勾的" : node.path}
           style={{ paddingLeft: 6 + depth * 14 }}
           // 点文件名打开它；点目录行就是展开 / 收起
           onClick={() => {
@@ -425,6 +432,7 @@ export function IdeApp() {
           ) : (
             <span className="tcheck tcheck--empty" />
           )}
+          {isEmpty && <span className="tag tag--empty">空</span>}
           <span className={"tname" + (node.entry?.external ? " tname--ext" : "")} title={node.path}>
             {node.name}
           </span>

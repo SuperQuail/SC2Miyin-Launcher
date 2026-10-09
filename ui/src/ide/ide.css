@@ -954,3 +954,16 @@ body {
   display: inline-block;
   visibility: hidden;
 }
+
+/* 空目录：整行压暗 + 一个「空」字 —— 让"没有东西可勾"看起来是事实，不是坏了 */
+.trow2--empty {
+  opacity: 0.55;
+}
+.tag--empty {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  color: var(--on-surface-variant);
+  font-size: 10px;
+}

@@ -35,6 +35,9 @@ const SAMPLE: DevScan = {
   entries: [
     { path: "Maps", abs: "", name: "Maps", is_dir: true, bytes: 0, external: false },
     { path: "Maps/CustomCampaigns", abs: "", name: "CustomCampaigns", is_dir: true, bytes: 0, external: false },
+    // 空壳目录：只有目录、里面一个文件都没有 —— 示例数据里留一个，界面才有机会练到这种情况
+    { path: "Maps/Campaign", abs: "", name: "Campaign", is_dir: true, bytes: 0, external: false },
+    { path: "Maps/Campaign/void", abs: "", name: "void", is_dir: true, bytes: 0, external: false },
     { path: "Maps/CustomCampaigns/示例战役", abs: "", name: "示例战役", is_dir: true, bytes: 0, external: false },
     { path: "Maps/CustomCampaigns/示例战役/01.SC2Map", abs: "C:\\示例\\01.SC2Map", name: "01.SC2Map", is_dir: false, bytes: 1284096, external: false },
     { path: "Maps/CustomCampaigns/示例战役/02.SC2Map", abs: "C:\\示例\\02.SC2Map", name: "02.SC2Map", is_dir: false, bytes: 1171456, external: false },
