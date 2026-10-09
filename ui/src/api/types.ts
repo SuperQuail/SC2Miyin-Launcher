@@ -183,6 +183,24 @@ export interface Conflict {
 }
 
 /** 导入预览。 */
+/** 预演里的一条：一个会被动到的目标。对应 `miyin_core::library::PreviewEntry`。 */
+export interface PreviewEntry {
+  target: string;
+  existing_bytes: number;
+  incoming_bytes: number;
+  /** 现在归谁；别人占着才会有值。 */
+  owner: string | null;
+}
+
+/** 铺盘前的预演。一个字都不写盘。 */
+export interface Preview {
+  add: PreviewEntry[];
+  overwrite: PreviewEntry[];
+  takeover: PreviewEntry[];
+  delete: string[];
+  bytes: number;
+}
+
 export interface ImportPreview {
   path: string;
   inspection: PackageInspection;

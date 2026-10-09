@@ -191,6 +191,22 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     Ok(installation)
 }
 
+/// 启用前先看：这次会往游戏目录里放什么、覆盖什么、删什么。**不写盘。**
+///
+/// 写盘闸门放开到「安装目录里任意位置」之后，这就是兜底的那一眼 ——
+/// 界面拿它铺确认框，用户点头了才真的 `activate`。
+#[tauri::command(async)]
+fn preview_activation(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<library::Preview, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    library::preview(&state.library, installation, &slot, &variant_id)
+        .map_err(|error| error.to_string())
+}
+
 /// 开发者页：扫游戏目录 + 用户自己加的目录。
 ///
 /// 只读。越界（不在游戏目录里）不作拒绝，标成 `external` 交给界面提示。
@@ -1543,6 +1559,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            preview_activation,
             dev_pick_directory,
             dev_read_file,
             detect_installation,

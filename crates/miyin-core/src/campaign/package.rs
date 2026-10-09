@@ -290,9 +290,11 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
             .components()
             .next()
             .map(|first| {
-                // 与 `payload_target` 一致：只认规范拼写
+                // 与 `payload_target` 一致：只认规范拼写。
+                // Interfaces 也算 —— 白名单早就放行它，但这里一直不认，
+                // 结果是界面 Mod 装不进去（v3 要补的第一个缺口）。
                 let name = first.as_os_str().to_string_lossy();
-                name == "Maps" || name == "Mods"
+                name == "Maps" || name == "Mods" || name == "Interfaces"
             })
             .unwrap_or(false)
     })
@@ -453,7 +455,7 @@ fn game_relative(source: &str) -> Option<String> {
     let parts: Vec<&str> = normalised.split('/').collect();
 
     for (index, part) in parts.iter().enumerate() {
-        if *part == "Maps" || *part == "Mods" {
+        if *part == "Maps" || *part == "Mods" || *part == "Interfaces" {
             return Some(parts[index..].join("/"));
         }
     }
@@ -1360,6 +1362,21 @@ mod payload_tests {
         assert!(payload.expanded, "目录树应标记为 expanded");
         // 包内已经是游戏目录镜像，落点保持原路径
         assert!(payload.target_name().starts_with("epiloguestory01.SC2Map"));
+    }
+
+    /// 界面 Mod：`Interfaces/` 下的东西要原样落到 `<游戏>/Interfaces/`。
+    #[test]
+    fn interface_payloads_keep_their_path() {
+        let target = payload_target("Interfaces/Pro_2020/UI.SC2Interface", false, "", false);
+        assert_eq!(
+            crate::library::compose::payload_target_path(
+                &target,
+                &crate::library::compose::Placement::Campaign { sub: None }
+            )
+            .as_deref(),
+            Some("Interfaces/Pro_2020/UI.SC2Interface"),
+            "界面 Mod 必须原样落，不能拍进 Maps"
+        );
     }
 
     #[test]

@@ -61,7 +61,7 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
-pub use activation::{activate, deactivate};
+pub use activation::{activate, deactivate, preview};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
 pub use store::{VariantChanges, import, remove_variant, update_variant};
 
