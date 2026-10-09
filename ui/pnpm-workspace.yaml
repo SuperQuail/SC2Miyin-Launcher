@@ -1,2 +1,7 @@
+# pnpm 10+ 把「哪些依赖允许跑安装脚本」放在这里，不再读 package.json。
+#
+# core-js 是 @jetbrains/ring-ui-built 拖进来的。pnpm 默认既不跑它的安装脚本、
+# 又以非零退出，于是 `pnpm install` / `pnpm -C ui build` 全都会挂（CI 也一样）。
+# 显式放行它 —— 由 `pnpm -C ui approve-builds --all` 生成。
 allowBuilds:
-  core-js: set this to true or false
+  core-js: true
