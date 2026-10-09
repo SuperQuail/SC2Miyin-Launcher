@@ -945,14 +945,12 @@ export function IdeApp() {
                           </p>
                         )}
                         <p className="ldactions">
-                          <button className="btn btn-tonal" type="button" onClick={() => void applyCommit(item)}>
-                            回到这次提交
+                          <button className="btn btn-tonal" type="button" onClick={() => applyCommit(item)}>
+                            应用这一版
                           </button>
-                          {item.meta && (
-                            <button className="btn btn-text" type="button" onClick={() => applyMeta(item)}>
-                              只用它的包信息
-                            </button>
-                          )}
+                          <span className="ldhint">
+                            把勾选和包信息都恢复成这一版的样子
+                          </span>
                         </p>
                         <p className="ldmsg">这一版有 {item.files.length} 个文件：</p>
                         <ul className="mini">

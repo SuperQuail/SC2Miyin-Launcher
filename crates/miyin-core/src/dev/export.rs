@@ -169,21 +169,29 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
 /// `miyin` 命名空间，别的工具直接忽略。
 fn metadata_json(meta: &PackageMeta) -> Result<String> {
     let mut miyin = serde_json::Map::new();
-    miyin.insert(
-        "format".to_string(),
-        serde_json::Value::from(crate::campaign::package::MIYIN_FORMAT_VERSION),
-    );
-    for (key, value) in [("id", meta.id.as_ref()), ("kind", meta.kind.as_ref())] {
-        if let Some(value) = value.filter(|text| !text.trim().is_empty()) {
-            miyin.insert(key.to_string(), serde_json::Value::from(value.clone()));
+    let mut object = serde_json::Map::new();
+
+    // 空字段一律不写 —— 约定里每个字段都是可选的，
+    // 塞一堆 null 进去只会让别的工具以为"作者显式写了空"。
+    let put = |target: &mut serde_json::Map<String, serde_json::Value>,
+               key: &str,
+               value: Option<&String>| {
+        if let Some(text) = value.filter(|text| !text.trim().is_empty()) {
+            target.insert(key.to_string(), serde_json::Value::from(text.clone()));
         }
-    }
-    if let Some(doc) = meta.doc.as_ref().filter(|text| !text.trim().is_empty()) {
-        miyin.insert("doc".to_string(), serde_json::Value::from(doc.clone()));
-    }
-    if let Some(modid) = meta.modid.as_ref().filter(|text| !text.trim().is_empty()) {
-        miyin.insert("modid".to_string(), serde_json::Value::from(modid.clone()));
-    }
+    };
+
+    put(&mut object, "name", Some(&meta.name));
+    put(&mut object, "author", meta.author.as_ref());
+    put(&mut object, "version", meta.version.as_ref());
+    put(&mut object, "description", meta.description.as_ref());
+    put(&mut object, "campaign", meta.campaign.as_ref());
+    put(&mut object, "cover", meta.cover.as_ref());
+
+    put(&mut miyin, "id", meta.id.as_ref());
+    put(&mut miyin, "kind", meta.kind.as_ref());
+    put(&mut miyin, "doc", meta.doc.as_ref());
+    put(&mut miyin, "modid", meta.modid.as_ref());
     if !meta.mods.is_empty() {
         miyin.insert(
             "mods".to_string(),
@@ -203,30 +211,22 @@ fn metadata_json(meta: &PackageMeta) -> Result<String> {
         .campaign
         .as_ref()
         .is_none_or(|text| text.trim().is_empty())
-        && let Some(main_map) = meta
-            .main_map
-            .as_ref()
-            .filter(|text| !text.trim().is_empty())
     {
-        miyin.insert(
-            "main_map".to_string(),
-            serde_json::Value::from(main_map.clone()),
-        );
+        put(&mut miyin, "main_map", meta.main_map.as_ref());
     }
 
-    let document = serde_json::json!({
-        "format": 2,
-        "name": meta.name,
-        "author": meta.author,
-        "version": meta.version,
-        "description": meta.description,
-        "campaign": meta.campaign,
-        // 封面走顶层 `cover`（CCM 与枢纽都认这个位置）
-        "cover": meta.cover,
-        "miyin": miyin,
-    });
+    // **声明的格式版本 = 实际用到的最高那一档**（约定 §5）：
+    // 多报会让老启动器白白拒绝，少报会让它按老语义解析新字段。
+    let mut format = 1;
+    if meta.kind.is_some() {
+        format = format.max(2);
+    }
+    miyin.insert("format".to_string(), serde_json::Value::from(format));
 
-    serde_json::to_string_pretty(&document)
+    // 键排一下序，生成的文件 diff 起来好看
+    object.insert("miyin".to_string(), serde_json::Value::Object(miyin));
+
+    serde_json::to_string_pretty(&serde_json::Value::Object(object))
         .map_err(|error| Error::PackageRejected(format!("元数据写不出来：{error}")))
 }
 
@@ -296,6 +296,15 @@ mod tests {
         )
         .expect("读");
         assert!(text.contains("我的战役"));
+        assert!(
+            !text.contains("\"format\": 1\n}") && !text.trim_start().starts_with("{\n  \"format\""),
+            "顶层不该有 format —— 版本声明在 miyin.format 里：{text}"
+        );
+        assert!(
+            text.contains("\"format\": 1"),
+            "没写补丁字段就声明 1（多报会让老启动器白白拒绝）：{text}"
+        );
+        assert!(!text.contains(": null"), "空字段不该写成 null：{text}");
         assert!(text.contains("重制"), "标签要带上");
         assert!(
             !text.contains("main_map"),
@@ -321,6 +330,59 @@ mod tests {
         assert!(
             custom_text.contains("main_map"),
             "自制战役要写 main_map：{custom_text}"
+        );
+    }
+
+    /// 声明的格式版本 = **实际用到了哪一档**（约定 §5）。
+    #[test]
+    fn format_declaration_follows_what_we_write() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let map = tmp.path().join("a.SC2Map");
+        std::fs::write(&map, "x").expect("写");
+        let files = vec![ExportFile {
+            path: "Maps/a.SC2Map".to_string(),
+            abs: map.to_string_lossy().into_owned(),
+            is_dir: false,
+        }];
+
+        let read = |name: &str| {
+            let archive = std::fs::File::open(tmp.path().join(name)).expect("开包");
+            let mut zip = zip::ZipArchive::new(archive).expect("读包");
+            let mut text = String::new();
+            std::io::Read::read_to_string(
+                &mut zip.by_name("metadata.json").expect("元数据"),
+                &mut text,
+            )
+            .expect("读");
+            text
+        };
+
+        export(
+            &tmp.path().join("基础.zip"),
+            &PackageMeta {
+                name: "基础".to_string(),
+                ..PackageMeta::default()
+            },
+            &files,
+        )
+        .expect("导出");
+        let base = read("基础.zip");
+        assert!(base.contains("\"format\": 1"), "只有基础字段就是 1：{base}");
+
+        export(
+            &tmp.path().join("补丁.zip"),
+            &PackageMeta {
+                name: "补丁".to_string(),
+                kind: Some("patch".to_string()),
+                ..PackageMeta::default()
+            },
+            &files,
+        )
+        .expect("导出");
+        let patch = read("补丁.zip");
+        assert!(
+            patch.contains("\"format\": 2"),
+            "用了补丁字段（kind）就要声明 2：{patch}"
         );
     }
 

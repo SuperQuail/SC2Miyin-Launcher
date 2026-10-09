@@ -1011,3 +1011,9 @@ body {
   gap: 6px;
   margin: 8px 0;
 }
+
+.ldhint {
+  align-self: center;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}

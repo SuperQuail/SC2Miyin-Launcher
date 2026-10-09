@@ -34,10 +34,16 @@ pub const MAX_UNPACKED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// 允许的最大条目数。
 pub const MAX_ENTRIES: usize = 100_000;
 
-/// 当前启动器支持的**弥音扩展格式**版本（见 `docs/package-format.md`）。
+/// 当前启动器支持的**弥音扩展格式**版本（见 `docs/package-format.md` §5）。
 ///
 /// 包内 `miyin.format` 高于这个值时会被明确拒绝，而不是猜着解析。
-pub const MIYIN_FORMAT_VERSION: u32 = 1;
+///
+/// 三档分别是（和文档里的对应关系要一致）：
+///
+/// - `1` 基础字段：name / author / version / campaign / id / cover / tags
+/// - `2` 补丁字段：kind / priority / requires（这些**必须理解**才能正确安装）
+/// - `3` 覆盖规则：overrides
+pub const MIYIN_FORMAT_VERSION: u32 = 3;
 
 /// 包内的一个**载荷**：一张地图或一个模组。
 ///

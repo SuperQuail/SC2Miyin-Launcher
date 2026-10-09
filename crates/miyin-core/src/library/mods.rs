@@ -61,14 +61,42 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
     let mut manifest = crate::library::install::Manifest::load_migrating(data, installation);
     let all = list(data);
 
+    // **跟着战役包来的模组，战役没启用就不铺。**
+    //
+    // 战役停用了、它带的模组却还躺在游戏目录里，那叫"停了个寂寞" ——
+    // 而且那些模组本来就是跟着那一版战役来的，战役不在，它们也没有意义。
+    // 用户的独立模组不受影响（它们自己那面 enabled 说了算）。
+    let index = super::Library::new(data.to_path_buf()).index();
+    let active: std::collections::BTreeMap<String, String> = index
+        .slots
+        .iter()
+        .filter_map(|(slot, entry)| entry.active.clone().map(|variant| (slot.clone(), variant)))
+        .collect();
+
+    /// 这条记录该不该铺；返回 Some(原因) 表示不该。
+    fn why_not(
+        record: &StandaloneMod,
+        active: &std::collections::BTreeMap<String, String>,
+    ) -> Option<String> {
+        if !record.enabled {
+            return Some("停用".to_string());
+        }
+        if let ModSource::Campaign { slot, variant, .. } = &record.source
+            && active.get(slot) != Some(variant)
+        {
+            return Some(format!("它跟着的战役「{slot}」这一版没启用"));
+        }
+        None
+    }
+
     // ---- 1) 先撤掉不该留的 ----
     //
-    // 三种情况：用户停用了、模组被删了、库里已经没有这条记录了。
+    // 三种情况：用户停用了、**它跟着的战役没启用**、模组被删了/库里没记录了。
     let existing: Vec<String> = all.iter().map(|item| item.id.clone()).collect();
     let mut stale: Vec<crate::library::install::Owner> = Vec::new();
 
     for record in &all {
-        if !record.enabled {
+        if why_not(record, &active).is_some() {
             stale.push(crate::library::install::Owner::Mod {
                 id: record.id.clone(),
             });
@@ -92,9 +120,20 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
     let mut placed: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
-    for record in all.iter().filter(|item| item.enabled) {
+    // 落点撞车要说话：两个模组铺到同一个名字，后铺的会盖掉先铺的。
+    // "重复的 mod"最常见的形态就是这个 —— 同一个模组导了两份、或者两个包带了同名模组。
+    let mut taken: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+
+    for record in all.iter().filter(|item| why_not(item, &active).is_none()) {
         let source = safety::ensure_within(&mods_root, &mods_root.join(&record.id))?;
         let name = placed_name(record);
+
+        if let Some(previous) = taken.insert(name.clone(), record.name.clone()) {
+            warnings.push(format!(
+                "「{previous}」和「{}」都要铺成 Mods/{name}，后者会盖掉前者 —— 建议停用其中一个",
+                record.name
+            ));
+        }
 
         let mut plan = crate::library::install::Plan::new(crate::library::install::Owner::Mod {
             id: record.id.clone(),
@@ -118,6 +157,16 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
 
         warnings.extend(manifest.apply(data, installation, &plan)?);
         placed.push(name);
+    }
+
+    // 因为"战役没启用"而没铺的，明确说一句 —— 默默不铺会让人以为模组丢了
+    for record in &all {
+        if let Some(reason) = why_not(record, &active)
+            && record.enabled
+            && reason != "停用"
+        {
+            warnings.push(format!("「{}」这次没铺：{reason}", record.name));
+        }
     }
 
     Ok(SyncReport { placed, warnings })
@@ -1476,5 +1525,98 @@ fn same_bytes(left: &Path, right: &Path) -> bool {
         (Ok(a), Ok(b)) => a == b,
         // 读不了（比如是目录）就当作「不一样」，反正上面已经比过大小了
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sc2::{DiscoverySource, Installation};
+
+    fn mod_record(id: &str, folder: &str, source: ModSource) -> StandaloneMod {
+        StandaloneMod {
+            id: id.to_string(),
+            name: folder.to_string(),
+            author: None,
+            version: None,
+            description: None,
+            modid: None,
+            fingerprint: String::new(),
+            folder: folder.to_string(),
+            kind: ModKind::File,
+            source,
+            enabled: true,
+            imported_at: 0,
+            size_bytes: 0,
+            parts: 1,
+        }
+    }
+
+    /// **战役没启用，它带来的模组就不该铺进游戏目录。**
+    ///
+    /// 战役停了、模组还躺在 `Mods/` 里，那叫"停了个寂寞" —— 而且那些模组本来就是
+    /// 跟着那一版战役来的。用户自己导的独立模组不受影响。
+    #[test]
+    fn campaign_mods_follow_their_campaign() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let game = tmp.path().join("游戏");
+        std::fs::create_dir_all(&game).expect("建目录");
+        std::fs::write(game.join("StarCraft II.exe"), b"stub").expect("标记");
+        let installation = Installation::from_root(&game, DiscoverySource::Manual).expect("安装");
+
+        let data = tmp.path().join("data");
+
+        // 独立模组：内容在库里
+        let lib_dir = data.join("mods").join("lib1");
+        std::fs::create_dir_all(&lib_dir).expect("建目录");
+        std::fs::write(lib_dir.join("独立.SC2Mod"), b"x").expect("写");
+
+        // 战役带来的模组：内容在战役版本目录里
+        let camp_dir = data
+            .join("campaigns")
+            .join("wol")
+            .join("v1")
+            .join("附带的模组");
+        std::fs::create_dir_all(&camp_dir).expect("建目录");
+        std::fs::write(camp_dir.join("附带.SC2Mod"), b"y").expect("写");
+
+        let index = serde_json::json!({
+            "mods": [
+                mod_record("lib1", "独立.SC2Mod", ModSource::Library),
+                mod_record(
+                    "campaign-wol-v1-abc",
+                    "附带的模组",
+                    ModSource::Campaign {
+                        slot: "wol".to_string(),
+                        variant: "v1".to_string(),
+                        path: "附带的模组".to_string(),
+                    },
+                ),
+            ]
+        });
+        std::fs::write(data.join("mods.json"), index.to_string()).expect("写索引");
+
+        // wol 没有任何版本被启用（连 library.json 都没有）
+        let report = sync(&data, &installation).expect("同步");
+
+        assert!(
+            report.placed.iter().any(|name| name.contains("独立")),
+            "独立模组照铺：{:?}",
+            report.placed
+        );
+        assert!(
+            !report.placed.iter().any(|name| name.contains("附带")),
+            "战役没启用，它带来的模组不该铺：{:?}",
+            report.placed
+        );
+        assert!(
+            !game.join("Mods").join("附带的模组").exists(),
+            "游戏目录里也不该有"
+        );
+        assert!(
+            report.warnings.iter().any(|line| line.contains("没铺")),
+            "要有话说明白为什么没铺：{:?}",
+            report.warnings
+        );
     }
 }
