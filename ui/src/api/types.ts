@@ -217,6 +217,14 @@ export interface SaveBackup {
   files: number;
 }
 
+/** 游戏目录里已经装着的一个自制战役（收编用）。 */
+export interface InstalledCampaign {
+  dir: string;
+  name: string;
+  bytes: number;
+  files: number;
+}
+
 export interface ImportPreview {
   path: string;
   inspection: PackageInspection;
@@ -616,6 +624,9 @@ export interface LauncherApi {
    * `entry` 是**用户从哪个入口点的导入**：`custom` 表示站在「自制战役」页 ——
    * 那就不再判断它属于哪部原版战役，直接按自制战役来。
    */
+  /** 游戏目录里已经装着的自制战役（收编进库用）。 */
+  listInstalledCampaigns(): Promise<InstalledCampaign[]>;
+
   prepareImport(path: string, entry?: "campaign" | "custom"): Promise<ImportPreview>;
   /** 按指定战役导入；传了 slot 就按传的来，覆盖自动判定。 */
   importPackageWith(

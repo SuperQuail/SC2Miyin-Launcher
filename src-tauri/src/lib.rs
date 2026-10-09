@@ -275,6 +275,17 @@ fn dev_pick_directory() -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 游戏目录里已经装着的自制战役 —— 供「收编进库」用。只读。
+#[tauri::command(async)]
+fn list_installed_campaigns(
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::campaign::collect::InstalledCampaign>, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    miyin_core::campaign::collect::installed_campaigns(installation)
+        .map_err(|error| error.to_string())
+}
+
 /// 开发者页：这个包的提交历史。
 #[tauri::command(async)]
 fn dev_history(
@@ -1663,6 +1674,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            list_installed_campaigns,
             dev_history,
             dev_commit,
             dev_diff,

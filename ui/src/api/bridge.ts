@@ -33,6 +33,7 @@ import type {
   ExportReport,
   ImportPreview,
   Installation,
+  InstalledCampaign,
   LauncherApi,
   Preview,
   SaveBackup,
@@ -72,6 +73,7 @@ const desktop: LauncherApi = {
   pickGameDirectory: () => invoke<string | null>("pick_game_directory"),
   variantCover: (slot, variantId) => invoke<string | null>("variant_cover", { slot, variantId }),
 
+  listInstalledCampaigns: () => invoke<InstalledCampaign[]>("list_installed_campaigns"),
   prepareImport: (path, entry) =>
     invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null }),
   importPackageWith: (path, slot, mode) =>
@@ -548,6 +550,7 @@ const demo: LauncherApi = {
   // 演示数据没有真实图片文件，统一返回 null，界面会退回官方美术
   variantCover: () => delay(null),
 
+  listInstalledCampaigns: async () => [],
   prepareImport: (path, entry) =>
     delay({
       path,

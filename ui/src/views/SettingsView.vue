@@ -8,11 +8,25 @@ import UpdatePanel from "../components/UpdatePanel.vue";
 
 const openDevPage = () => { location.href = "/ide.html"; };
 
-const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop, saves, saveBackups, refreshSaves, backupSaves, restoreSaves } =
-  useLauncher();
+const {
+  installation,
+  libraryRoot,
+  chooseGameDirectory,
+  reveal,
+  isDesktop,
+  installedCampaigns,
+  refreshInstalled,
+  collectCampaign,
+  saves,
+  saveBackups,
+  refreshSaves,
+  backupSaves,
+  restoreSaves,
+} = useLauncher();
 
 onMounted(() => {
   void refreshSaves();
+  void refreshInstalled();
 });
 
 const rows = computed(() => {
@@ -97,6 +111,24 @@ const rows = computed(() => {
         <li>
           <strong>中文不会乱码。</strong>
           包里的说明文字会自动识别编码，简繁中文的战役包都能正常显示。
+        </li>
+      </ul>
+    </section>
+
+    <section v-if="installedCampaigns.length" class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">游戏目录里已经装着的</h3>
+        <span class="version">{{ installedCampaigns.length }} 个</span>
+      </header>
+      <p class="hint">
+        这些是直接扔进 <code>Maps/CustomCampaigns</code> 的战役，还没进库 —— 收编之后就能用启动器管版本了。
+        <strong>收编不会删原目录。</strong>
+      </p>
+      <ul class="plist">
+        <li v-for="item in installedCampaigns" :key="item.dir" class="pitem">
+          <span class="pitem__name">{{ item.name }}</span>
+          <span class="tag">{{ item.files }} 个文件 · {{ (item.bytes / 1024 / 1024).toFixed(1) }} MB</span>
+          <button class="btn btn-text" type="button" @click="collectCampaign(item.dir)">收进库</button>
         </li>
       </ul>
     </section>

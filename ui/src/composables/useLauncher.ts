@@ -336,6 +336,37 @@ type PendingActivation = {
 
 const pendingActivation = ref<PendingActivation | null>(null);
 
+/** 游戏目录里已经装着的自制战役（还没收进库的那些）。 */
+const installedCampaigns = ref<Awaited<ReturnType<typeof api.listInstalledCampaigns>>>([]);
+
+async function refreshInstalled(): Promise<void> {
+  try {
+    installedCampaigns.value = await api.listInstalledCampaigns();
+  } catch {
+    installedCampaigns.value = [];
+  }
+}
+
+/**
+ * 把游戏目录里已经装着的战役**收进库**。
+ *
+ * 原目录**一个字节都不动** —— 那是用户自己放的文件夹，删不删他自己决定。
+ * 想清干净就先用启动器"启用"一次库里那份，再自己删掉外面这个。
+ */
+async function collectCampaign(dir: string): Promise<void> {
+  busy.value = true;
+  try {
+    await api.importPackageWith(dir, null, "rename");
+    await refresh();
+    await refreshInstalled();
+    notify("success", "已收进库 —— 原目录没动，战役列表里能看到了");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
 /** 存档（issue #20）：现在这份 + 已经备份的那些。 */
 const saves = ref<Awaited<ReturnType<typeof api.listSaves>> | null>(null);
 const saveBackups = ref<Awaited<ReturnType<typeof api.listSaveBackups>>>([]);
@@ -552,6 +583,9 @@ export function useLauncher() {
   pendingActivation,
   theme,
   toggleTheme,
+  installedCampaigns,
+  refreshInstalled,
+  collectCampaign,
   saves,
   saveBackups,
   refreshSaves,

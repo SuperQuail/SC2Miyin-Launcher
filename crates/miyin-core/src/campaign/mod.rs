@@ -12,6 +12,7 @@
 //! 不在这里 —— 库属于启动器自身的数据，与游戏目录解耦。
 //! 曾经这里还有「扫描游戏目录里已装的战役」的一套模型，库做出来之后就没用了。
 
+pub mod collect;
 pub mod contents;
 pub mod identify;
 pub mod metadata;
