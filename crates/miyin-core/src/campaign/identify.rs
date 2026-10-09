@@ -16,8 +16,12 @@ use serde::Serialize;
 
 use crate::campaign::metadata::CampaignType;
 
-/// 单张地图最多解压多少字节（防止畸形包把内存吃光）。
+/// 单条流最多解压多少字节（防止畸形包把内存吃光）。
 const INFLATE_BUDGET: usize = 4 * 1024 * 1024;
+
+/// 一次扫描**总共**最多解压多少 —— 只看单条流的话，一段全是 zlib 流的
+/// 二进制能解出几万个满额缓冲，等于没防。
+const INFLATE_TOTAL_BUDGET: usize = 16 * 1024 * 1024;
 
 /// 解出来的流小于这个长度就当作噪声丢掉。
 const MIN_STREAM_LEN: usize = 32;
@@ -243,9 +247,12 @@ pub fn from_map_names(names: &[String]) -> Option<Identification> {
 /// 实测 25 张真实单文件地图 100% 命中。
 pub fn inflate_streams(blob: &[u8]) -> Vec<Vec<u8>> {
     let mut streams = Vec::new();
+    let mut total = 0usize;
     let mut index = 0usize;
 
-    while index + 2 < blob.len() {
+    // 总预算，不只是**单条**流的预算：一段全是 zlib 流的二进制能解出几万个
+    // 满额缓冲，只看单条等于没看。够找声明就收手。
+    while index + 2 < blob.len() && total < INFLATE_TOTAL_BUDGET {
         // zlib 头的常见写法：CMF=0x78，FLG 让 (CMF*256+FLG) 能被 31 整除
         if blob[index] == 0x78 && matches!(blob[index + 1], 0x01 | 0x5E | 0x9C | 0xDA) {
             let mut decoder = flate2::read::ZlibDecoder::new(&blob[index..]);
@@ -257,6 +264,7 @@ pub fn inflate_streams(blob: &[u8]) -> Vec<Vec<u8>> {
                 .is_ok()
                 && buffer.len() >= MIN_STREAM_LEN
             {
+                total += buffer.len();
                 streams.push(buffer);
             }
         }

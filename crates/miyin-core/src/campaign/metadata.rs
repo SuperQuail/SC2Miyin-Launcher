@@ -76,6 +76,9 @@ pub struct CcmMetadata {
     pub tags: Vec<String>,
     /// **注册 ID**：补丁靠它引用战役，更新靠它认出同一个战役。
     pub id: Option<String>,
+    /// **覆盖规则**（v3）：让作者把内容放到游戏目录里任意位置。
+    #[serde(default)]
+    pub overrides: Vec<OverrideRule>,
     /// 包类型：`campaign`（默认）或 `patch`。
     pub kind: Option<String>,
     /// 补丁依赖的战役（注册 ID 或战役名）。为空表示只能手动指定。
@@ -316,6 +319,21 @@ impl StandardMetadata {
 ///
 /// 放在独立命名空间里，是为了让「星际枢纽」等工具直接忽略它们，
 /// 同时给我们自己留出**不与枢纽未来字段撞名**的扩展空间。
+/// 一条**覆盖规则**：把包里的 `from`（文件或目录）落到游戏目录的 `to`。
+///
+/// - 只写 `from`：原样覆盖游戏目录里的**同一个相对路径**（作者的熟悉用法）；
+/// - `from` + `to`：`from` 底下的东西整体落到 `to` 那一层（`to` 当目录用）。
+///
+/// **落点必须是游戏目录之内的相对路径** —— `..` / 盘符在写盘闸门那里会被拒，
+/// 这里不做第二套校验，免得两处规则打架。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct OverrideRule {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct MiyinExtensions {
     /// 扩展格式版本。启动器只接受不高于自己支持版本的包。
@@ -345,6 +363,9 @@ pub struct MiyinExtensions {
     /// 包类型：`campaign`（默认）或 `patch`。
     #[serde(default)]
     pub kind: Option<String>,
+    /// **覆盖规则**（v3）：让作者把内容放到游戏目录里任意位置。
+    #[serde(default)]
+    pub overrides: Vec<OverrideRule>,
     /// 补丁专属字段。
     #[serde(default)]
     pub patch: Option<PatchExtensions>,

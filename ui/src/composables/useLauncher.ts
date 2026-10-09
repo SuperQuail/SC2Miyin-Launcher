@@ -12,7 +12,6 @@ import type {
   Staged,
   UpdateCheck,
   UpdateProgress,
-  Variant,
 } from "../api/types";
 
 export type ToastKind = "info" | "success" | "warning" | "error";
@@ -49,7 +48,12 @@ const showRestartPrompt = ref(false);
 export type ViewId = "campaigns" | "custom" | "mods" | "settings";
 
 /** 当前页面。放在这里而不是 App.vue 里，是为了让更新公告也能切页面。 */
-const currentView = ref<ViewId>("campaigns");
+/** `?view=settings` 能直接进某一页 —— 截图与排查用，不是给用户的功能。 */
+const initialView = new URLSearchParams(location.search).get("view");
+
+const currentView = ref<ViewId>(
+  initialView === "settings" || initialView === "campaigns" || initialView === "mods" ? initialView : "campaigns",
+);
 
 /** 启动器自己的版本（对外写法，如 0.1.0a3）。顶栏与更新面板共用。 */
 const launcherVersion = ref("");
@@ -328,6 +332,260 @@ async function chooseGameDirectory(): Promise<void> {
   }
 }
 
+/** 待确认的启用：预演已经算好，等用户点头。 */
+type PendingActivation = {
+  slot: string;
+  variantId: string;
+  preview: NonNullable<Awaited<ReturnType<typeof api.previewActivation>>>;
+};
+
+const pendingActivation = ref<PendingActivation | null>(null);
+
+/** 存档隔离状态。 */
+const saveIsolation = ref<Awaited<ReturnType<typeof api.saveIsolation>>>({
+  enabled: false,
+  active: null,
+  assignments: {},
+});
+
+/** 打开 / 关掉隔离。打开时后端会把现在这份 Banks 收成「原版」。 */
+async function toggleSaveIsolation(enabled: boolean): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.setSaveIsolation(enabled);
+    await refreshSaves();
+    notify(
+      "success",
+      enabled ? "存档隔离已打开 —— 当前进度存成了「原版」" : "存档隔离已关掉（已有的组都留着）",
+    );
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 把现在这份存档存回它所属的组。 */
+async function saveCurrentSaves(): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.saveCurrentSaves();
+    await refreshSaves();
+    notify("success", "现在这份存档已存好");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 切到某个存档组。 */
+async function switchSaveProfile(name: string): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.switchSaveProfile(name);
+    await refreshSaves();
+    notify("success", "已切到存档组：" + name);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 手动改一个组的归属。 */
+async function assignSaveProfile(name: string, slot: string | null): Promise<void> {
+  try {
+    saveIsolation.value = await api.assignSaveProfile(name, slot);
+    notify("success", slot ? "已指派给这个战役" : "已改为「不算任何战役」");
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
+
+/** 游戏目录里已经装着的自制战役（还没收进库的那些）。 */
+const installedCampaigns = ref<Awaited<ReturnType<typeof api.listInstalledCampaigns>>>([]);
+
+async function refreshInstalled(): Promise<void> {
+  try {
+    installedCampaigns.value = await api.listInstalledCampaigns();
+  } catch {
+    installedCampaigns.value = [];
+  }
+}
+
+/**
+ * 把游戏目录里已经装着的战役**收进库**。
+ *
+ * 原目录**一个字节都不动** —— 那是用户自己放的文件夹，删不删他自己决定。
+ * 想清干净就先用启动器"启用"一次库里那份，再自己删掉外面这个。
+ */
+async function collectCampaign(dir: string): Promise<void> {
+  busy.value = true;
+  try {
+    await api.importPackageWith(dir, null, "rename");
+    await refresh();
+    await refreshInstalled();
+    notify("success", "已收进库 —— 原目录没动，战役列表里能看到了");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 存档（issue #20）：现在这份 + 已经备份的那些。 */
+const saves = ref<Awaited<ReturnType<typeof api.listSaves>> | null>(null);
+const saveBackups = ref<Awaited<ReturnType<typeof api.listSaveBackups>>>([]);
+
+async function refreshSaves(): Promise<void> {
+  try {
+    saves.value = await api.listSaves();
+    saveBackups.value = await api.listSaveBackups();
+    saveIsolation.value = await api.saveIsolation();
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
+
+/** 备份现在的存档。label 一般填战役名。 */
+async function backupSaves(label: string): Promise<void> {
+  busy.value = true;
+  try {
+    const name = await api.backupSaves(label);
+    await refreshSaves();
+    notify("success", "存档已备份：" + name);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 还原一份备份。后端会先把现在的存档另存一份。 */
+async function restoreSaves(name: string): Promise<void> {
+  busy.value = true;
+  try {
+    const safety = await api.restoreSaves(name);
+    await refreshSaves();
+    notify("success", safety ? "已还原，还原前那份存为 " + safety : "已还原");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 日间 / 夜间。存在 localStorage —— 这是界面偏好，不必让后端知道。 */
+/**
+ * 主题三档：跟随系统（默认）/ 日间 / 夜间。
+ *
+ * 「跟随系统」是默认 —— 用户没表态时，系统的深浅色就是他的偏好。
+ * `?theme=light|dark` 能强制一次（截图与排查用），不写进 localStorage。
+ */
+type ThemeMode = "system" | "light" | "dark";
+
+const THEME_KEY = "miyin.theme";
+const forcedTheme = new URLSearchParams(location.search).get("theme");
+
+function storedTheme(): ThemeMode {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" || value === "system" ? value : "system";
+  } catch {
+    return "system";
+  }
+}
+
+const themeMode = ref<ThemeMode>(
+  forcedTheme === "light" || forcedTheme === "dark" ? forcedTheme : storedTheme(),
+);
+
+const prefersDark =
+  typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+const systemDark = ref(prefersDark?.matches ?? false);
+
+/** 实际生效的是哪一套 —— 界面上要显示的是它。 */
+const theme = computed<"light" | "dark">(() =>
+  themeMode.value === "system" ? (systemDark.value ? "dark" : "light") : themeMode.value,
+);
+
+function applyTheme(): void {
+  const active = theme.value;
+  document.documentElement.dataset.theme = active;
+  // 开发者页那套（Ring UI）认的是这个类名，顺手一起切
+  document.documentElement.classList.toggle("ring-ui-theme-dark", active === "dark");
+  if (forcedTheme) return;
+  try {
+    localStorage.setItem(THEME_KEY, themeMode.value);
+  } catch {
+    // 隐私模式下 localStorage 会抛；主题当次有效就行
+  }
+}
+
+/** 日间 → 夜间 → 跟随系统，循环。 */
+function cycleTheme(): void {
+  themeMode.value =
+    themeMode.value === "light" ? "dark" : themeMode.value === "dark" ? "system" : "light";
+  applyTheme();
+}
+
+prefersDark?.addEventListener("change", (event) => {
+  systemDark.value = event.matches;
+  applyTheme();
+});
+
+applyTheme();
+
+/**
+ * 请求启用 —— **先算预演，再让用户点头**。
+ *
+ * 写盘闸门放开到「安装目录里任意位置」之后，这是唯一一眼：
+ * 会新增什么、覆盖什么（覆盖前会备份）、把谁的东西接管过来、删掉什么。
+ * 切回原版不拦（那只是撤下我们装的东西）。
+ */
+async function requestActivation(slot: string, variantId: string | null): Promise<boolean> {
+  if (variantId === null) return await activate(slot, null);
+  busy.value = true;
+  try {
+    // 游戏跑着的时候换文件，Windows 上会删不掉 / 覆盖失败，留下记了一半的清单
+    const running = await api.sc2Running();
+    if (running) {
+      notify("error", "星际争霸 II 正在运行（" + running + "），先退出游戏再切换。");
+      return false;
+    }
+  } finally {
+    busy.value = false;
+  }
+  busy.value = true;
+  try {
+    const preview = await api.previewActivation(slot, variantId);
+    if (!preview) return await activate(slot, variantId);
+    const touched =
+      preview.add.length + preview.overwrite.length + preview.takeover.length + preview.delete.length;
+    // 没什么可看的就别拦路
+    if (touched === 0) return await activate(slot, variantId);
+    pendingActivation.value = { slot, variantId, preview };
+    return false;
+  } catch (error) {
+    notify("error", errorText(error));
+    return false;
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 用户在预演里点了「继续」。 */
+async function confirmActivation(): Promise<boolean> {
+  const pending = pendingActivation.value;
+  pendingActivation.value = null;
+  return pending ? await activate(pending.slot, pending.variantId) : false;
+}
+
+function cancelActivation(): void {
+  pendingActivation.value = null;
+}
+
 /** 启用某个版本（variantId 为 null 表示切回原版战役）。 */
 async function activate(slot: string, variantId: string | null): Promise<boolean> {
   busy.value = true;
@@ -361,22 +619,6 @@ async function removeVariant(slot: string, variantId: string): Promise<boolean> 
   } catch (error) {
     notify("error", errorText(error));
     return false;
-  } finally {
-    busy.value = false;
-  }
-}
-
-/** 把包导入到某个槽位。 */
-async function importInto(slot: string, path: string): Promise<Variant | null> {
-  busy.value = true;
-  try {
-    const created = await api.importPackage(path, slot);
-    await refresh();
-    notify("success", "已导入：" + created.name);
-    return created;
-  } catch (error) {
-    notify("error", errorText(error));
-    return null;
   } finally {
     busy.value = false;
   }
@@ -431,13 +673,31 @@ export function useLauncher() {
     loading: computed(() => loading.value),
     busy: computed(() => busy.value),
     toast: computed(() => toast.value),
-    online: computed(() => installation.value !== null),
     bootstrap,
     refresh,
     chooseGameDirectory,
     activate,
+  requestActivation,
+  confirmActivation,
+  cancelActivation,
+  pendingActivation,
+  theme,
+  themeMode,
+  cycleTheme,
+  installedCampaigns,
+  refreshInstalled,
+  collectCampaign,
+  saves,
+  saveBackups,
+  saveIsolation,
+  toggleSaveIsolation,
+  saveCurrentSaves,
+  switchSaveProfile,
+  assignSaveProfile,
+  refreshSaves,
+  backupSaves,
+  restoreSaves,
     removeVariant,
-    importInto,
     launch,
     reveal,
     notify,

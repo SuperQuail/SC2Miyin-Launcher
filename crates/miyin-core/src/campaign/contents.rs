@@ -298,15 +298,13 @@ fn list_with_tar(
     program: &Path,
     archive: &Path,
 ) -> Option<(Vec<ContentEntry>, Vec<Option<String>>)> {
-    let mut command = Command::new(program);
-    command.arg("-tf").arg(archive);
-    crate::platform::hide_console(&mut command);
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    // 名字以 -tf 为准（带空格的路径不会被拆坏），大小只能从 -tvf 里读 ——
+    // 少了大小，MAX_UNPACKED_BYTES 那道闸对 tar/7z/rar 就等于不存在：
+    // 一个几十 KB、解开来几十 GB 的包会一路铺满用户的盘
+    let text = tar_listing(program, archive, "-tf")?;
+    let verbose = tar_listing(program, archive, "-tvf")?;
+    let mut sizes = verbose.lines().map(verbose_size);
 
-    let text = String::from_utf8_lossy(&output.stdout);
     let mut entries = Vec::new();
     let mut names = Vec::new();
 
@@ -324,7 +322,7 @@ fn list_with_tar(
 
         entries.push(ContentEntry {
             lossy: false,
-            size: 0,
+            size: sizes.next().unwrap_or(0),
             is_dir,
             name: name.clone(),
         });
@@ -332,6 +330,31 @@ fn list_with_tar(
     }
 
     (!entries.is_empty()).then_some((entries, names))
+}
+
+/// 跑一次 tar 的列表模式，拿到标准输出。
+fn tar_listing(program: &Path, archive: &Path, flag: &str) -> Option<String> {
+    let mut command = Command::new(program);
+    command.arg(flag).arg(archive);
+    crate::platform::hide_console(&mut command);
+    let output = command.output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// 从 `tar -tvf` 的一行里读条目大小。
+///
+/// bsdtar（Windows 自带的就是它）打印 mode/links/uid/gid/**size**/日期/名字，
+/// GNU tar 少两个数字字段。两种都试一下，认不出来算 0 —— 宁可少算，
+/// 也不能把正常包判成炸弹。
+fn verbose_size(line: &str) -> u64 {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    [4usize, 2]
+        .iter()
+        .find_map(|index| fields.get(*index)?.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 /// 用 tar 把**单个**条目读出来（`-O` 写到标准输出）。
@@ -493,5 +516,28 @@ mod tests {
                 .any(|(name, path)| name == "Maps" && path.as_os_str().is_empty()),
             "目录要用空路径占位，保证与条目清单对齐"
         );
+    }
+
+    /// tar -tvf 的大小列。
+    ///
+    /// 少了它，MAX_UNPACKED_BYTES 那道闸对 tar / 7z / rar 就等于不存在 ——
+    /// 实测一个 61 KB 的 .tar.gz 在清单里声称解压后 0 字节。
+    #[test]
+    fn verbose_listing_gives_sizes() {
+        // Windows 自带的 bsdtar：mode links uid gid size 日期 名字
+        let bsdtar = "-rw-rw-rw-  0 0      0        1000 10月 09 11:25 a.txt";
+        assert_eq!(verbose_size(bsdtar), 1000);
+
+        // GNU tar 少两个数字字段：mode owner/group size 日期 名字
+        let gnu = "-rw-r--r-- root/root 332800 2020-01-01 00:00 a.txt";
+        assert_eq!(verbose_size(gnu), 332800);
+
+        assert_eq!(
+            verbose_size("drwxrwxrwx  0 0      0     0 10月 09 11:25 sub/"),
+            0
+        );
+        // 认不出来算 0：宁可少算，也不能把正常包判成炸弹
+        assert_eq!(verbose_size(""), 0);
+        assert_eq!(verbose_size("garbage"), 0);
     }
 }

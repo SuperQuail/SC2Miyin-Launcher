@@ -33,7 +33,12 @@ import type {
   ExportReport,
   ImportPreview,
   Installation,
+  InstalledCampaign,
   LauncherApi,
+  Preview,
+  SaveBackup,
+  SaveIsolation,
+  SaveSet,
   PackageInspection,
   Patch,
   SlotView,
@@ -51,7 +56,20 @@ const desktop: LauncherApi = {
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
-  importPackage: (path, slot) => invoke<Variant>("import_package", { path, slot }),
+  sc2Running: () => invoke<string | null>("sc2_running"),
+  saveIsolation: () => invoke<SaveIsolation>("save_isolation"),
+  setSaveIsolation: (enabled) => invoke<SaveIsolation>("set_save_isolation", { enabled }),
+  saveCurrentSaves: () => invoke<SaveIsolation>("save_current_saves"),
+  switchSaveProfile: (name) => invoke<SaveIsolation>("switch_save_profile", { name }),
+  assignSaveProfile: (name, slot) => invoke<SaveIsolation>("assign_save_profile", { name, slot }),
+  listSaves: () => invoke<SaveSet>("list_saves"),
+  backupSaves: (label) => invoke<string>("backup_saves", { label }),
+  listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
+  restoreSaves: (name) => invoke<string>("restore_saves", { name }),
+
+  /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
+  previewActivation: (slot, variantId) =>
+    invoke<Preview>("preview_activation", { slot, variantId }),
   activateVariant: (slot, variantId) =>
     invoke<string[]>("activate_variant", { slot, variantId }),
   deleteVariant: (slot, variantId) => invoke<void>("delete_variant", { slot, variantId }),
@@ -61,6 +79,7 @@ const desktop: LauncherApi = {
   pickGameDirectory: () => invoke<string | null>("pick_game_directory"),
   variantCover: (slot, variantId) => invoke<string | null>("variant_cover", { slot, variantId }),
 
+  listInstalledCampaigns: () => invoke<InstalledCampaign[]>("list_installed_campaigns"),
   prepareImport: (path, entry) =>
     invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null }),
   importPackageWith: (path, slot, mode) =>
@@ -492,25 +511,21 @@ const demo: LauncherApi = {
       issues: [],
     } satisfies PackageInspection),
 
-  importPackage: (path, slot) =>
-    delay(
-      (() => {
-        counter += 1;
-        const created = variant(
-          "演示战役包 " + counter,
-          "演示战役包",
-          "Demo",
-          "1.0",
-          counter,
-          512_000_000,
-        );
-        const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
-        target.variants.unshift(created);
-        void path;
-        return created;
-      })(),
-    ),
-
+  sc2Running: async () => null,
+  saveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
+  setSaveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
+  saveCurrentSaves: async () => ({ enabled: false, active: null, assignments: {} }),
+  switchSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
+  assignSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
+  listSaves: async () => ({ files: [], bytes: 0, missing: true }),
+  backupSaves: async () => {
+    throw new Error("演示模式没有存档可备份");
+  },
+  listSaveBackups: async () => [],
+  restoreSaves: async () => {
+    throw new Error("演示模式没有备份可还原");
+  },
+  previewActivation: async () => null,
   activateVariant: (slot, variantId) =>
     delay(
       (() => {
@@ -546,6 +561,7 @@ const demo: LauncherApi = {
   // 演示数据没有真实图片文件，统一返回 null，界面会退回官方美术
   variantCover: () => delay(null),
 
+  listInstalledCampaigns: async () => [],
   prepareImport: (path, entry) =>
     delay({
       path,

@@ -17,13 +17,6 @@ pub struct Version {
     pub pre: Option<String>,
 }
 
-impl Version {
-    /// 是不是预发行。
-    pub fn is_prerelease(&self) -> bool {
-        self.pre.is_some()
-    }
-}
-
 impl Ord for Version {
     fn cmp(&self, other: &Self) -> Ordering {
         self.major

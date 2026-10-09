@@ -5,21 +5,19 @@
 //! - [`metadata`]：CCM `metadata.txt` 与枢纽标准 `metadata.json` 的解析
 //! - [`sanitize`]：目录名安全化（防目录穿越与非法名）
 //! - [`package`]：zip 包预检（格式识别、zip-slip 校验、体积上限）
-//! - [`installer`]：直接安装到游戏目录（旧路径，保留给"就地安装"场景）
-//! - [`scanner`]：目录扫描与核对
+//! - [`contents`]：任意打包形式的读取（zip / 7z / rar / tar）
+//! - [`identify`]：没有元数据时按证据链判定归属
 //!
 //! 注意：**战役库**（多版本共存与切换）在 [`crate::library`] 里，
 //! 不在这里 —— 库属于启动器自身的数据，与游戏目录解耦。
+//! 曾经这里还有「扫描游戏目录里已装的战役」的一套模型，库做出来之后就没用了。
 
+pub mod collect;
 pub mod contents;
 pub mod identify;
-pub mod installer;
 pub mod metadata;
 pub mod package;
 pub mod sanitize;
-pub mod scanner;
-
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -102,51 +100,5 @@ impl HealthIssue {
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self
-    }
-}
-
-/// 一个已安装的战役。
-#[derive(Debug, Clone, Serialize)]
-pub struct Campaign {
-    /// 稳定标识：安装目录名。
-    pub id: String,
-    pub name: String,
-    pub author: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    /// 封面图的本地绝对路径（若包内或同目录提供了图片）。
-    pub cover: Option<String>,
-    /// 安装目录。
-    pub path: PathBuf,
-    pub format: CampaignFormat,
-    /// 归属资料片（来自元数据的 `campaign` 字段）。
-    pub campaign_type: CampaignType,
-    /// 是否已启用（地图已被复制进官方战役目录）。
-    pub enabled: bool,
-    pub health: HealthLevel,
-    /// 核对出的问题清单；为空即为完全正常。
-    pub issues: Vec<HealthIssue>,
-    pub map_count: Option<usize>,
-    pub size_bytes: Option<u64>,
-}
-
-impl Campaign {
-    /// 依据问题清单重算健康度。
-    pub fn recompute_health(&mut self) {
-        self.health = derive_health(&self.issues);
-    }
-}
-
-/// 由问题清单推导总体健康度。
-pub fn derive_health(issues: &[HealthIssue]) -> HealthLevel {
-    if issues
-        .iter()
-        .any(|issue| issue.level == HealthLevel::Broken)
-    {
-        HealthLevel::Broken
-    } else if issues.is_empty() {
-        HealthLevel::Ok
-    } else {
-        HealthLevel::Warning
     }
 }

@@ -10,11 +10,11 @@ use tauri::Emitter;
 
 use miyin_core::campaign::metadata::PackageKind;
 use miyin_core::campaign::package::{self, PackageInspection};
-use miyin_core::campaign::scanner;
 use miyin_core::library::{
     self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
     ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
 };
+use miyin_core::saves as library_saves;
 use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
 use miyin_core::tools::{self, ToolRelease, ToolStatus};
 use miyin_core::update::Reporter;
@@ -192,6 +192,267 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     Ok(installation)
 }
 
+/// 存档隔离状态：开关、当前组、组到战役的指派。
+#[tauri::command(async)]
+fn save_isolation(state: State<'_, AppState>) -> Result<library_saves::Isolation, String> {
+    library_saves::isolation(state.library.root()).map_err(|error| error.to_string())
+}
+
+/// 打开 / 关掉存档隔离。**打开的那一刻会把现在这份 Banks 收成「原版」。**
+#[tauri::command(async)]
+fn set_save_isolation(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::set_isolation(state.library.root(), &banks, enabled).map_err(|e| e.to_string())
+}
+
+/// 把现在游戏里这份存档存回它所属的组。
+#[tauri::command(async)]
+fn save_current_saves(state: State<'_, AppState>) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::save_active(state.library.root(), &banks).map_err(|e| e.to_string())
+}
+
+/// 切到某个存档组（会先把现在这份存回去）。
+#[tauri::command(async)]
+fn switch_save_profile(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::switch(state.library.root(), &banks, &name).map_err(|e| e.to_string())
+}
+
+/// 手动改一个存档组的归属：指给某个战役，或 null 表示算原版。
+#[tauri::command(async)]
+fn assign_save_profile(
+    name: String,
+    slot: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    library_saves::assign(state.library.root(), &name, slot.as_deref()).map_err(|e| e.to_string())
+}
+
+/// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
+#[tauri::command(async)]
+fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
+    let banks = banks_root(&state)?;
+    library_saves::snapshot(&banks).map_err(|error| error.to_string())
+}
+
+/// 把现在的存档备份一份，`label` 是给用户看的备注（一般填战役名）。
+#[tauri::command(async)]
+fn backup_saves(label: String, state: State<'_, AppState>) -> Result<String, String> {
+    let banks = banks_root(&state)?;
+    library_saves::backup(&banks, state.library.root(), &label).map_err(|error| error.to_string())
+}
+
+/// 已经备份了哪些。
+#[tauri::command(async)]
+fn list_save_backups(
+    state: State<'_, AppState>,
+) -> Result<Vec<library_saves::BackupEntry>, String> {
+    library_saves::backups(state.library.root()).map_err(|error| error.to_string())
+}
+
+/// 还原一份备份。**还原前会先把现在的存档另存一份**，返回那份安全备份的名字。
+#[tauri::command(async)]
+fn restore_saves(name: String, state: State<'_, AppState>) -> Result<String, String> {
+    let banks = banks_root(&state)?;
+    library_saves::restore(&banks, state.library.root(), &name).map_err(|error| error.to_string())
+}
+
+/// 存档目录：`Documents\StarCraft II\Banks`。找不到就报错，**不猜**。
+fn banks_root(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    installation
+        .banks_root
+        .clone()
+        .ok_or_else(|| "找不到「我的文档 / StarCraft II」—— 游戏还没产生过存档？".to_string())
+}
+
+/// 游戏是不是正跑着。启用 / 停用前先问它。
+#[tauri::command(async)]
+fn sc2_running() -> Option<String> {
+    miyin_core::platform::game_running()
+}
+
+/// 启用前先看：这次会往游戏目录里放什么、覆盖什么、删什么。**不写盘。**
+///
+/// 写盘闸门放开到「安装目录里任意位置」之后，这就是兜底的那一眼 ——
+/// 界面拿它铺确认框，用户点头了才真的 `activate`。
+#[tauri::command(async)]
+fn preview_activation(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<library::Preview, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    library::preview(&state.library, installation, &slot, &variant_id)
+        .map_err(|error| error.to_string())
+}
+
+/// 开发者页：扫游戏目录 + 用户自己加的目录。
+///
+/// 只读。越界（不在游戏目录里）不作拒绝，标成 `external` 交给界面提示。
+#[tauri::command(async)]
+fn dev_scan(
+    extra: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::DevScan, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    miyin_core::dev::scan(installation, &extra).map_err(|error| error.to_string())
+}
+
+/// 开发者页：选一个自定义目录（可以是游戏目录外面的）。
+#[tauri::command(async)]
+fn dev_pick_directory() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("选一个目录加进这个包")
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 游戏目录里已经装着的自制战役 —— 供「收编进库」用。只读。
+#[tauri::command(async)]
+fn list_installed_campaigns(
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::campaign::collect::InstalledCampaign>, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    miyin_core::campaign::collect::installed_campaigns(installation)
+        .map_err(|error| error.to_string())
+}
+
+/// 开发者页：选一个导出路径。
+#[tauri::command(async)]
+fn dev_pick_export_path(default_name: String) -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("导出到哪里")
+        .set_file_name(&default_name)
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 开发者页：选一个要带进包的文件（封面图 / 说明书 PDF）。
+#[tauri::command(async)]
+fn dev_pick_doc(kind: String) -> Option<String> {
+    let (title, extensions): (&str, &[&str]) = match kind.as_str() {
+        "cover" => ("选一张封面图", &["png", "jpg", "jpeg", "webp", "gif"]),
+        _ => ("选一份说明书（PDF）", &["pdf"]),
+    };
+    rfd::FileDialog::new()
+        .set_title(title)
+        .add_filter("文件", extensions)
+        .pick_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 开发者页：把勾选的文件打成一个包（附元数据）。
+#[tauri::command(async)]
+fn dev_export(
+    dest: String,
+    meta: miyin_core::dev::export::PackageMeta,
+    files: Vec<miyin_core::dev::export::ExportFile>,
+    window: tauri::Window,
+) -> Result<miyin_core::dev::export::ExportReport, String> {
+    // 打包大包要几十秒，界面得看得见进度 —— 每写完一个文件报一次
+    miyin_core::dev::export::export(std::path::Path::new(&dest), &meta, &files, |done, total| {
+        let _ = window.emit("dev://export", ExportProgress { done, total });
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// 导出进度（发给界面画进度条）。
+#[derive(Clone, serde::Serialize)]
+struct ExportProgress {
+    done: usize,
+    total: usize,
+}
+
+/// 开发者页：这个包的提交历史。
+#[tauri::command(async)]
+fn dev_history(
+    pkg: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::dev::history::Commit>, String> {
+    miyin_core::dev::history::log(state.library.root(), &pkg).map_err(|error| error.to_string())
+}
+
+/// 开发者页：删掉一条提交记录（只删记录，不动文件）。
+#[tauri::command(async)]
+fn dev_forget_commit(
+    pkg: String,
+    id: u32,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::dev::history::Commit>, String> {
+    miyin_core::dev::history::forget(state.library.root(), &pkg, id)
+        .map_err(|error| error.to_string())
+}
+
+/// 开发者页：一次提交里要记的文件。
+#[derive(serde::Deserialize)]
+struct CommitFile {
+    /// 给用户看的路径
+    path: String,
+    /// 绝对路径
+    abs: String,
+}
+
+/// 开发者页：提交一次 —— 把当前这批文件记成一个版本。
+#[tauri::command(async)]
+fn dev_commit(
+    pkg: String,
+    message: String,
+    label: Option<String>,
+    files: Vec<CommitFile>,
+    meta: Option<miyin_core::dev::export::PackageMeta>,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::history::Commit, String> {
+    let pairs: Vec<(String, std::path::PathBuf)> = files
+        .into_iter()
+        .map(|file| (file.path, std::path::PathBuf::from(file.abs)))
+        .collect();
+    miyin_core::dev::history::commit(
+        state.library.root(),
+        &pkg,
+        &message,
+        label.as_deref(),
+        &pairs,
+        meta,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 开发者页：比两版差在哪。
+#[tauri::command(async)]
+fn dev_diff(
+    pkg: String,
+    from: u32,
+    to: u32,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::history::Diff, String> {
+    let history =
+        miyin_core::dev::history::log(state.library.root(), &pkg).map_err(|e| e.to_string())?;
+    let find = |id: u32| history.iter().find(|item| item.id == id).cloned();
+    match (find(from), find(to)) {
+        (Some(old), Some(new)) => Ok(miyin_core::dev::history::diff(&old, &new)),
+        _ => Err("找不到这两个版本".to_string()),
+    }
+}
+
+/// 开发者页：只读预览一个文件（文本 / 图片 / 二进制）。
+#[tauri::command(async)]
+fn dev_read_file(path: String) -> Result<miyin_core::dev::FilePreview, String> {
+    miyin_core::dev::read_preview(std::path::Path::new(&path)).map_err(|error| error.to_string())
+}
+
 /// 战役库根目录（软件同级的 data 目录）。
 #[tauri::command(async)]
 fn library_root(state: State<'_, AppState>) -> String {
@@ -339,8 +600,24 @@ fn activate_variant(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let installation = require_installation(&state)?;
-    library::activate(&state.library, &installation, &slot, variant_id.as_deref())
-        .map_err(|error| error.to_string())
+    let warnings = library::activate(&state.library, &installation, &slot, variant_id.as_deref())
+        .map_err(|error| error.to_string())?;
+
+    // 存档隔离开着的话，档案跟着战役走：启用某个战役就用它自己的存档组，
+    // 切回原版就回「原版」那份。**没开隔离时这一段什么都不做。**
+    if let Some(banks) = installation.banks_root.as_deref() {
+        let root = state.library.root();
+        if variant_id.is_some() {
+            let label = library::require_slot(&slot)
+                .map(|kind| kind.display_name().to_string())
+                .unwrap_or_else(|_| slot.clone());
+            let _ = miyin_core::saves::ensure_for_slot(root, banks, &slot, &label);
+        } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {
+            let _ = miyin_core::saves::switch(root, banks, &original);
+        }
+    }
+
+    Ok(warnings)
 }
 
 /// 列出某个版本里的地图（自制战役主要用这个）。
@@ -1413,7 +1690,8 @@ fn pick_game_directory() -> Option<String> {
 /// 读取战役目录内的封面图，返回 data URL 供界面直接显示。
 #[tauri::command(async)]
 fn campaign_cover(dir: String) -> Option<String> {
-    let cover = scanner::find_cover_for(&PathBuf::from(dir))?;
+    let dir = PathBuf::from(dir);
+    let cover = miyin_core::library::store::find_cover(&dir).map(|found| dir.join(found))?;
     file_to_data_url(&cover)
 }
 
@@ -1514,6 +1792,28 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dev_scan,
+            dev_export,
+            dev_pick_doc,
+            dev_pick_export_path,
+            list_installed_campaigns,
+            dev_history,
+            dev_forget_commit,
+            dev_commit,
+            dev_diff,
+            list_saves,
+            save_isolation,
+            set_save_isolation,
+            save_current_saves,
+            switch_save_profile,
+            assign_save_profile,
+            backup_saves,
+            restore_saves,
+            list_save_backups,
+            sc2_running,
+            preview_activation,
+            dev_pick_directory,
+            dev_read_file,
             detect_installation,
             set_installation,
             library_root,

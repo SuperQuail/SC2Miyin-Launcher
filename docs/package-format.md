@@ -55,12 +55,20 @@ Windows 10 1803+ 自带的 `tar.exe` 其实就是 **bsdtar（libarchive）**，
 | `desc` | `description` | 否 | 描述 |
 | `author` | `author` | **建议** | 作者。缺失时记为「未知作者」 |
 | `campaign` | `campaign` | **建议** | 归属资料片，见 §1.6 |
-| `version` | `version` | 否 | 自由字符串 |
+| `version` | `version` | 否 | 自由字符串，但**至少要能比**：见下 |
 | `id` | `id` | 否 | **注册 ID**，见 §1.3 |
 | `cover` | `cover` | 否 | 封面图相对路径 |
 | `tags` | `miyin.tags` | 否 | 标签，逗号 / 顿号 / 空格分隔 |
 | — | `miyin.format` | 否 | 扩展格式版本，当前 `1` |
 | — | `miyin.kind` | 否 | `campaign`（默认）/ `patch` |
+
+**版本号的规则**：格式自由（`1.2`、`v8.0.1`、`1.0.2a2` 都行），但必须**含至少一个数字**，
+且只用字母、数字、`.`、`-`、`_`、`+`。
+
+> 为什么：导入时判断「这是新版本还是旧版本」靠的是抽数字段比较
+> （`compare_versions`）。一个不含数字的版本号没法比 —— 那种情况下启动器只能
+> 说"认不出来"，界面也就没法提示"你导入的是旧版"。**不写版本号是可以的**，
+> 写了就得能比。
 
 ### 1.3 注册 ID
 
@@ -152,9 +160,9 @@ Mods/SomeMod.SC2Mod/...
 SC2 的 `.SC2Map` 是 **MPQ v4** 归档（用 HET/BET 表），完整解析成本很高。
 但暴雪自己的依赖系统把战役依赖写在 `DocumentHeader` 里：
 
-`@text
+```text
 bnet:Void Story (Campaign)/0.0/999,file:Mods\LotV-Fight with ally!.SC2Mod
-`@
+```
 
 所以：
 
@@ -250,10 +258,10 @@ bnet:Void Story (Campaign)/0.0/999,file:Mods\LotV-Fight with ally!.SC2Mod
 
 写了 `custom` 之后建议把版本也写上，便于版本管理：
 
-`@text
+```text
 campaign=custom
 version=1.2          # 冲突时可选「覆盖更新」或「重命名后导入」
-`@
+```
 
 没写 `campaign` 时启动器会按 §1.7 的证据链去猜；**认出来也不影响你手动改**，
 但高置信度被强改时会弹窗提醒一句（装错地方多半玩不了）。
@@ -262,10 +270,10 @@ version=1.2          # 冲突时可选「覆盖更新」或「重命名后导入
 
 `modid` 决定「这是同一个模组的新版本，还是另一个模组」。不写就退回用名字当 id。
 
-`@text
+```text
 modid=quail.armory
 version=2.4
-`@
+```
 
 导入时按下面四条处理：
 
@@ -302,34 +310,34 @@ version=2.4
 - 在模组管理页给它们打「依赖」标
 - 声明了却没打进包，导入时给一条警告 `MOD_MISSING`
 
-`@text
+```text
 campaign=wol
 version=2.4
 mods=Alenger, kit_liberty_story.SC2Mod
-`@
+```
 
 **模组按文件夹分，不按单个文件分。** 这是从真实样本（疯批帝国军械库 2.4）学到的：
 
-`@text
+```text
 Mods/
 ├── 3疯批帝国之翼.SC2Mod        单文件         -> 一个模组
 ├── Alenger/                    普通文件夹     -> 一个模组
 │   ├── 1钢铁.SC2Mod                            （里面 18 个 .SC2Mod）
 │   └── …
 └── kit_liberty_story.SC2Mod/   解开目录树     -> 一个模组
-`@
+```
 
 判定办法：取落点里 `Mods/` 之后**第一段**。
-所以 `@Alenger`@ 写一次就够了，不用把 18 个文件全列出来。
+所以 `Alenger` 写一次就够了，不用把 18 个文件全列出来。
 
 写名字时前缀和后缀都可以省，下面四种写法等价：
 
-`@text
+```text
 Mods/Alenger
 Mods/Alenger/
 Alenger
 Alenger.SC2Mod
-`@
+```
 
 中文名也照常（`mods=3疯批帝国之翼`）。
 
@@ -337,12 +345,12 @@ Alenger.SC2Mod
 
 只有 `campaign=custom` 的包用得上这两个。
 
-`@text
+```text
 campaign=custom
 version=1.2
 main_map=1. Rebel Yell/Terran01.SC2Map
 doc=说明.pdf
-`@
+```
 
 | 键 | 别名 | 作用 |
 | --- | --- | --- |
@@ -496,4 +504,23 @@ priority=100
 
 - 新增**可选**字段不提升版本号（老启动器忽略即可）。
 - 改变既有字段语义、或新增启动器**必须理解**才能正确安装的字段时，提升 `miyin.format`。
-- 补丁相关的字段属于 v2 起支持；`miyin.format = 1` 的包不含它们。
+
+`miyin.format` 目前三档，**启动器支持到 3**（`MIYIN_FORMAT_VERSION`）：
+
+| 格式 | 含哪些字段 | 说明 |
+| --- | --- | --- |
+| `1` | name / author / version / campaign / id / cover / tags | 基础字段 |
+| `2` | 加上 kind / priority / requires | 补丁字段 —— **必须理解**才不会装错 |
+| `3` | 加上 overrides | 覆盖规则（v3 草案已实现） |
+
+**导出时按"实际用到了哪一档"声明**：没写补丁字段就别报 2 —— 多报会让老启动器
+白白拒绝你的包，少报会让它按老语义解析新字段。两条都糟。
+
+包声明的 `miyin.format` 高于启动器支持时会**明确拒绝**，不会猜着解析。
+
+### 下一版（草案）
+
+`docs/package-format-v3.md` 是 **v3 草案**：给包作者一条声明落点的规则
+（**覆盖文件夹**，`overrides`），解决「不是地图/模组的文件一律看不见」
+（`Interfaces/` 就是这一类）与「散装地图进不了自定义目录」。
+**定稿前本文仍是唯一权威**；v3 落地时草案并入本文，版本号提到 3、`miyin.format` 提到 2。
