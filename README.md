@@ -48,7 +48,7 @@
 
 ## 从源码构建
 
-`@bash
+```bash
 # 前端
 pnpm -C ui install
 pnpm -C ui build
@@ -56,29 +56,29 @@ pnpm -C ui build
 # 桌面版（release 必须带 custom-protocol，否则不会内嵌前端）
 cargo build --release -p miyin-launcher --features custom-protocol
 # 产物：target/release/SC2Miyin Launcher.exe
-`@
+```
 
 调试运行需要先起 dev server（debug 版连 `http://localhost:5183`）：
 
-`@bash
+```bash
 pnpm -C ui dev            # 另开一个终端
 cargo run -p miyin-launcher
-`@
+```
 
 只跑前端（浏览器演示模式，自带示例数据，不需要桌面壳）：
 
-`@bash
+```bash
 pnpm -C ui dev
-`@
+```
 
 ## 质量门禁
 
-`@bash
+```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 pnpm -C ui build            # 含 vue-tsc 类型检查
-`@
+```
 
 CI 在 `dev` / `main` / `release` 三个分支上跑，见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
@@ -95,7 +95,7 @@ CI 在 `dev` / `main` / `release` 三个分支上跑，见 [.github/workflows/ci
 
 ## 项目结构
 
-`@text
+```text
 crates/miyin-core/     领域核心：不含任何 GUI 依赖
   sc2/                 安装发现（注册表 / .build.info）
   campaign/            包格式：元数据、预检、归属判定、任意打包形式
@@ -103,7 +103,7 @@ crates/miyin-core/     领域核心：不含任何 GUI 依赖
 src-tauri/             桌面壳：只做状态持有与命令转发
 ui/                    Vue 3 + TypeScript 前端
 docs/                  格式规范与发行说明
-`@
+```
 
 **依赖方向不可违反**：`miyin-core` ← `src-tauri` ← `ui`。
 核心层不依赖 GUI、不弹窗、不自己去读配置目录。

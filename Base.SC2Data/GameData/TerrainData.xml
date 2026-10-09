@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Catalog>
-    <CTerrain id="AvernusEx1">
-        <Lighting value="SCMR"/>
-        <Ambience value=""/>
-        <NonFixedSkyboxModel value=""/>
-    </CTerrain>
-</Catalog>

@@ -57,8 +57,13 @@ vi.mock("../api/bridge", () => ({
   },
 }));
 
-vi.mock("../composables/useLauncher", () => ({
-  useLauncher: () => ({
+vi.mock("../composables/useLauncher", async () => {
+  // ImportDialog 会 watch(droppedPackage)：假对象（{ value: null }）不是 ref，
+  // Vue 只会在控制台警告一句、这条线其实是断的 —— 所以这里要真的 ref
+  const { ref } = await import("vue");
+
+  return {
+    useLauncher: () => ({
     slots: { value: [customSlot] },
     loading: { value: false },
     busy: { value: false },
@@ -68,9 +73,11 @@ vi.mock("../composables/useLauncher", () => ({
     notify: () => {},
     activate: (...args: unknown[]) => activateVariant(...(args as [])),
     removeVariant: (...args: unknown[]) => deleteVariant(...(args as [])),
-  }),
-  errorText: (error: unknown) => String(error),
-}));
+      droppedPackage: ref(null),
+    }),
+    errorText: (error: unknown) => String(error),
+  };
+});
 
 import CustomView from "./CustomView.vue";
 import VariantCard from "../components/VariantCard.vue";

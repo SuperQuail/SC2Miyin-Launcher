@@ -1,24 +1,15 @@
 
 /* ---------- 点击波纹 ----------
  *
- * 由 App.vue 的全局 mousedown 监听插入 <span class="ripple">。
- * 这里只负责画，位置和尺寸由 JS 按落点算。
+ * 由 App.vue 的全局 mousedown 监听插入 <span class="ripple">，
+ * 位置和尺寸由 JS 按落点算；宿主元素由 JS 打上 .ripple-host。
  *
- * 注意 overflow: hidden —— 波纹要裁在元素圆角里，否则会溢出成方块。
- * 卡片和大按钮本来就有圆角，裁掉正好；列在这里的元素内部都不放下拉菜单，
- * 所以不会被裁坏。
+ * overflow: hidden —— 波纹要裁在元素圆角里，否则会溢出成方块。
+ * 这里不再列一遍选择器：JS 和 CSS 各写一份必然对不上
+ * （之前 CSS 写的是 .slot-card，而战役卡片实际的类是 .slot）。
  */
 
-.btn,
-.chip,
-.tab,
-.variant,
-.slot-card,
-.map,
-.target,
-.ctx__item,
-.group__head,
-.update-badge {
+.ripple-host {
   position: relative;
   overflow: hidden;
 }
@@ -39,28 +30,6 @@
     opacity: 0;
   }
 }
-
-/* 卡片悬停时轻轻抬一下，让「可点」这件事更明显 */
-.variant,
-.slot-card {
-  transition: transform 0.16s ease, box-shadow 0.16s ease;
-}
-
-.variant:hover,
-.slot-card:hover {
-  transform: translateY(-2px);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ripple {
-    display: none;
-  }
-  .variant:hover,
-  .slot-card:hover {
-    transform: none;
-  }
-}
-
 
 /* ---------- 页面切换 ----------
  *
@@ -86,6 +55,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .ripple {
+    display: none;
+  }
+
+  /* 悬停抬起由各组件自己的 :hover 负责，这里只负责在减少动效时按住它 */
+  .slot:hover,
+  .variant:hover {
+    transform: none;
+  }
+
   .view-enter-active,
   .view-leave-active {
     transition: none;

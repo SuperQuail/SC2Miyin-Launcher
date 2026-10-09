@@ -547,7 +547,6 @@ export interface LauncherApi {
   /** 全部槽位，已按官方发布顺序排列。 */
   listSlots(): Promise<SlotView[]>;
   inspectPackage(path: string): Promise<PackageInspection>;
-  importPackage(path: string, slot: string | null): Promise<Variant>;
   /** 启用某个版本；variantId 传 null 表示切回原版战役。 */
   activateVariant(slot: string, variantId: string | null): Promise<string[]>;
   deleteVariant(slot: string, variantId: string): Promise<void>;

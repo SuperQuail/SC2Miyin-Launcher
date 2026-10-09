@@ -30,11 +30,6 @@ pub fn current_version() -> String {
     version::compact(env!("CARGO_PKG_VERSION"))
 }
 
-/// Cargo 里的原始 semver 版本（调试用）。
-pub fn semver_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
 /// 更新过程的实时反馈：**把"正在做什么"报给界面**。
 ///
 /// 界面靠它渲染那个内嵌终端与进度条。两个回调都是可选的 ——

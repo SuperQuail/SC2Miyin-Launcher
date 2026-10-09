@@ -12,7 +12,6 @@ import type {
   Staged,
   UpdateCheck,
   UpdateProgress,
-  Variant,
 } from "../api/types";
 
 export type ToastKind = "info" | "success" | "warning" | "error";
@@ -366,22 +365,6 @@ async function removeVariant(slot: string, variantId: string): Promise<boolean> 
   }
 }
 
-/** 把包导入到某个槽位。 */
-async function importInto(slot: string, path: string): Promise<Variant | null> {
-  busy.value = true;
-  try {
-    const created = await api.importPackage(path, slot);
-    await refresh();
-    notify("success", "已导入：" + created.name);
-    return created;
-  } catch (error) {
-    notify("error", errorText(error));
-    return null;
-  } finally {
-    busy.value = false;
-  }
-}
-
 /** 启动游戏。 */
 async function launch(): Promise<void> {
   try {
@@ -431,13 +414,11 @@ export function useLauncher() {
     loading: computed(() => loading.value),
     busy: computed(() => busy.value),
     toast: computed(() => toast.value),
-    online: computed(() => installation.value !== null),
     bootstrap,
     refresh,
     chooseGameDirectory,
     activate,
     removeVariant,
-    importInto,
     launch,
     reveal,
     notify,

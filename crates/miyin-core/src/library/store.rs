@@ -441,7 +441,7 @@ fn relative_file(root: &Path, declared: &str) -> Option<String> {
 ///
 /// 认这些名字（不分大小写、可带任意常见图片扩展名）：cover / preview / banner /
 /// poster / 封面。都没有时退回根目录下的第一张图片。
-fn find_cover(root: &Path) -> Option<String> {
+pub fn find_cover(root: &Path) -> Option<String> {
     const STEMS: &[&str] = &["cover", "preview", "banner", "poster", "封面"];
     const EXTS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "bmp"];
 

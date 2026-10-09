@@ -34,6 +34,18 @@ use crate::error::{Error, Result};
 use crate::safety;
 use crate::sc2::Installation;
 
+/// 原子写：先写同目录的临时文件，再改名覆盖。
+///
+/// 直接 fs::write 在断电 / 被强杀 / 杀软截断时会留下半个 JSON，
+/// 而那个半个文件下次会被当成**空**索引读进来 —— 整个库就在界面上消失了。
+pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, text)?;
+    // Windows 上 rename 会覆盖已存在的目标（MoveFileEx 语义）
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 pub mod activation;
 pub mod compose;
 pub mod install;
@@ -391,11 +403,6 @@ impl MainMapChoice {
             warning: None,
         }
     }
-
-    /// 有没有能直接启动的入口。
-    pub fn is_ready(&self) -> bool {
-        self.path.is_some()
-    }
 }
 
 /// 从地图列表里挑出该用哪张作为入口。
@@ -632,11 +639,6 @@ impl Library {
         self.root.join("library.json")
     }
 
-    /// 激活清单文件。
-    pub fn active_path(&self) -> PathBuf {
-        self.root.join("active.json")
-    }
-
     /// 各版本的实际存放目录。
     pub fn campaigns_dir(&self) -> PathBuf {
         self.root.join("campaigns")
@@ -664,12 +666,21 @@ impl Library {
 
     /// 读取索引。
     ///
-    /// 文件不存在或损坏时返回空索引而不是报错 —— 索引损坏不该让整个启动器打不开。
+    /// 文件不存在时返回空索引 —— 还没有库是很正常的事，不该报错。
+    /// 但**读坏了要留证据**：直接当空索引的话，紧接着的一次保存
+    /// 就会把整个库顶成 {}，用户看到的是一夜之间什么都没了。
     pub fn index(&self) -> LibraryIndex {
-        std::fs::read_to_string(self.index_path())
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        let path = self.index_path();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return LibraryIndex::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(index) => index,
+            Err(_) => {
+                let _ = std::fs::rename(&path, path.with_extension("json.corrupt"));
+                LibraryIndex::default()
+            }
+        }
     }
 
     /// 写回索引。
@@ -677,8 +688,7 @@ impl Library {
         std::fs::create_dir_all(&self.root)?;
         let text = serde_json::to_string_pretty(index)
             .map_err(|error| Error::Parse(format!("索引序列化失败：{error}")))?;
-        std::fs::write(self.index_path(), text)?;
-        Ok(())
+        write_atomic(&self.index_path(), &text)
     }
 
     /// 按**官方发布顺序**生成槽位快照。
@@ -914,7 +924,7 @@ impl Library {
             .ok_or_else(|| Error::PackageRejected("这个版本没有自带的说明文档".to_string()))?;
 
         let root = self.slot_dir(slot_slug).join(variant_id);
-        let path = safety::ensure_within(&root, &root.join(relative.replace('`', "/")))?;
+        let path = safety::ensure_within(&root, &root.join(relative.replace('\\', "/")))?;
         if !path.is_file() {
             return Err(Error::PackageRejected(
                 "说明文档在库里的文件已经不在了".to_string(),
@@ -928,7 +938,7 @@ impl Library {
     /// 编辑器启动要用它 —— 自制战役的地图不进游戏目录，得直接把库里的路径递给编辑器。
     pub fn map_path(&self, slot_slug: &str, variant_id: &str, map: &str) -> Result<PathBuf> {
         let root = self.slot_dir(slot_slug).join(variant_id);
-        let path = safety::ensure_within(&root, &root.join(map.replace('`', "/")))?;
+        let path = safety::ensure_within(&root, &root.join(map.replace('\\', "/")))?;
         if !path.is_file() {
             return Err(Error::PackageRejected(format!("找不到地图文件：{map}")));
         }

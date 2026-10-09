@@ -83,6 +83,29 @@ Desktop.ini
 # 本地起 vite preview 时产生的日志
 /ui/preview.*
 
-# 界面方案预览件（AGENTS.md §17）：出方案用的一次性渲染件，不入库
-/ui/src/preview/
+# ---------- SC2 地图解包残留 ----------
+# sc2diff 的 unpack 会把地图内容解到**当前目录**，在仓库根解一次就多出几十个文件
+# （MapScript.galaxy、Triggers、t3* …）。全是暴雪版权内容，一律不入库；
+# 要解包请解到 testdata/ 或系统临时目录。
+/Assets/
+/Base.SC2Data/
+/enUS.SC2Data/
+/MapScript.galaxy
+/Triggers
+/MapInfo
+/Objects
+/BankList.xml
+/ComponentList.SC2Components
+/DocumentHeader
+/DocumentInfo
+/PaintedPathingLayer
+/Preload.xml
+/PreloadAssetDB.txt
+/Minimap.tga
+/scmr_loading.dds
+/t3*
+/*.version
 
+
+# �������ڵ�Ԥ�����������
+/ui/src/preview/
