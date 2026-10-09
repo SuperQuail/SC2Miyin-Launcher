@@ -16,6 +16,9 @@ const dark = params.get("theme") === "dark";
 document.documentElement.dataset.theme = dark ? "dark" : "light";
 document.documentElement.classList.toggle("ring-ui-theme-dark", dark);
 
-createRoot(document.getElementById("ide")!).render(
-  <IdeApp />,
-);
+// 容器不存在就什么都不做 —— 这一页只该在 ide.html 里跑。
+// （曾经因为两个入口共用一个构建，用户侧也执行到了这里，白屏。）
+const host = document.getElementById("ide");
+if (host) {
+  createRoot(host).render(<IdeApp />);
+}
