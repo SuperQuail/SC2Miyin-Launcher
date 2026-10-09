@@ -156,7 +156,28 @@ export type PackageMeta = {
   mods?: string[];
 };
 
-export type ExportReport = { path: string; files: number; bytes: number };
+/** 解析器读回来的关键字段 —— 导出后自检用。 */
+export type ReadBack = {
+  name: string | null;
+  author: string | null;
+  version: string | null;
+  description: string | null;
+  id: string | null;
+  campaign: string | null;
+  tags: string[];
+  main_map: string | null;
+  doc: string | null;
+  cover: string | null;
+  payloads: number;
+};
+
+export type ExportReport = {
+  path: string;
+  files: number;
+  bytes: number;
+  /** 用真正的解析器把自己刚写的包读了一遍的结果 */
+  read_back: ReadBack | null;
+};
 
 /** 选一个导出路径（走 Rust 侧的 rfd）。 */
 export async function pickExportPath(defaultName: string): Promise<string | null> {
@@ -187,4 +208,14 @@ export async function exportPackage(
   if (!isDesktop) throw new Error("浏览器预览导不了 —— 没有 IPC");
   // **不吞错**：导出失败的原因（文件没了、勾太多、路径不合法）必须原样给用户看
   return await invoke<ExportReport>("dev_export", { dest, meta, files });
+}
+
+/** 删掉一条提交记录（只删记录，不动任何文件）。 */
+export async function forgetCommit(pkg: string, id: number): Promise<CommitRecord[]> {
+  if (!isDesktop) return [];
+  try {
+    return await invoke<CommitRecord[]>("dev_forget_commit", { pkg, id });
+  } catch {
+    return [];
+  }
 }

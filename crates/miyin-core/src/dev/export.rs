@@ -61,6 +61,27 @@ pub struct ExportReport {
     pub path: String,
     pub files: usize,
     pub bytes: u64,
+    /// **用真正的解析器把自己刚写的包读一遍**，把读到的关键字段带回来。
+    ///
+    /// 为什么要这么绕：写出去和读回来是两套假设，只测"zip 里有 metadata.json"
+    /// 说明不了任何事。让解析器自己说话，界面才好一眼看出哪个字段没落进去。
+    pub read_back: Option<ReadBack>,
+}
+
+/// 解析器读回来的关键字段。
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadBack {
+    pub name: Option<String>,
+    pub author: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub id: Option<String>,
+    pub campaign: Option<String>,
+    pub tags: Vec<String>,
+    pub main_map: Option<String>,
+    pub doc: Option<String>,
+    pub cover: Option<String>,
+    pub payloads: usize,
 }
 
 /// 导出时最多这么多个文件 —— 防手滑把整个游戏目录打进去。
@@ -156,10 +177,28 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
     zip.write_all(metadata_json(meta)?.as_bytes())?;
     zip.finish()?;
 
+    // 自检：把自己刚写出来的包交给真正的解析器读一遍
+    let read_back = crate::campaign::package::inspect(dest)
+        .ok()
+        .map(|item| ReadBack {
+            name: item.name,
+            author: item.author,
+            version: item.version,
+            description: item.description,
+            id: item.id,
+            campaign: item.campaign_type.main_slot().map(|slot| slot.to_string()),
+            tags: item.tags,
+            main_map: item.main_map,
+            doc: item.doc,
+            cover: item.cover,
+            payloads: item.payloads.len(),
+        });
+
     Ok(ExportReport {
         path: dest.to_string_lossy().into_owned(),
         files: written,
         bytes,
+        read_back,
     })
 }
 
@@ -384,6 +423,115 @@ mod tests {
             patch.contains("\"format\": 2"),
             "用了补丁字段（kind）就要声明 2：{patch}"
         );
+    }
+
+    /// **导出 → 用真正的解析器读回来**，每个字段都要对得上。
+    ///
+    /// 这条测试是用户要求加的：导出的包连作者都读不到，说明"写出去"和"读回来"
+    /// 用的是两套假设。只测"zip 里有 metadata.json"是不够的 —— 得让
+    /// `package::inspect` 自己说它读到了什么。
+    #[test]
+    fn export_then_parse_round_trip() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let map = tmp.path().join("01.SC2Map");
+        std::fs::write(&map, b"x").expect("写");
+        let cover = tmp.path().join("cover.png");
+        std::fs::write(&cover, b"png").expect("写");
+        let doc = tmp.path().join("说明.pdf");
+        std::fs::write(&doc, b"pdf").expect("写");
+        let files = vec![
+            ExportFile {
+                path: "Maps/CustomCampaigns/示例/01.SC2Map".to_string(),
+                abs: map.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+            // 封面 / 说明书是要真的进包的 —— 光在元数据里写个名字，
+            // 导入时 resolve_cover / resolve_doc 找不到文件就会静默丢掉
+            ExportFile {
+                path: "cover.png".to_string(),
+                abs: cover.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+            ExportFile {
+                path: "说明.pdf".to_string(),
+                abs: doc.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+        ];
+        let meta = PackageMeta {
+            name: "往返测试".to_string(),
+            author: Some("作者名".to_string()),
+            version: Some("1.2".to_string()),
+            description: Some("一句说明".to_string()),
+            campaign: None,
+            kind: Some("campaign".to_string()),
+            id: Some("quail.roundtrip".to_string()),
+            tags: vec!["重制".to_string(), "剧情".to_string()],
+            main_map: Some("Maps/CustomCampaigns/示例/01.SC2Map".to_string()),
+            doc: Some("说明.pdf".to_string()),
+            cover: Some("cover.png".to_string()),
+            modid: None,
+            mods: Vec::new(),
+        };
+        let dest = tmp.path().join("往返.zip");
+        export(&dest, &meta, &files).expect("导出");
+
+        let inspection = crate::campaign::package::inspect(&dest).expect("解析自己导出的包");
+        assert_eq!(inspection.name.as_deref(), Some("往返测试"), "名称");
+        assert_eq!(inspection.author.as_deref(), Some("作者名"), "作者");
+        assert_eq!(inspection.version.as_deref(), Some("1.2"), "版本");
+        assert_eq!(inspection.description.as_deref(), Some("一句说明"), "说明");
+        assert_eq!(inspection.id.as_deref(), Some("quail.roundtrip"), "注册 ID");
+        assert_eq!(
+            inspection.tags,
+            vec!["重制".to_string(), "剧情".to_string()],
+            "标签"
+        );
+        assert_eq!(
+            inspection.main_map.as_deref(),
+            Some("Maps/CustomCampaigns/示例/01.SC2Map"),
+            "主地图"
+        );
+        assert_eq!(inspection.doc.as_deref(), Some("说明.pdf"), "说明书");
+        assert_eq!(inspection.cover.as_deref(), Some("cover.png"), "封面");
+        assert_eq!(inspection.payloads.len(), 1, "载荷");
+
+        // 光解析出来还不算"读得到" —— 用户是**导入之后**在版本卡上看作者。
+        // 所以再走一遍真正的导入，看落进库里的那条记录。
+        let library_root = tmp.path().join("data");
+        let library = crate::library::Library::new(library_root);
+        let variant = crate::library::import(
+            &library,
+            &dest,
+            "custom",
+            crate::library::ImportMode::Rename,
+        )
+        .expect("导入自己导出的包");
+        assert_eq!(variant.name, "往返测试", "导入后的名称");
+        assert_eq!(variant.author.as_deref(), Some("作者名"), "导入后的作者");
+        assert_eq!(variant.version.as_deref(), Some("1.2"), "导入后的版本");
+        assert_eq!(
+            variant.description.as_deref(),
+            Some("一句说明"),
+            "导入后的说明"
+        );
+        assert_eq!(
+            variant.tags,
+            vec!["重制".to_string(), "剧情".to_string()],
+            "导入后的标签"
+        );
+        assert_eq!(
+            variant.registration_id.as_deref(),
+            Some("quail.roundtrip"),
+            "导入后的注册 ID"
+        );
+        assert_eq!(
+            variant.main_map.as_deref(),
+            Some("Maps/CustomCampaigns/示例/01.SC2Map"),
+            "导入后的主地图"
+        );
+        assert_eq!(variant.doc.as_deref(), Some("说明.pdf"), "导入后的说明书");
+        assert_eq!(variant.cover.as_deref(), Some("cover.png"), "导入后的封面");
     }
 
     #[test]

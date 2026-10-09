@@ -14,7 +14,9 @@ import {
   type PackageMeta,
   commit as commitVersion,
   diff as diffVersions,
+  type ReadBack,
   exportPackage,
+  forgetCommit,
   history as loadHistory,
   isDesktop,
   pickDirectory,
@@ -286,7 +288,11 @@ export function IdeApp() {
   const [message, setMessage] = useState("");
   const [maximized, setMaximized] = useState(false);
   /** 右键菜单：落点 + 针对哪个节点。null 表示没开。 */
-  const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; node?: TreeNode; commit?: CommitRecord } | null>(
+    null,
+  );
+  /** 导出后自检的结果：解析器从刚写出的包里读回了什么。 */
+  const [readBack, setReadBack] = useState<ReadBack | null>(null);
 
   // 点别处 / 按 Esc 关掉菜单
   useEffect(() => {
@@ -532,6 +538,18 @@ export function IdeApp() {
     [entries, applyMeta],
   );
 
+  /** 删掉一条提交记录 —— 只删记录，不动文件。 */
+  const forget = useCallback(
+    async (item: CommitRecord) => {
+      const next = await forgetCommit(pkg.trim(), item.id);
+      setCommits(next);
+      setLogPicked(null);
+      setPendingDiff(null);
+      setStatus("已删掉记录 #" + item.id + "（文件和包信息都没动）");
+    },
+    [pkg],
+  );
+
   const exportNow = useCallback(async () => {
     if (!pkg.trim()) {
       setStatus("先给这个包起个名字");
@@ -575,6 +593,7 @@ export function IdeApp() {
     try {
       setStatus("正在打包…");
       const report = await exportPackage(dest, payload, files);
+      setReadBack(report.read_back);
       setStatus("导出完成：" + report.files + " 个文件 · " + formatBytes(report.bytes) + " → " + report.path);
     } catch (error) {
       setStatus("导出失败：" + (error instanceof Error ? error.message : String(error)));
@@ -876,6 +895,27 @@ export function IdeApp() {
                 <p className="hintbox">
                   这个包会包含 <strong>{picked.length}</strong> 个文件，共 <strong>{formatBytes(pickedBytes) || "0 B"}</strong>。
                 </p>
+                {readBack && (
+                  <div className="hintbox hintbox--check">
+                    <strong>刚导出的包，解析器读回来是：</strong>
+                    {(
+                      [
+                        ["名称", pkg.trim(), readBack.name],
+                        ["作者", meta.author.trim(), readBack.author],
+                        ["版本", meta.version.trim(), readBack.version],
+                        ["注册 ID", meta.id.trim(), readBack.id],
+                        ["说明书", docPath ? "已选" : "", readBack.doc],
+                        ["封面", coverPath ? "已选" : "", readBack.cover],
+                        ["主地图", meta.mainMap, readBack.main_map],
+                      ] as [string, string, string | null][]
+                    ).map(([label, typed, got]) => (
+                      <span key={label} className={"checkline" + (typed && !got ? " checkline--bad" : "")}>
+                        {label}：{got ?? "（没读到）"}
+                        {typed && !got ? " ← 你填了但它没进包" : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </section>
           </div>
@@ -910,6 +950,12 @@ export function IdeApp() {
                   <li
                     key={item.id}
                     className={"trow" + (logPicked === item.id ? " is-picked" : "")}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setLogPicked(item.id);
+                      setMenu({ x: event.clientX, y: event.clientY, commit: item });
+                    }}
                     onClick={async () => {
                       setLogPicked(item.id);
                       const previous = [...commits].reverse()[index + 1];
@@ -968,26 +1014,48 @@ export function IdeApp() {
         </div>
       </div>
 
-      {menu && (
+      {menu?.commit && (
         <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
-          {!isDirOf(menu.node) && menu.node.entry && (
-            <button className="ctx__item" type="button" onClick={() => { void open(menu.node.entry!); setMenu(null); }}>
+          <button className="ctx__item" type="button" onClick={() => { applyCommit(menu.commit!); setMenu(null); }}>
+            应用这一版（勾选 + 包信息）
+          </button>
+          <button
+            className="ctx__item"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(menu.commit!.message || "");
+              setStatus("说明已复制");
+              setMenu(null);
+            }}
+          >
+            复制说明
+          </button>
+          <button className="ctx__item ctx__item--danger" type="button" onClick={() => { void forget(menu.commit!); setMenu(null); }}>
+            删掉这条记录
+          </button>
+        </div>
+      )}
+
+      {menu?.node && (
+        <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
+          {!isDirOf(menu.node!) && menu.node.entry && (
+            <button className="ctx__item" type="button" onClick={() => { void open(menu.node!.entry!); setMenu(null); }}>
               打开
             </button>
           )}
-          <button className="ctx__item" type="button" onClick={() => { toggleNode(menu.node); setMenu(null); }}>
-            {isPicked(menu.node) ? "取消勾选（含子目录）" : "勾选（含子目录）"}
+          <button className="ctx__item" type="button" onClick={() => { toggleNode(menu.node!); setMenu(null); }}>
+            {isPicked(menu.node!) ? "取消勾选（含子目录）" : "勾选（含子目录）"}
           </button>
-          {isDirOf(menu.node) && (
-            <button className="ctx__item" type="button" onClick={() => { toggleExpand(menu.node.path); setMenu(null); }}>
-              {expanded.includes(menu.node.path) ? "收起" : "展开"}
+          {isDirOf(menu.node!) && (
+            <button className="ctx__item" type="button" onClick={() => { toggleExpand(menu.node!.path); setMenu(null); }}>
+              {expanded.includes(menu.node!.path) ? "收起" : "展开"}
             </button>
           )}
           <button
             className="ctx__item"
             type="button"
             onClick={() => {
-              void navigator.clipboard?.writeText(menu.node.entry?.abs || menu.node.path);
+              void navigator.clipboard?.writeText(menu.node.entry?.abs || menu.node!.path);
               setStatus("路径已复制");
               setMenu(null);
             }}
@@ -1004,13 +1072,13 @@ export function IdeApp() {
           >
             在资源管理器里打开
           </button>
-          {/几\.(png|jpg|jpeg|webp|gif)$/i.test(menu.node.path) && menu.node.entry?.abs && (
-            <button className="ctx__item" type="button" onClick={() => { setCoverPath(menu.node.entry!.abs); setMenu(null); }}>
+          {/几\.(png|jpg|jpeg|webp|gif)$/i.test(menu.node!.path) && menu.node.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setCoverPath(menu.node!.entry!.abs); setMenu(null); }}>
               设为封面图
             </button>
           )}
-          {/\.pdf$/i.test(menu.node.path) && menu.node.entry?.abs && (
-            <button className="ctx__item" type="button" onClick={() => { setDocPath(menu.node.entry!.abs); setMenu(null); }}>
+          {/\.pdf$/i.test(menu.node!.path) && menu.node.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setDocPath(menu.node!.entry!.abs); setMenu(null); }}>
               设为说明书
             </button>
           )}

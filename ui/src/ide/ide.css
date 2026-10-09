@@ -1017,3 +1017,23 @@ body {
   font-size: 11px;
   color: var(--on-surface-variant);
 }
+
+.ctx__item--danger {
+  color: var(--danger);
+}
+.ctx__item--danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.hintbox--check {
+  border-left-color: var(--success);
+}
+.checkline {
+  display: block;
+  line-height: 1.9;
+}
+.checkline--bad {
+  color: var(--danger);
+  font-weight: 600;
+}

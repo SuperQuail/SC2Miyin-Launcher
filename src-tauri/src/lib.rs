@@ -374,6 +374,17 @@ fn dev_history(
     miyin_core::dev::history::log(state.library.root(), &pkg).map_err(|error| error.to_string())
 }
 
+/// 开发者页：删掉一条提交记录（只删记录，不动文件）。
+#[tauri::command(async)]
+fn dev_forget_commit(
+    pkg: String,
+    id: u32,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::dev::history::Commit>, String> {
+    miyin_core::dev::history::forget(state.library.root(), &pkg, id)
+        .map_err(|error| error.to_string())
+}
+
 /// 开发者页：一次提交里要记的文件。
 #[derive(serde::Deserialize)]
 struct CommitFile {
@@ -1776,6 +1787,7 @@ pub fn run() {
             dev_pick_export_path,
             list_installed_campaigns,
             dev_history,
+            dev_forget_commit,
             dev_commit,
             dev_diff,
             list_saves,

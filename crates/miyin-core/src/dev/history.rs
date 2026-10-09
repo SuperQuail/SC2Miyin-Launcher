@@ -152,6 +152,23 @@ pub fn commit(
     Ok(item)
 }
 
+/// 删掉一条提交记录。
+///
+/// **只删记录** —— 游戏目录里的文件一个字节都不动，包信息也留着。
+/// 记录只是"我们这边记的一笔账"，删掉它不影响任何实物。
+pub fn forget(root: &Path, pkg: &str, id: u32) -> Result<Vec<Commit>> {
+    let mut history = log(root, pkg)?;
+    history.retain(|item| item.id != id);
+
+    let dir = store_dir(root, pkg);
+    std::fs::create_dir_all(&dir)?;
+    let tmp = dir.join("commits.json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&history)?)?;
+    std::fs::rename(&tmp, store_file(root, pkg))?;
+
+    Ok(history)
+}
+
 /// 比两版。`from` 是旧的那次，`to` 是新的。
 pub fn diff(from: &Commit, to: &Commit) -> Diff {
     use std::collections::BTreeMap;
