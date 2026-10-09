@@ -62,35 +62,36 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* 区域分层照 VS Code：活动栏最亮、侧栏次之、编辑区最深。
-     它靠这三档把「哪里是壳、哪里是内容」分得很清楚，我们之前只有一档。 */
-  --rail: #333333;
-  --topbar: linear-gradient(120deg, #3c3c3c 0%, #333333 55%, #2b2b2b 100%);
-  --surface: #1e1e1e;
-  --surface-1: #252526;
-  --surface-2: #2d2d30;
-  --surface-3: #3c3c3c;
+  /* IntelliJ New UI Dark：工具窗条最深、面板次之、悬停/输入更亮一档 */
+  --rail: #1e1f22;
+  --surface: #1e1f22;
+  --surface-1: #2b2d30;
+  --surface-2: #2b2d30;
+  --surface-3: #393b40;
 
-  --on-surface: #cccccc;
-  --on-surface-variant: #9d9d9d;
-  --outline: #3c3c3c;
-  --outline-strong: #545454;
+  --on-surface: #dfe1e5;
+  --on-surface-variant: #9da0a8;
+  --outline: #393b40;
+  --outline-strong: #4e5157;
 
-  --accent: #0e639c;
-  --accent-hover: #1177bb;
-  --accent-pressed: #0a4d7a;
-  --accent-soft: #094771;
-  --accent-softer: #1b2b3a;
+  --accent: #3574f0;
+  --accent-hover: #4a7df5;
+  --accent-pressed: #2b62d9;
+  --accent-soft: #2e436e;
+  --accent-softer: #25324d;
   --on-accent: #ffffff;
 
-  --success: #89d185;
-  --success-soft: #1d3a24;
-  --warning: #cca700;
-  --warning-soft: #3d3418;
-  --danger: #f14c4c;
-  --danger-soft: #4b1e1e;
+  --success: #6fbf73;
+  --success-soft: #253b26;
+  --warning: #e2a03f;
+  --warning-soft: #3d3018;
+  --danger: #f75464;
+  --danger-soft: #4a2226;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-2: 0 4px 14px rgba(0, 0, 0, 0.55);
   --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.7);
+
+  /* 顶栏跟着 New UI 的标题栏走 */
+  --topbar: linear-gradient(120deg, #2b2d30 0%, #26282c 55%, #1e1f22 100%);
 }
