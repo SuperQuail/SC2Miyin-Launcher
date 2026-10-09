@@ -127,3 +127,40 @@ export async function diff(pkg: string, from: number, to: number): Promise<Histo
     return null;
   }
 }
+
+/** 导出时用的包元数据。对应 `miyin_core::dev::export::PackageMeta`。 */
+export type PackageMeta = {
+  name: string;
+  author?: string | null;
+  version?: string | null;
+  description?: string | null;
+  campaign?: string | null;
+  kind?: string | null;
+  id?: string | null;
+  tags?: string[];
+  main_map?: string | null;
+  doc?: string | null;
+};
+
+export type ExportReport = { path: string; files: number; bytes: number };
+
+/** 选一个导出路径（走 Rust 侧的 rfd）。 */
+export async function pickExportPath(defaultName: string): Promise<string | null> {
+  if (!isDesktop) return null;
+  try {
+    return await invoke<string | null>("dev_pick_export_path", { defaultName });
+  } catch {
+    return null;
+  }
+}
+
+/** 把勾选的文件打成一个包。 */
+export async function exportPackage(
+  dest: string,
+  meta: PackageMeta,
+  files: { path: string; abs: string }[],
+): Promise<ExportReport> {
+  if (!isDesktop) throw new Error("浏览器预览导不了 —— 没有 IPC");
+  // **不吞错**：导出失败的原因（文件没了、勾太多、路径不合法）必须原样给用户看
+  return await invoke<ExportReport>("dev_export", { dest, meta, files });
+}

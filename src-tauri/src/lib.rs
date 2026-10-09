@@ -329,6 +329,28 @@ fn list_installed_campaigns(
         .map_err(|error| error.to_string())
 }
 
+/// 开发者页：选一个导出路径。
+#[tauri::command(async)]
+fn dev_pick_export_path(default_name: String) -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("导出到哪里")
+        .set_file_name(&default_name)
+        .add_filter("压缩包", &["zip"])
+        .save_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 开发者页：把勾选的文件打成一个包（附元数据）。
+#[tauri::command(async)]
+fn dev_export(
+    dest: String,
+    meta: miyin_core::dev::export::PackageMeta,
+    files: Vec<miyin_core::dev::export::ExportFile>,
+) -> Result<miyin_core::dev::export::ExportReport, String> {
+    miyin_core::dev::export::export(std::path::Path::new(&dest), &meta, &files)
+        .map_err(|error| error.to_string())
+}
+
 /// 开发者页：这个包的提交历史。
 #[tauri::command(async)]
 fn dev_history(
@@ -1733,6 +1755,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            dev_export,
+            dev_pick_export_path,
             list_installed_campaigns,
             dev_history,
             dev_commit,

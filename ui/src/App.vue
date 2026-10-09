@@ -31,7 +31,8 @@ const {
   launcherVersion,
   ensureTools,
   theme,
-  toggleTheme,
+  themeMode,
+  cycleTheme,
 } = useLauncher();
 
 /** 开发者页是独立入口（AGENTS.md §18），整页跳过去；从那边有「← 返回启动器」。 */
@@ -343,15 +344,26 @@ onUnmounted(() => {
         <button
           class="themectl"
           type="button"
-          :title="theme === 'dark' ? '切到日间' : '切到夜间'"
-          @click="toggleTheme()"
+          :title="
+            themeMode === 'system'
+              ? '跟随系统（点一下切到日间）'
+              : themeMode === 'light'
+                ? '日间（点一下切到夜间）'
+                : '夜间（点一下切回跟随系统）'
+          "
+          @click="cycleTheme()"
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path v-if="theme === 'dark'" d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" />
-            <template v-else>
-              <circle cx="8" cy="8" r="3" />
-              <path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M12.8 3.2l-1.3 1.3M4.5 11.5l-1.3 1.3" />
-            </template>
+          <!-- 三档各自一个图标：跟随系统 = 显示器，日间 = 太阳，夜间 = 月亮 -->
+          <svg v-if="themeMode === 'system'" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="2" y="3" width="12" height="8" rx="1.2" />
+            <path d="M5.5 13.5h5" />
+          </svg>
+          <svg v-else-if="theme === 'dark'" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" />
+          </svg>
+          <svg v-else viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" />
+            <path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M12.8 3.2l-1.3 1.3M4.5 11.5l-1.3 1.3" />
           </svg>
         </button>
         <button

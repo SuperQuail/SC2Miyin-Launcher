@@ -477,31 +477,63 @@ async function restoreSaves(name: string): Promise<void> {
 }
 
 /** 日间 / 夜间。存在 localStorage —— 这是界面偏好，不必让后端知道。 */
-/** `?theme=dark` 能强制一次 —— 截图和排查用，不写进 localStorage。 */
+/**
+ * 主题三档：跟随系统（默认）/ 日间 / 夜间。
+ *
+ * 「跟随系统」是默认 —— 用户没表态时，系统的深浅色就是他的偏好。
+ * `?theme=light|dark` 能强制一次（截图与排查用），不写进 localStorage。
+ */
+type ThemeMode = "system" | "light" | "dark";
+
+const THEME_KEY = "miyin.theme";
 const forcedTheme = new URLSearchParams(location.search).get("theme");
 
-const theme = ref<"light" | "dark">(
-  forcedTheme === "dark" || forcedTheme === "light"
-    ? forcedTheme
-    : typeof localStorage !== "undefined" && localStorage.getItem("miyin.theme") === "dark"
-      ? "dark"
-      : "light",
+function storedTheme(): ThemeMode {
+  try {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === "light" || value === "dark" || value === "system" ? value : "system";
+  } catch {
+    return "system";
+  }
+}
+
+const themeMode = ref<ThemeMode>(
+  forcedTheme === "light" || forcedTheme === "dark" ? forcedTheme : storedTheme(),
+);
+
+const prefersDark =
+  typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
+const systemDark = ref(prefersDark?.matches ?? false);
+
+/** 实际生效的是哪一套 —— 界面上要显示的是它。 */
+const theme = computed<"light" | "dark">(() =>
+  themeMode.value === "system" ? (systemDark.value ? "dark" : "light") : themeMode.value,
 );
 
 function applyTheme(): void {
-  document.documentElement.dataset.theme = theme.value;
+  const active = theme.value;
+  document.documentElement.dataset.theme = active;
+  // 开发者页那套（Ring UI）认的是这个类名，顺手一起切
+  document.documentElement.classList.toggle("ring-ui-theme-dark", active === "dark");
   if (forcedTheme) return;
   try {
-    localStorage.setItem("miyin.theme", theme.value);
+    localStorage.setItem(THEME_KEY, themeMode.value);
   } catch {
     // 隐私模式下 localStorage 会抛；主题当次有效就行
   }
 }
 
-function toggleTheme(): void {
-  theme.value = theme.value === "dark" ? "light" : "dark";
+/** 日间 → 夜间 → 跟随系统，循环。 */
+function cycleTheme(): void {
+  themeMode.value =
+    themeMode.value === "light" ? "dark" : themeMode.value === "dark" ? "system" : "light";
   applyTheme();
 }
+
+prefersDark?.addEventListener("change", (event) => {
+  systemDark.value = event.matches;
+  applyTheme();
+});
 
 applyTheme();
 
@@ -650,7 +682,8 @@ export function useLauncher() {
   cancelActivation,
   pendingActivation,
   theme,
-  toggleTheme,
+  themeMode,
+  cycleTheme,
   installedCampaigns,
   refreshInstalled,
   collectCampaign,

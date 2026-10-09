@@ -778,3 +778,124 @@ body {
   font-family: inherit;
   outline: none;
 }
+
+/* ---------- 文件树（开发者页左栏） ---------- */
+.pane--tree {
+  flex: none;
+  width: 360px;
+}
+.pane--meta {
+  flex: none;
+  width: 296px;
+}
+.tnode {
+  user-select: none;
+}
+.trow2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-right: 8px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.trow2:hover {
+  background: var(--accent-softer);
+}
+.trow2.is-open {
+  background: var(--accent-soft);
+}
+.tcaret {
+  flex: none;
+  width: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tcaret--leaf {
+  display: inline-block;
+}
+.tcheck {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+/* 名字要能被挤扁（min-width:0），否则长路径会把右边那列顶出去 —— 之前重叠就是这么来的 */
+.tname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tname--ext {
+  color: var(--warning);
+}
+.tsize {
+  flex: none;
+  width: 72px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+.tag--ext {
+  flex: none;
+  padding: 0 5px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 10px;
+}
+
+/* ---------- 包信息表单 ---------- */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 12px;
+}
+.field > span {
+  flex: none;
+  width: 62px;
+  color: var(--on-surface-variant);
+}
+.field input,
+.field select,
+.field textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12px;
+}
+.field textarea {
+  resize: vertical;
+}
+.field--full {
+  align-items: flex-start;
+}
+
+/* ---------- 提交输入 ---------- */
+.commitmsg {
+  width: 180px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-size: 12px;
+  font-family: inherit;
+}
