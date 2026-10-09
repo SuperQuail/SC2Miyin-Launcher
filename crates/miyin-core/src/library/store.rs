@@ -158,6 +158,7 @@ pub fn import(
         registration_id: inspection.id.clone(),
         kind: inspection.kind,
         payloads: inspection.payloads.clone(),
+        overrides: inspection.overrides.clone(),
     };
 
     // 最新的排在最前面；覆盖更新时先摘掉旧记录

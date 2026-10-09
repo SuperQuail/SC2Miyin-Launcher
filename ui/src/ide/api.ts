@@ -74,3 +74,56 @@ export async function pickDirectory(): Promise<string | null> {
     return null;
   }
 }
+
+/** 一次提交里的一条。对应 `miyin_core::dev::history::Snapshot`。 */
+export type CommitSnapshot = { path: string; bytes: number; modified_ms: number };
+
+export type CommitRecord = {
+  id: number;
+  label: string | null;
+  message: string;
+  at: number;
+  files: CommitSnapshot[];
+};
+
+export type HistoryDiff = {
+  added: string[];
+  removed: string[];
+  changed: string[];
+  unchanged: number;
+};
+
+/** 这个包的提交历史。没人提交过就是空的。 */
+export async function history(pkg: string): Promise<CommitRecord[]> {
+  if (!isDesktop) return [];
+  try {
+    return await invoke<CommitRecord[]>("dev_history", { pkg });
+  } catch {
+    return [];
+  }
+}
+
+/** 提交一次：把当前勾选的这批文件记成一个版本。 */
+export async function commit(
+  pkg: string,
+  message: string,
+  label: string | null,
+  files: { path: string; abs: string }[],
+): Promise<CommitRecord | null> {
+  if (!isDesktop) return null;
+  try {
+    return await invoke<CommitRecord>("dev_commit", { pkg, message, label, files });
+  } catch {
+    return null;
+  }
+}
+
+/** 两版之间差在哪。 */
+export async function diff(pkg: string, from: number, to: number): Promise<HistoryDiff | null> {
+  if (!isDesktop) return null;
+  try {
+    return await invoke<HistoryDiff>("dev_diff", { pkg, from, to });
+  } catch {
+    return null;
+  }
+}

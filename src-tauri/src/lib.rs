@@ -275,6 +275,64 @@ fn dev_pick_directory() -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 开发者页：这个包的提交历史。
+#[tauri::command(async)]
+fn dev_history(
+    pkg: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::dev::history::Commit>, String> {
+    miyin_core::dev::history::log(state.library.root(), &pkg).map_err(|error| error.to_string())
+}
+
+/// 开发者页：一次提交里要记的文件。
+#[derive(serde::Deserialize)]
+struct CommitFile {
+    /// 给用户看的路径
+    path: String,
+    /// 绝对路径
+    abs: String,
+}
+
+/// 开发者页：提交一次 —— 把当前这批文件记成一个版本。
+#[tauri::command(async)]
+fn dev_commit(
+    pkg: String,
+    message: String,
+    label: Option<String>,
+    files: Vec<CommitFile>,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::history::Commit, String> {
+    let pairs: Vec<(String, std::path::PathBuf)> = files
+        .into_iter()
+        .map(|file| (file.path, std::path::PathBuf::from(file.abs)))
+        .collect();
+    miyin_core::dev::history::commit(
+        state.library.root(),
+        &pkg,
+        &message,
+        label.as_deref(),
+        &pairs,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 开发者页：比两版差在哪。
+#[tauri::command(async)]
+fn dev_diff(
+    pkg: String,
+    from: u32,
+    to: u32,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::history::Diff, String> {
+    let history =
+        miyin_core::dev::history::log(state.library.root(), &pkg).map_err(|e| e.to_string())?;
+    let find = |id: u32| history.iter().find(|item| item.id == id).cloned();
+    match (find(from), find(to)) {
+        (Some(old), Some(new)) => Ok(miyin_core::dev::history::diff(&old, &new)),
+        _ => Err("找不到这两个版本".to_string()),
+    }
+}
+
 /// 开发者页：只读预览一个文件（文本 / 图片 / 二进制）。
 #[tauri::command(async)]
 fn dev_read_file(path: String) -> Result<miyin_core::dev::FilePreview, String> {
@@ -1605,6 +1663,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            dev_history,
+            dev_commit,
+            dev_diff,
             list_saves,
             backup_saves,
             restore_saves,

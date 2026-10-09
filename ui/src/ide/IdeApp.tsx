@@ -6,13 +6,21 @@ import Input from "@jetbrains/ring-ui-built/components/input/input";
 import Tag from "@jetbrains/ring-ui-built/components/tag/tag";
 
 import {
+  type CommitRecord,
   type DevEntry,
   type FilePreview,
+  type HistoryDiff,
+  commit as commitVersion,
+  diff as diffVersions,
+  history as loadHistory,
   isDesktop,
   pickDirectory,
   readFile,
   scan,
 } from "./api";
+
+/** 现在只盯一个包。**下一步**：让它在工具栏里可编辑 / 可切换。 */
+const PACKAGE = "复刻战役";
 
 /**
  * 开发者页。
@@ -26,26 +34,16 @@ import {
  */
 const PALETTE = ["#629755", "#B3893A", "#7A3E9D", "#4A86E8"];
 
-/** 一条提交在图形道上的样子（示例数据）。 */
-type Commit = {
-  ver: string;
-  msg: string;
-  who: string;
-  when: string;
-  lane: number;
-  color: string;
-  head?: boolean;
-  merge?: boolean;
-  last?: boolean;
-};
-
-const SAMPLE_LOG: Commit[] = [
-  { ver: "未提交", msg: "工作区里勾选的东西", who: "—", when: "现在", lane: 0, color: PALETTE[0], head: true },
-  { ver: "v8.0.1", msg: "修复：终章关的触发条件", who: "—", when: "示例", lane: 0, color: PALETTE[0] },
-  { ver: "v8.0", msg: "基线：Terran 重制 v8.0", who: "—", when: "示例", lane: 0, color: PALETTE[0], merge: true },
-  { ver: "v7.9", msg: "数值：Marine 生命 40→45", who: "—", when: "示例", lane: 1, color: PALETTE[1] },
-  { ver: "v7.8", msg: "关卡：Rebel Yell 加了一段过场", who: "—", when: "示例", lane: 1, color: PALETTE[2], last: true },
-];
+/** 时间戳 -> 「3 分钟前 / 昨天 / 2026-10-09」 */
+function when(at: number): string {
+  if (!at) return "";
+  const diff = Date.now() / 1000 - at;
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+  if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+  if (diff < 172800) return "昨天";
+  return new Date(at * 1000).toLocaleDateString("zh-CN");
+}
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "";
@@ -85,7 +83,9 @@ export function IdeApp() {
   const [search, setSearch] = useState("");
   const [msg, setMsg] = useState("");
   const [amend, setAmend] = useState(false);
-  const [logPicked, setLogPicked] = useState(0);
+  const [commits, setCommits] = useState<CommitRecord[]>([]);
+  const [logPicked, setLogPicked] = useState<number | null>(null);
+  const [pendingDiff, setPendingDiff] = useState<HistoryDiff | null>(null);
   const [status, setStatus] = useState(isDesktop ? "正在扫描游戏目录…" : "浏览器预览：没有 IPC，数据是示例");
 
   const refresh = useCallback(async (extra: string[]) => {
@@ -100,9 +100,36 @@ export function IdeApp() {
     setStatus("扫到 " + result.entries.length + " 项" + (result.truncated ? "（已截断）" : ""));
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    const list = await loadHistory(PACKAGE);
+    setCommits(list);
+    setLogPicked(null);
+    setPendingDiff(null);
+  }, []);
+
   useEffect(() => {
     void refresh([]);
-  }, [refresh]);
+    void refreshHistory();
+  }, [refresh, refreshHistory]);
+
+  /** 提交：把勾选的这批文件记成一个版本。 */
+  const submit = useCallback(async () => {
+    if (!msg.trim()) {
+      setStatus("先写一句这次改了什么");
+      return;
+    }
+    const files = entries
+      .filter((entry) => picked.includes(entry.path))
+      .map((entry) => ({ path: entry.path, abs: entry.abs }));
+    const item = await commitVersion(PACKAGE, msg, null, files);
+    if (!item) {
+      setStatus(isDesktop ? "提交失败" : "浏览器预览提交不了 —— 没有 IPC");
+      return;
+    }
+    setMsg("");
+    await refreshHistory();
+    setStatus("已提交 #" + item.id + "：" + item.files.length + " 个文件");
+  }, [msg, entries, picked, refreshHistory]);
 
   // 打开一个文件：真去磁盘读，按结果决定编辑器怎么显示
   const open = useCallback(async (entry: DevEntry) => {
@@ -167,7 +194,9 @@ export function IdeApp() {
         <Button disabled>预览变更</Button>
         <span className="tspacer" />
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索" className="tsearch" />
-        <Button primary disabled title="版本管理后端还没接">提交 v8.1</Button>
+        <Button primary disabled={!msg.trim() || picked.length === 0} onClick={() => void submit()}>
+          提交
+        </Button>
       </div>
 
       <div className="body">
@@ -304,12 +333,12 @@ export function IdeApp() {
             <section className="pane pane--diff">
               <header className="pbar">
                 <span className="ptitle">版本</span>
-                <span className="psub">后端未接 · 下面是示例</span>
+                <span className="psub">{PACKAGE}</span>
               </header>
               <div className="pbody">
                 <p className="hintbox">
-                  版本管理与提交要 SC2Diff 和「基线」的概念，还没实现。
-                  界面上这一块的数据是**示例**，按钮是禁用的。
+                  提交记的是「这一版包含哪些文件」（路径 + 大小 + 修改时间），
+                  用来回答"跟上一版差在哪"。**内容哈希与语义 diff 要 SC2Diff**，还没接。
                 </p>
                 <p className="dunit">这个包会包含</p>
                 <p className="drow"><span className="dfield">文件</span><span className="dto">{picked.length}</span></p>
@@ -330,27 +359,83 @@ export function IdeApp() {
           <section className="pane pane--log">
             <header className="pbar">
               <span className="ptitle">日志</span>
-              <span className="psub">示例</span>
+              <span className="psub">{commits.length ? commits.length + " 次提交" : "还没有提交"}</span>
             </header>
             <div className="pbody pbody--flat logwrap">
               <ul className="tree">
-                {SAMPLE_LOG.map((row, index) => (
-                  <li key={row.ver} className={"trow" + (logPicked === index ? " is-picked" : "")} onClick={() => setLogPicked(index)}>
-                    <Graph lane={row.lane} color={row.color} head={row.head} merge={row.merge} last={row.last} />
-                    <span className="tver">{row.ver}</span>
-                    <span className="tmsg">{row.msg}</span>
-                    <span className="refs">{row.head ? <Tag>未提交</Tag> : null}</span>
-                    <span className="twho">{row.who}</span>
-                    <span className="twhen">{row.when}</span>
+                {/* 第一行永远是"工作区"：现在勾着的这批，还没提交 */}
+                <li className="trow" onClick={() => { setLogPicked(null); setPendingDiff(null); }}>
+                  <Graph lane={0} color={PALETTE[0]} head />
+                  <span className="tver">未提交</span>
+                  <span className="tmsg">工作区里勾选的 {picked.length} 个文件</span>
+                  <span className="refs">{picked.length > 0 ? <Tag>未提交</Tag> : null}</span>
+                  <span className="twho">—</span>
+                  <span className="twhen">现在</span>
+                </li>
+                {[...commits].reverse().map((item, index) => (
+                  <li
+                    key={item.id}
+                    className={"trow" + (logPicked === item.id ? " is-picked" : "")}
+                    onClick={async () => {
+                      setLogPicked(item.id);
+                      // 和上一条比：最老的自己跟自己比，没有差异
+                      const previous = [...commits].reverse()[index + 1];
+                      setPendingDiff(previous ? await diffVersions(PACKAGE, previous.id, item.id) : null);
+                    }}
+                  >
+                    <Graph lane={0} color={PALETTE[index === 0 ? 0 : index % PALETTE.length]} last={index === commits.length - 1} />
+                    <span className="tver">{item.label ?? "#" + item.id}</span>
+                    <span className="tmsg">{item.message || "（没写说明）"}</span>
+                    <span className="refs">{index === 0 ? <Tag>最新</Tag> : null}</span>
+                    <span className="twho">—</span>
+                    <span className="twhen">{when(item.at)}</span>
                   </li>
                 ))}
               </ul>
               <aside className="ldetail">
-                <p className="ldtitle">还没接</p>
-                <p className="ldmsg">
-                  提交图要等版本管理接上 SC2Diff 之后才有真数据。
-                </p>
-                <p className="ldmsg">目前能用的：扫描目录、勾选、看文件。</p>
+                {logPicked === null ? (
+                  <>
+                    <p className="ldtitle">工作区</p>
+                    <p className="ldmsg">
+                      勾选 {picked.length} 个文件，共 {formatBytes(pickedBytes) || "0 B"}；
+                      写一句说明就能提交。
+                    </p>
+                  </>
+                ) : (
+                  (() => {
+                    const item = commits.find((entry) => entry.id === logPicked);
+                    if (!item) return null;
+                    return (
+                      <>
+                        <p className="ldtitle">{item.label ?? "#" + item.id}</p>
+                        <p className="ldmsg">{item.message || "（没写说明）"} · {when(item.at)}</p>
+                        {pendingDiff && (
+                          <>
+                            <p className="ldmsg">
+                              比上一版：新增 {pendingDiff.added.length} · 改动 {pendingDiff.changed.length} ·
+                              删掉 {pendingDiff.removed.length} · 没动 {pendingDiff.unchanged}
+                            </p>
+                            {pendingDiff.added.slice(0, 6).map((path) => (
+                              <p className="ldmsg" key={"a" + path}>＋ {path}</p>
+                            ))}
+                            {pendingDiff.changed.slice(0, 6).map((path) => (
+                              <p className="ldmsg" key={"c" + path}>~ {path}</p>
+                            ))}
+                            {pendingDiff.removed.slice(0, 6).map((path) => (
+                              <p className="ldmsg" key={"r" + path}>－ {path}</p>
+                            ))}
+                          </>
+                        )}
+                        <p className="ldmsg">这一版有 {item.files.length} 个文件：</p>
+                        <ul className="mini">
+                          {item.files.slice(0, 8).map((file) => (
+                            <li key={file.path}><span>{formatBytes(file.bytes)}</span>{file.path}</li>
+                          ))}
+                        </ul>
+                      </>
+                    );
+                  })()
+                )}
               </aside>
             </div>
           </section>

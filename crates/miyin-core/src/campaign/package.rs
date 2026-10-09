@@ -134,6 +134,8 @@ pub struct PackageInspection {
     /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// 作者声明的覆盖规则（v3）。
+    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
     /// 包内声明的 **modid**：这个模组的身份。
     ///
     /// 判定「同一个模组的不同版本，还是另一个模组」全看它。
@@ -197,6 +199,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         description: None,
         campaign_type: CampaignType::Other(String::new()),
         cover: None,
+        overrides: Vec::new(),
         tags: Vec::new(),
         main_map: None,
         doc: None,
@@ -706,6 +709,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut declared_mods_raw: Vec<String> = Vec::new();
     let mut declared_mod: Option<String> = None;
     let mut declared_cover = None;
+    let mut declared_overrides = Vec::new();
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
     let mut declared_kind = PackageKind::Campaign;
@@ -726,6 +730,11 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     declared_mods_raw = meta.mods();
                     declared_mod = meta.modid().map(str::to_string);
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
+                    declared_overrides = meta
+                        .miyin
+                        .as_ref()
+                        .map(|extensions| extensions.overrides.clone())
+                        .unwrap_or_default();
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
                     declared_kind = meta.package_kind();
@@ -1012,6 +1021,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         requires: declared_requires,
         priority: declared_priority,
         payloads,
+        overrides: declared_overrides,
         main_map: main_map_claim,
         doc: declared_doc,
         declared_mods,

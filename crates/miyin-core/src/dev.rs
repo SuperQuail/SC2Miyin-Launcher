@@ -5,6 +5,8 @@
 //!
 //! 界面侧是独立的 React 入口（见 AGENTS.md §18），靠下面这些结构体说话。
 
+pub mod history;
+
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;

@@ -109,6 +109,9 @@ pub struct Variant {
     /// 靠扫目录去猜落点会摆错位置。
     #[serde(default)]
     pub payloads: Vec<Payload>,
+    /// 作者声明的覆盖规则；旧索引里没有这个字段，读出来是空的。
+    #[serde(default)]
+    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
     /// **主地图**：自制战役的游玩入口，相对版本根目录的路径。
     ///
     /// 有些自制战役有一张总入口地图，打开它就能一路玩到底；也有的只能一张一张打。
@@ -552,6 +555,9 @@ pub struct Patch {
     /// 载荷清单。
     #[serde(default)]
     pub payloads: Vec<Payload>,
+    /// 作者声明的覆盖规则。
+    #[serde(default)]
+    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
     #[serde(default)]
     pub imported_at: u64,
     #[serde(default)]

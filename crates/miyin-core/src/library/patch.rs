@@ -152,6 +152,7 @@ pub fn import_patch(library: &Library, package: &Path) -> Result<Patch> {
         priority: inspection.priority.unwrap_or(DEFAULT_PRIORITY),
         requires: inspection.requires.clone(),
         payloads: inspection.payloads.clone(),
+        overrides: inspection.overrides.clone(),
         imported_at: now_seconds(),
         size_bytes: stats.bytes,
         mod_count: stats.mods,

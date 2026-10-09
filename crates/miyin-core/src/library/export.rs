@@ -253,6 +253,8 @@ fn miyin_metadata(slot_slug: &str, variant: &Variant) -> String {
             "format": crate::campaign::package::MIYIN_FORMAT_VERSION,
             "id": variant.registration_id,
             "tags": variant.tags,
+            // 覆盖规则要原样带出去，否则"导入 -> 导出 -> 再导入"会丢掉落点
+            "overrides": variant.overrides,
         },
         "payloads": payloads,
         "note": "本目录是弥音启动器的附加数据。CCM 及其他工具可以完全忽略它；启动器读回时会用它还原版本、注册 ID 与载荷落点。",

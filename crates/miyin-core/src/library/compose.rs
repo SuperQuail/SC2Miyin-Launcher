@@ -19,6 +19,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::campaign::metadata::OverrideRule;
+
 use serde::Serialize;
 
 use crate::campaign::metadata::CampaignType;
@@ -174,18 +176,63 @@ pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> Opt
     }
 }
 
+/// 作者声明的覆盖规则：`from` 命中的文件按 `to` 落，没写 `to` 就原样覆盖同一个相对路径。
+///
+/// `to` 当**目录**用：文件落在 `to/<文件名>`。这样"覆盖文件夹"的语义是唯一的
+/// —— 否则 `to` 到底是文件还是目录，得看它带不带扩展名，那种猜法迟早出错。
+fn override_target(source: &str, overrides: &[OverrideRule]) -> Option<String> {
+    let source = source.replace('\\', "/");
+    for rule in overrides {
+        let from = rule.from.replace('\\', "/");
+        if from.is_empty() {
+            continue;
+        }
+        let rest = if source == from {
+            ""
+        } else {
+            match source.strip_prefix(&(from.clone() + "/")) {
+                Some(rest) => rest,
+                None => continue,
+            }
+        };
+
+        return Some(match &rule.to {
+            None => source.clone(),
+            Some(to) => {
+                let to = to.trim_matches('/').replace('\\', "/");
+                if rest.is_empty() {
+                    // from 是文件：落到 to 这一层，保住文件名
+                    let name = source.rsplit('/').next().unwrap_or(&source);
+                    format!("{to}/{name}")
+                } else {
+                    format!("{to}/{rest}")
+                }
+            }
+        });
+    }
+    None
+}
+
 /// 把一层内容叠进清单；同目标路径由后叠的（优先级高的）胜出。
 fn stack_layer(
     root: &Path,
     payloads: &[Payload],
     placement: &Placement,
+    overrides: &[OverrideRule],
     layer: &Layer,
     placed: &mut BTreeMap<String, ComposedFile>,
     overridden: &mut Vec<ComposedFile>,
 ) {
     for payload in payloads {
-        // 自制战役的地图不进游戏目录 —— 它们留在库里等着被编辑器打开
-        let Some(target) = payload_target_path(&payload.target, placement) else {
+        // 作者声明的覆盖规则优先于默认落点 —— 这就是"覆盖文件夹"的实现。
+        // 命中了就绕过 placement：作者说放哪就放哪（**仍受写盘闸门约束**，
+        // 出游戏目录的目标会被拒）。
+        let target = match override_target(&payload.source, overrides) {
+            Some(target) => Some(target),
+            // 自制战役的地图不进游戏目录 —— 它们留在库里等着被编辑器打开
+            None => payload_target_path(&payload.target, placement),
+        };
+        let Some(target) = target else {
             continue;
         };
 
@@ -239,6 +286,7 @@ pub fn compose(
         &variant_dir,
         &payloads,
         &placement,
+        &variant.overrides,
         &Layer::Campaign,
         &mut placed,
         &mut overridden,
@@ -277,6 +325,7 @@ pub fn compose(
             &patch_dir,
             &patch.payloads,
             &placement,
+            &patch.overrides,
             &layer,
             &mut placed,
             &mut overridden,
@@ -320,6 +369,50 @@ pub fn bindings_of(library: &Library, slot_slug: &str) -> Vec<(Binding, Patch)> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 覆盖规则的三条语义：原样覆盖、前缀映射、以及"第一条命中就停"。
+    #[test]
+    fn override_rules_rewrite_targets() {
+        let rules = vec![
+            OverrideRule {
+                from: "extra".to_string(),
+                to: Some("Maps/CustomCampaigns/Terran".to_string()),
+            },
+            OverrideRule {
+                from: "说明.txt".to_string(),
+                to: Some("Maps".to_string()),
+            },
+            OverrideRule {
+                from: "SC2Data".to_string(),
+                to: None,
+            },
+        ];
+
+        // 目录映射：底下的东西整体挪到 to 那一层
+        assert_eq!(
+            override_target("extra/a.xml", &rules).as_deref(),
+            Some("Maps/CustomCampaigns/Terran/a.xml")
+        );
+        // 单个文件：保住文件名，落在 to 这一层
+        assert_eq!(
+            override_target("说明.txt", &rules).as_deref(),
+            Some("Maps/说明.txt")
+        );
+        // 只写 from：原样覆盖同一个相对路径
+        assert_eq!(
+            override_target("SC2Data/base.SC2Data/x", &rules).as_deref(),
+            Some("SC2Data/base.SC2Data/x")
+        );
+        // 没命中就不能瞎改
+        assert_eq!(override_target("别的.txt", &rules), None);
+        // 第一条命中就停（extra 在 说明.txt 之前）
+        assert_eq!(
+            override_target("extra/说明.txt", &rules).as_deref(),
+            Some("Maps/CustomCampaigns/Terran/说明.txt")
+        );
+        // 空规则 / 空 from 都不该误伤
+        assert_eq!(override_target("a.txt", &[]), None);
+    }
 
     fn payload(source: &str, target: PayloadTarget, expanded: bool) -> Payload {
         Payload {
@@ -411,6 +504,7 @@ mod tests {
             root,
             &campaign,
             &Placement::Campaign { sub: None },
+            &[] as &[OverrideRule],
             &Layer::Campaign,
             &mut placed,
             &mut overridden,
@@ -432,6 +526,7 @@ mod tests {
             root,
             &patch,
             &Placement::Campaign { sub: None },
+            &[] as &[OverrideRule],
             &layer,
             &mut placed,
             &mut overridden,
