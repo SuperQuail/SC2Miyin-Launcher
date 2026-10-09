@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { defineAsyncComponent, onMounted, onUnmounted, ref } from "vue";
+import type { Component } from "vue";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { api } from "./api/bridge";
@@ -43,6 +44,24 @@ const tabs: { id: ViewId; label: string }[] = [
   { id: "mods", label: "模组" },
   { id: "settings", label: "设置" },
 ];
+
+/**
+ * 界面方案预览（AGENTS.md §17）。
+ *
+ * `?preview=<名字>` 时**内容区**换成 `src/preview/<名字>.vue`，外壳（蓝色顶栏、
+ * 背景、窗口按钮）全都是真的 —— 出方案要在真界面里看，不是另起一张图。
+ *
+ * 预览件不入库（.gitignore 里有），所以用 glob 而不是 import：别人克隆下来
+ * 没有那个目录，匹配到空，一切照旧；生产构建里这段也是死的。
+ */
+const previewName = import.meta.env.DEV
+  ? new URLSearchParams(location.search).get("preview")
+  : null;
+const previewMocks = import.meta.env.DEV
+  ? (import.meta.glob("./preview/*.vue") as Record<string, () => Promise<{ default: Component }>>)
+  : {};
+const previewLoader = previewName ? previewMocks[`./preview/` + previewName + `.vue`] : undefined;
+const previewView = previewLoader ? defineAsyncComponent(previewLoader) : null;
 
 /** 作弊码这类查询工具走弹层，不占标签位。 */
 const cheatsOpen = ref(false);
@@ -279,7 +298,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <nav class="tabs" data-tauri-drag-region>
+      <nav v-if="!previewView" class="tabs" data-tauri-drag-region>
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -291,6 +310,7 @@ onUnmounted(() => {
           {{ tab.label }}
         </button>
       </nav>
+      <span v-else class="tab tab--active">预览</span>
 
       <div class="topbar__right">
         <button
@@ -365,8 +385,9 @@ onUnmounted(() => {
     <main class="content">
       <!-- 切页时淡入上移，两个方向都给一点衔接 -->
       <Transition name="view" mode="out-in">
+        <component :is="previewView" v-if="previewView" key="preview" />
         <CampaignsView
-          v-if="currentView === 'campaigns'"
+          v-else-if="currentView === 'campaigns'"
           key="campaigns"
           @open-settings="currentView = 'settings'"
           @open-cheats="cheatsOpen = true"
@@ -392,11 +413,11 @@ onUnmounted(() => {
     <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
     <ContextMenu />
 
-    <!-- 启动时的更新公告（渲染 Release 正文的 Markdown） -->
-    <UpdateNotice />
+    <!-- 启动时的更新公告（渲染 Release 正文的 Markdown）；出方案时别挡住内容区 -->
+    <UpdateNotice v-if="!previewView" />
 
     <!-- 更新下载完成后提示重启 -->
-    <div v-if="showRestartPrompt" class="sheet">
+    <div v-if="showRestartPrompt && !previewView" class="sheet">
       <div class="sheet__card">
         <div class="sheet__badge">
           <svg class="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -484,10 +505,10 @@ onUnmounted(() => {
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   height: var(--header-height);
   /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
-  padding: 0 6px 0 22px;
+  padding: 0 6px 0 18px;
   background: linear-gradient(120deg, #5b8bf0 0%, #3b6ce0 55%, #2b57c4 100%);
   color: #fff;
   box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
@@ -496,16 +517,16 @@ onUnmounted(() => {
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 220px;
+  gap: 10px;
+  min-width: 176px;
 }
 
 .brand__avatar {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   overflow: hidden;
   background: #fff;
   box-shadow: 0 2px 8px rgba(8, 5, 22, 0.35);
@@ -526,13 +547,13 @@ onUnmounted(() => {
 }
 
 .brand__name {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 1px;
 }
 
 .brand__sub {
-  font-size: 11px;
+  font-size: 9.5px;
   opacity: 0.72;
   letter-spacing: 0.6px;
 }
@@ -589,16 +610,16 @@ onUnmounted(() => {
 
 .tabs {
   display: flex;
-  gap: 6px;
-  margin-left: 8px;
+  gap: 4px;
+  margin-left: 4px;
 }
 
 .tab {
-  height: 36px;
-  padding: 0 20px;
+  height: 30px;
+  padding: 0 16px;
   border-radius: var(--radius-pill);
   color: rgba(255, 255, 255, 0.86);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
 }
@@ -620,10 +641,10 @@ onUnmounted(() => {
 }
 
 .tag {
-  padding: 3px 10px;
+  padding: 2px 9px;
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.18);
-  font-size: 12px;
+  font-size: 11.5px;
   letter-spacing: 0.4px;
 }
 
@@ -631,7 +652,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 13px 5px 10px;
+  padding: 4px 11px 4px 9px;
   border-radius: var(--radius-pill);
   border: none;
   background: #fff;
