@@ -209,6 +209,15 @@ export interface SaveSet {
   missing: boolean;
 }
 
+/** 存档隔离状态。默认关着 —— 不开的时候启动器不碰 Banks。 */
+export interface SaveIsolation {
+  enabled: boolean;
+  /** 现在游戏里这份存档属于哪个组 */
+  active: string | null;
+  /** 组名 -> 战役槽位 */
+  assignments: Record<string, string>;
+}
+
 /** 一份已备份的存档。 */
 export interface SaveBackup {
   name: string;
@@ -590,6 +599,21 @@ export interface LauncherApi {
   listSlots(): Promise<SlotView[]>;
   inspectPackage(path: string): Promise<PackageInspection>;
   /** 启用某个版本；variantId 传 null 表示切回原版战役。 */
+  /** 存档隔离状态。 */
+  saveIsolation(): Promise<SaveIsolation>;
+
+  /** 打开 / 关掉隔离。**打开时会把现在这份 Banks 收成「原版」。** */
+  setSaveIsolation(enabled: boolean): Promise<SaveIsolation>;
+
+  /** 把现在这份存档存回它所属的组。 */
+  saveCurrentSaves(): Promise<SaveIsolation>;
+
+  /** 切到某个存档组（先存回现在这份）。 */
+  switchSaveProfile(name: string): Promise<SaveIsolation>;
+
+  /** 手动改归属：指给某个战役，或 null 表示算原版。 */
+  assignSaveProfile(name: string, slot: string | null): Promise<SaveIsolation>;
+
   /** 现在的存档里有什么（我的文档 / StarCraft II / Banks）。 */
   listSaves(): Promise<SaveSet>;
 

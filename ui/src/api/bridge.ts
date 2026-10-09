@@ -37,6 +37,7 @@ import type {
   LauncherApi,
   Preview,
   SaveBackup,
+  SaveIsolation,
   SaveSet,
   PackageInspection,
   Patch,
@@ -56,6 +57,11 @@ const desktop: LauncherApi = {
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
   sc2Running: () => invoke<string | null>("sc2_running"),
+  saveIsolation: () => invoke<SaveIsolation>("save_isolation"),
+  setSaveIsolation: (enabled) => invoke<SaveIsolation>("set_save_isolation", { enabled }),
+  saveCurrentSaves: () => invoke<SaveIsolation>("save_current_saves"),
+  switchSaveProfile: (name) => invoke<SaveIsolation>("switch_save_profile", { name }),
+  assignSaveProfile: (name, slot) => invoke<SaveIsolation>("assign_save_profile", { name, slot }),
   listSaves: () => invoke<SaveSet>("list_saves"),
   backupSaves: (label) => invoke<string>("backup_saves", { label }),
   listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
@@ -506,6 +512,11 @@ const demo: LauncherApi = {
     } satisfies PackageInspection),
 
   sc2Running: async () => null,
+  saveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
+  setSaveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
+  saveCurrentSaves: async () => ({ enabled: false, active: null, assignments: {} }),
+  switchSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
+  assignSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
   listSaves: async () => ({ files: [], bytes: 0, missing: true }),
   backupSaves: async () => {
     throw new Error("演示模式没有存档可备份");

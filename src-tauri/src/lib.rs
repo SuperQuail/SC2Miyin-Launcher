@@ -192,6 +192,49 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     Ok(installation)
 }
 
+/// 存档隔离状态：开关、当前组、组到战役的指派。
+#[tauri::command(async)]
+fn save_isolation(state: State<'_, AppState>) -> Result<library_saves::Isolation, String> {
+    library_saves::isolation(state.library.root()).map_err(|error| error.to_string())
+}
+
+/// 打开 / 关掉存档隔离。**打开的那一刻会把现在这份 Banks 收成「原版」。**
+#[tauri::command(async)]
+fn set_save_isolation(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::set_isolation(state.library.root(), &banks, enabled).map_err(|e| e.to_string())
+}
+
+/// 把现在游戏里这份存档存回它所属的组。
+#[tauri::command(async)]
+fn save_current_saves(state: State<'_, AppState>) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::save_active(state.library.root(), &banks).map_err(|e| e.to_string())
+}
+
+/// 切到某个存档组（会先把现在这份存回去）。
+#[tauri::command(async)]
+fn switch_save_profile(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::switch(state.library.root(), &banks, &name).map_err(|e| e.to_string())
+}
+
+/// 手动改一个存档组的归属：指给某个战役，或 null 表示算原版。
+#[tauri::command(async)]
+fn assign_save_profile(
+    name: String,
+    slot: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    library_saves::assign(state.library.root(), &name, slot.as_deref()).map_err(|e| e.to_string())
+}
+
 /// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
 #[tauri::command(async)]
 fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
@@ -497,8 +540,24 @@ fn activate_variant(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let installation = require_installation(&state)?;
-    library::activate(&state.library, &installation, &slot, variant_id.as_deref())
-        .map_err(|error| error.to_string())
+    let warnings = library::activate(&state.library, &installation, &slot, variant_id.as_deref())
+        .map_err(|error| error.to_string())?;
+
+    // 存档隔离开着的话，档案跟着战役走：启用某个战役就用它自己的存档组，
+    // 切回原版就回「原版」那份。**没开隔离时这一段什么都不做。**
+    if let Some(banks) = installation.banks_root.as_deref() {
+        let root = state.library.root();
+        if variant_id.is_some() {
+            let label = library::require_slot(&slot)
+                .map(|kind| kind.display_name().to_string())
+                .unwrap_or_else(|_| slot.clone());
+            let _ = miyin_core::saves::ensure_for_slot(root, banks, &slot, &label);
+        } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {
+            let _ = miyin_core::saves::switch(root, banks, &original);
+        }
+    }
+
+    Ok(warnings)
 }
 
 /// 列出某个版本里的地图（自制战役主要用这个）。
@@ -1679,6 +1738,11 @@ pub fn run() {
             dev_commit,
             dev_diff,
             list_saves,
+            save_isolation,
+            set_save_isolation,
+            save_current_saves,
+            switch_save_profile,
+            assign_save_profile,
             backup_saves,
             restore_saves,
             list_save_backups,

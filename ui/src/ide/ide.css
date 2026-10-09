@@ -755,3 +755,26 @@ body {
 .frow {
   cursor: default;
 }
+
+/* ---------- 包名（开发者页工具栏） ---------- */
+.pkgnamectl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  background: var(--surface-1);
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+.pkgnamectl input {
+  width: 130px;
+  border: none;
+  background: transparent;
+  color: var(--on-surface);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}

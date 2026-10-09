@@ -19,8 +19,16 @@ import {
   scan,
 } from "./api";
 
-/** 现在只盯一个包。**下一步**：让它在工具栏里可编辑 / 可切换。 */
-const PACKAGE = "复刻战役";
+/** 包名存在本地 —— 它是"我在给哪个包干活"，不是随包走的数据。 */
+const PACKAGE_KEY = "miyin.dev.package";
+
+function loadPackage(): string {
+  try {
+    return localStorage.getItem(PACKAGE_KEY) || "复刻战役";
+  } catch {
+    return "复刻战役";
+  }
+}
 
 /**
  * 开发者页。
@@ -87,6 +95,17 @@ export function IdeApp() {
   const [logPicked, setLogPicked] = useState<number | null>(null);
   const [pendingDiff, setPendingDiff] = useState<HistoryDiff | null>(null);
   const [status, setStatus] = useState(isDesktop ? "正在扫描游戏目录…" : "浏览器预览：没有 IPC，数据是示例");
+  const [pkg, setPkg] = useState(loadPackage);
+
+  /** 改包名：换的是"这套提交记录归谁"，历史和存档都按名字分家。 */
+  const renamePackage = (value: string) => {
+    setPkg(value);
+    try {
+      localStorage.setItem(PACKAGE_KEY, value);
+    } catch {
+      // 隐私模式下存不了，当次有效就行
+    }
+  };
 
   const refresh = useCallback(async (extra: string[]) => {
     setStatus("正在扫描游戏目录…");
@@ -101,7 +120,7 @@ export function IdeApp() {
   }, []);
 
   const refreshHistory = useCallback(async () => {
-    const list = await loadHistory(PACKAGE);
+    const list = await loadHistory(pkg);
     setCommits(list);
     setLogPicked(null);
     setPendingDiff(null);
@@ -109,8 +128,11 @@ export function IdeApp() {
 
   useEffect(() => {
     void refresh([]);
+  }, [refresh]);
+
+  useEffect(() => {
     void refreshHistory();
-  }, [refresh, refreshHistory]);
+  }, [refreshHistory, pkg]);
 
   /** 提交：把勾选的这批文件记成一个版本。 */
   const submit = useCallback(async () => {
@@ -121,7 +143,7 @@ export function IdeApp() {
     const files = entries
       .filter((entry) => picked.includes(entry.path))
       .map((entry) => ({ path: entry.path, abs: entry.abs }));
-    const item = await commitVersion(PACKAGE, msg, null, files);
+    const item = await commitVersion(pkg, msg, null, files);
     if (!item) {
       setStatus(isDesktop ? "提交失败" : "浏览器预览提交不了 —— 没有 IPC");
       return;
@@ -184,7 +206,15 @@ export function IdeApp() {
       <div className="tb">
         <Button onClick={() => (location.href = "/index.html")}>← 返回启动器</Button>
         <span className="tsep" />
-        <Button>复刻战役</Button>
+        <label className="pkgnamectl" title="这是哪个包 —— 提交历史和存档都按这个名字分家">
+          <span>包名</span>
+          <input
+            value={pkg}
+            onChange={(event) => renamePackage(event.target.value)}
+            placeholder="给这个包起个名字"
+            spellCheck={false}
+          />
+        </label>
         <Button>基线 v8.0</Button>
         <span className="tsep" />
         <Button onClick={() => void refresh(extras)}>重新扫描</Button>
@@ -333,7 +363,7 @@ export function IdeApp() {
             <section className="pane pane--diff">
               <header className="pbar">
                 <span className="ptitle">版本</span>
-                <span className="psub">{PACKAGE}</span>
+                <span className="psub">{pkg}</span>
               </header>
               <div className="pbody">
                 <p className="hintbox">
@@ -380,7 +410,7 @@ export function IdeApp() {
                       setLogPicked(item.id);
                       // 和上一条比：最老的自己跟自己比，没有差异
                       const previous = [...commits].reverse()[index + 1];
-                      setPendingDiff(previous ? await diffVersions(PACKAGE, previous.id, item.id) : null);
+                      setPendingDiff(previous ? await diffVersions(pkg, previous.id, item.id) : null);
                     }}
                   >
                     <Graph lane={0} color={PALETTE[index === 0 ? 0 : index % PALETTE.length]} last={index === commits.length - 1} />

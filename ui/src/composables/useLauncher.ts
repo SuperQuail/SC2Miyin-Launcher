@@ -341,6 +341,68 @@ type PendingActivation = {
 
 const pendingActivation = ref<PendingActivation | null>(null);
 
+/** 存档隔离状态。 */
+const saveIsolation = ref<Awaited<ReturnType<typeof api.saveIsolation>>>({
+  enabled: false,
+  active: null,
+  assignments: {},
+});
+
+/** 打开 / 关掉隔离。打开时后端会把现在这份 Banks 收成「原版」。 */
+async function toggleSaveIsolation(enabled: boolean): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.setSaveIsolation(enabled);
+    await refreshSaves();
+    notify(
+      "success",
+      enabled ? "存档隔离已打开 —— 当前进度存成了「原版」" : "存档隔离已关掉（已有的组都留着）",
+    );
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 把现在这份存档存回它所属的组。 */
+async function saveCurrentSaves(): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.saveCurrentSaves();
+    await refreshSaves();
+    notify("success", "现在这份存档已存好");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 切到某个存档组。 */
+async function switchSaveProfile(name: string): Promise<void> {
+  busy.value = true;
+  try {
+    saveIsolation.value = await api.switchSaveProfile(name);
+    await refreshSaves();
+    notify("success", "已切到存档组：" + name);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 手动改一个组的归属。 */
+async function assignSaveProfile(name: string, slot: string | null): Promise<void> {
+  try {
+    saveIsolation.value = await api.assignSaveProfile(name, slot);
+    notify("success", slot ? "已指派给这个战役" : "已改为「不算任何战役」");
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
+
 /** 游戏目录里已经装着的自制战役（还没收进库的那些）。 */
 const installedCampaigns = ref<Awaited<ReturnType<typeof api.listInstalledCampaigns>>>([]);
 
@@ -380,6 +442,7 @@ async function refreshSaves(): Promise<void> {
   try {
     saves.value = await api.listSaves();
     saveBackups.value = await api.listSaveBackups();
+    saveIsolation.value = await api.saveIsolation();
   } catch (error) {
     notify("error", errorText(error));
   }
@@ -593,6 +656,11 @@ export function useLauncher() {
   collectCampaign,
   saves,
   saveBackups,
+  saveIsolation,
+  toggleSaveIsolation,
+  saveCurrentSaves,
+  switchSaveProfile,
+  assignSaveProfile,
   refreshSaves,
   backupSaves,
   restoreSaves,
