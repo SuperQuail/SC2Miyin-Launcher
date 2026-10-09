@@ -800,6 +800,18 @@ ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台�
 
 React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`）。
 
+**构建是两次，顺序不能乱**：
+
+```bash
+pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发者页（vite.ide.config.ts）
+```
+
+- **两个入口必须分开构建**。放同一次构建里，rolldown 会把两边的公共块塞进
+  `index.html` 预加载 —— 用户侧执行到 `createRoot(#ide)` 直接白屏（踩过）。
+- 两次构建都设了 `emptyOutDir: false`，**清空统一在 build 脚本开头做一次**。
+  否则单独跑一次 `vite build` 就会把 `dist/ide.html` 抹掉，
+  表现是「点开发者页闪一下、进不去」—— 因为文件根本不在包里（也踩过）。
+
 **它的 `Tabs` 不要用**：那是"切换面板"的组件，在自定义容器里排不出多个标签，
 而我们要的是"文档标签页"。用 `Button` + 自己的下划线（见 `src/ide/IdeApp.tsx` 的 `.doc`）。
 

@@ -21,7 +21,9 @@ export default defineConfig({
         main: "index.html",
       },
     },
-    emptyOutDir: true,
+    // 不在这里清空：dist 里还有开发者页的产物（另一次构建写的）。
+    // 要清就统一在 build 脚本开头清一次 —— 见 package.json。
+    emptyOutDir: false,
     target: "chrome110",
     sourcemap: false,
   },

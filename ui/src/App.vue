@@ -34,6 +34,11 @@ const {
   toggleTheme,
 } = useLauncher();
 
+/** 开发者页是独立入口（AGENTS.md §18），整页跳过去；从那边有「← 返回启动器」。 */
+const openDevPage = () => {
+  location.href = "/ide.html";
+};
+
 /** 会出水波纹的元素。加新组件时把类名补进来就行。 */
 const RIPPLE_TARGETS =
   ".btn, .chip, .tab, .variant, .slot, .map, .target, .ctx__item, .group__head, .update-badge";
@@ -319,6 +324,17 @@ onUnmounted(() => {
           @click="currentView = tab.id"
         >
           {{ tab.label }}
+        </button>
+        <!-- 开发者页是独立入口（整页跳过去），不是这个 SPA 里的一个视图，
+             所以单独一个按钮，样式上也区别于主标签 -->
+        <button
+          class="tab tab--dev"
+          type="button"
+          title="开发者页（实验）：扫游戏目录、看文件、记版本"
+          @click="openDevPage"
+        >
+          开发
+          <span class="tab__badge">实验</span>
         </button>
       </nav>
       <span v-else class="tab tab--active">预览</span>
@@ -649,6 +665,25 @@ onUnmounted(() => {
   transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
 }
 
+.tab--dev {
+  margin-left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+}
+.tab--dev:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.tab__badge {
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+}
+
 .tab:hover {
   background: rgba(255, 255, 255, 0.14);
 }
@@ -659,6 +694,7 @@ onUnmounted(() => {
 }
 
 .topbar__right {
+  flex: none;
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -671,6 +707,30 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.18);
   font-size: 11.5px;
   letter-spacing: 0.4px;
+}
+
+.devctl {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+.devctl:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.devctl svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .themectl {
