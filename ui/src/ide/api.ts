@@ -36,12 +36,19 @@ const SAMPLE: DevScan = {
   external_roots: [],
   entries: [
     { path: "Maps", abs: "", name: "Maps", is_dir: true, bytes: 0, external: false },
-    { path: "Maps/Starcraft Mass Recall", abs: "", name: "Starcraft Mass Recall", is_dir: true, bytes: 0, external: false },
-    { path: "Maps/Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map", abs: "", name: "SCMR Campaign Launcher.SC2Map", is_dir: false, bytes: 984064, external: false },
-    { path: "Maps/CustomCampaigns/说明.txt", abs: "C:\\示例\\说明.txt", name: "说明.txt", is_dir: false, bytes: 4096, external: false },
-    { path: "Maps/CustomCampaigns/封面.png", abs: "C:\\示例\\封面.png", name: "封面.png", is_dir: false, bytes: 317440, external: false },
+    { path: "Maps/CustomCampaigns", abs: "", name: "CustomCampaigns", is_dir: true, bytes: 0, external: false },
+    { path: "Maps/CustomCampaigns/示例战役", abs: "", name: "示例战役", is_dir: true, bytes: 0, external: false },
+    { path: "Maps/CustomCampaigns/示例战役/01.SC2Map", abs: "C:\\示例\\01.SC2Map", name: "01.SC2Map", is_dir: false, bytes: 1284096, external: false },
+    { path: "Maps/CustomCampaigns/示例战役/02.SC2Map", abs: "C:\\示例\\02.SC2Map", name: "02.SC2Map", is_dir: false, bytes: 1171456, external: false },
+    { path: "Maps/CustomCampaigns/示例战役/说明.txt", abs: "C:\\示例\\说明.txt", name: "说明.txt", is_dir: false, bytes: 4096, external: false },
+    { path: "Maps/CustomCampaigns/示例战役/封面.png", abs: "C:\\示例\\封面.png", name: "封面.png", is_dir: false, bytes: 317440, external: false },
     { path: "Mods", abs: "", name: "Mods", is_dir: true, bytes: 0, external: false },
     { path: "Mods/SCMRmod.SC2Mod", abs: "C:\\示例\\SCMRmod.SC2Mod", name: "SCMRmod.SC2Mod", is_dir: false, bytes: 984064, external: false },
+    { path: "Mods/界面包.SC2Mod", abs: "", name: "界面包.SC2Mod", is_dir: true, bytes: 0, external: false },
+    { path: "Mods/界面包.SC2Mod/Base.SC2Data", abs: "", name: "Base.SC2Data", is_dir: true, bytes: 0, external: false },
+    { path: "Mods/界面包.SC2Mod/Base.SC2Data/ComponentList.SC2Components", abs: "C:\\示例\\ComponentList.SC2Components", name: "ComponentList.SC2Components", is_dir: false, bytes: 462, external: false },
+    { path: "E:\\临时\\新单位包", abs: "", name: "新单位包", is_dir: true, bytes: 0, external: true },
+    { path: "E:\\临时\\新单位包/UnitData.xml", abs: "E:\\临时\\新单位包\\UnitData.xml", name: "UnitData.xml", is_dir: false, bytes: 2048, external: true },
   ],
 };
 

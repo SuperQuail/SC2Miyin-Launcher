@@ -16,7 +16,10 @@ use crate::error::Result;
 use crate::sc2::Installation;
 
 /// 一次最多列这么多条 —— 游戏目录能塞十万个地图，界面撑不住。
-pub const MAX_ENTRIES: usize = 4000;
+///
+/// **上限不是"随便截"**：截断了界面就没法保证"勾一个目录 = 勾住它底下所有文件"，
+/// 所以宁可放宽到这个数，并在截断时明确告诉用户。
+pub const MAX_ENTRIES: usize = 20000;
 
 /// 文本预览最多读这么多字节，超了就只给前面一段。
 pub const MAX_TEXT_BYTES: usize = 512 * 1024;
@@ -97,9 +100,10 @@ fn walk(
         return false;
     }
 
-    // 只走两层：再深列出来也没人看，界面也不展开到那么细
+    // **走完**：打包要的是"这个目录底下到底有哪些文件"，
+    // 浅扫会让父目录的勾选漏掉深处的东西 —— 那种漏是静默的，最危险。
+    // 深度靠 MAX_ENTRIES 兜底，界面只渲染展开的节点，不会一次画两万行。
     for entry in walkdir::WalkDir::new(root)
-        .max_depth(2)
         .into_iter()
         .filter_map(std::result::Result::ok)
     {

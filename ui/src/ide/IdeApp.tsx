@@ -141,11 +141,13 @@ function Graph({ color, head, last }: { color: string; head?: boolean; last?: bo
 function Toggle({
   checked,
   partial,
+  disabled,
   onChange,
   title,
 }: {
   checked: boolean;
   partial: boolean;
+  disabled?: boolean;
   onChange: () => void;
   title?: string;
 }) {
@@ -154,8 +156,10 @@ function Toggle({
       className="tcheck"
       type="checkbox"
       checked={checked}
+      disabled={disabled}
       title={title}
       ref={(node) => {
+        // 半选态：只传 checked 的话，React 不会帮你设 indeterminate
         if (node) node.indeterminate = !checked && partial;
       }}
       onChange={onChange}
@@ -281,12 +285,21 @@ export function IdeApp() {
     await refresh(next);
   }, [extras, refresh]);
 
+  const toggleExpand = (path: string) =>
+    setExpanded((prev) => (prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path]));
+
   const toggleFile = (path: string) =>
     setPicked((prev) => (prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path]));
 
-  /** 目录：整棵子树一起选 / 一起撤。 */
+  /**
+   * 目录：整棵子树一起选 / 一起撤。
+   *
+   * 空目录（底下扫不到文件）直接不动 —— 以前会"点了没反应"，因为
+   * `[].every(...)` 是 true，走进"全选"分支却什么也没得选。
+   */
   const toggleDir = (node: TreeNode) => {
     const files = filesUnder(node);
+    if (files.length === 0) return;
     const all = files.every((file) => picked.includes(file));
     setPicked((prev) =>
       all ? prev.filter((item) => !files.includes(item)) : [...new Set([...prev, ...files])],
@@ -391,33 +404,41 @@ export function IdeApp() {
           // 点文件名打开它；点目录行就是展开 / 收起
           onClick={() => {
             if (isDir) {
-              setExpanded((prev) =>
-                prev.includes(node.path) ? prev.filter((item) => item !== node.path) : [...prev, node.path],
-              );
+              toggleExpand(node.path);
             } else if (node.entry) {
               void open(node.entry);
             }
           }}
         >
-          {isDir ? (
+          {isDir && node.children.length > 0 ? (
             <button
               className="tcaret"
               type="button"
-              onClick={() =>
-                setExpanded((prev) =>
-                  prev.includes(node.path) ? prev.filter((item) => item !== node.path) : [...prev, node.path],
-                )
-              }
+              title={isOpen ? "收起" : "展开"}
+              aria-label={isOpen ? "收起" : "展开"}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleExpand(node.path);
+              }}
             >
-              {node.children.length > 0 ? (isOpen ? "▾" : "▸") : "·"}
+              {isOpen ? "−" : "+"}
             </button>
           ) : (
             <span className="tcaret tcaret--leaf" />
           )}
           <Toggle
             checked={files.length > 0 && selected === files.length}
-            partial={selected > 0}
-            title={isDir ? "整棵子树一起选" : "选它"}
+            partial={selected > 0 && selected < files.length}
+            disabled={isDir && (files.length === 0 || truncated)}
+            title={
+              isDir
+                ? files.length === 0
+                  ? "这个目录里没有扫到文件"
+                  : truncated
+                    ? "扫描被截断了，整目录勾选可能漏文件 —— 请先缩小范围"
+                    : "整棵子树一起选（" + files.length + " 个文件）"
+                : "选它"
+            }
             onChange={() => (isDir ? toggleDir(node) : toggleFile(node.path))}
           />
           <span className={"tname" + (node.entry?.external ? " tname--ext" : "")} title={node.path}>
@@ -515,7 +536,12 @@ export function IdeApp() {
                 ) : (
                   tree.map((node) => renderNode(node, 0))
                 )}
-                {truncated && <p className="empty">内容太多，只列了前 4000 项。</p>}
+                {truncated && (
+                  <p className="warnbox">
+                    内容太多，扫描被截断了 —— 整目录勾选已禁用（勾了也会漏文件）。
+                    请用右上角搜索缩小范围，或者「添加目录…」只加你要打包的那一层。
+                  </p>
+                )}
               </div>
             </section>
 

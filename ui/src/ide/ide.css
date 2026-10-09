@@ -806,16 +806,26 @@ body {
 .trow2.is-open {
   background: var(--accent-soft);
 }
+/* + / − 展开按钮：判定区做到 18×18，别让人拿鼠标追那一个小三角 */
 .tcaret {
+  display: grid;
+  place-items: center;
   flex: none;
-  width: 14px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
+  border-radius: 3px;
   background: transparent;
   color: var(--on-surface-variant);
-  font-size: 9px;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
+}
+.tcaret:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
 }
 .tcaret--leaf {
   display: inline-block;
@@ -937,4 +947,20 @@ body {
 .winctl__btn--close:hover {
   background: #d13438;
   color: #fff;
+}
+
+.warnbox {
+  margin: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--danger-soft);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--on-surface);
+}
+.tcheck:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
