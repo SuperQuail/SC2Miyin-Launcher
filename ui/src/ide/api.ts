@@ -166,7 +166,7 @@ export async function pickExportPath(defaultName: string): Promise<string | null
 export async function exportPackage(
   dest: string,
   meta: PackageMeta,
-  files: { path: string; abs: string }[],
+  files: { path: string; abs: string; is_dir: boolean }[],
 ): Promise<ExportReport> {
   if (!isDesktop) throw new Error("浏览器预览导不了 —— 没有 IPC");
   // **不吞错**：导出失败的原因（文件没了、勾太多、路径不合法）必须原样给用户看

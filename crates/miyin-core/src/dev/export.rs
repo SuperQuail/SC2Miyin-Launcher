@@ -63,6 +63,11 @@ pub struct ExportFile {
     /// 包内路径（`/` 分隔）
     pub path: String,
     pub abs: String,
+    /// 这是一层**目录**。
+    ///
+    /// 空目录也要能进包 —— 作者可能就是要留一个空壳子（游戏的某些目录约定）。
+    #[serde(default)]
+    pub is_dir: bool,
 }
 
 /// 把文件打成 zip。
@@ -73,7 +78,7 @@ pub struct ExportFile {
 pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<ExportReport> {
     if files.is_empty() {
         return Err(Error::PackageRejected(
-            "一个文件都没勾 —— 先把要打进去的东西选上".to_string(),
+            "一个都没勾 —— 先把要打进去的东西选上".to_string(),
         ));
     }
     if files.len() > MAX_FILES {
@@ -94,10 +99,6 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
 
     for item in files {
         let source = PathBuf::from(&item.abs);
-        if !source.is_file() {
-            // 勾的东西中途没了 —— 明确报错，别悄悄少一个文件
-            return Err(Error::PackageRejected(format!("找不到文件：{}", item.abs)));
-        }
         let entry = item.path.trim_start_matches('/').replace('\\', "/");
         if entry.is_empty() || entry.contains("..") {
             return Err(Error::PackageRejected(format!(
@@ -106,7 +107,25 @@ pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<E
             )));
         }
 
-        // 补目录项
+        // 目录：只写一个目录项 —— **空目录就是这么进包的**
+        if item.is_dir {
+            if !source.is_dir() {
+                return Err(Error::PackageRejected(format!("找不到目录：{}", item.abs)));
+            }
+            if !dirs.contains(&entry) {
+                zip.add_directory(format!("{entry}/"), options)?;
+                dirs.push(entry);
+            }
+            written += 1;
+            continue;
+        }
+
+        if !source.is_file() {
+            // 勾的东西中途没了 —— 明确报错，别悄悄少一个文件
+            return Err(Error::PackageRejected(format!("找不到文件：{}", item.abs)));
+        }
+
+        // 补父目录项
         let mut prefix = String::new();
         for part in entry.split('/').take(entry.split('/').count() - 1) {
             prefix.push_str(part);
@@ -206,10 +225,12 @@ mod tests {
             ExportFile {
                 path: "Maps/Campaign/void/a.SC2Map".to_string(),
                 abs: map.to_string_lossy().into_owned(),
+                is_dir: false,
             },
             ExportFile {
                 path: "Mods/b.SC2Mod".to_string(),
                 abs: mod_file.to_string_lossy().into_owned(),
+                is_dir: false,
             },
         ];
         let meta = PackageMeta {
@@ -262,6 +283,7 @@ mod tests {
 
         let missing = vec![ExportFile {
             path: "Maps/a.SC2Map".to_string(),
+            is_dir: false,
             abs: tmp
                 .path()
                 .join("没有这个文件")
@@ -269,6 +291,33 @@ mod tests {
                 .into_owned(),
         }];
         assert!(export(&dest, &meta, &missing).is_err(), "文件没了要报错");
+    }
+
+    /// 空目录也要能进包 —— 作者可能就是要留一个空壳子。
+    #[test]
+    fn empty_directories_are_packed() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let empty = tmp.path().join("空的");
+        std::fs::create_dir_all(&empty).expect("建目录");
+
+        let files = vec![ExportFile {
+            path: "Maps/CustomCampaigns/留个位置".to_string(),
+            abs: empty.to_string_lossy().into_owned(),
+            is_dir: true,
+        }];
+        let dest = tmp.path().join("空目录.zip");
+        let report = export(&dest, &PackageMeta::default(), &files).expect("导出");
+        assert_eq!(report.files, 1);
+
+        let archive = std::fs::File::open(&dest).expect("开包");
+        let mut zip = zip::ZipArchive::new(archive).expect("读包");
+        let names: Vec<String> = (0..zip.len())
+            .map(|index| zip.by_index(index).expect("条目").name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"Maps/CustomCampaigns/留个位置/".to_string()),
+            "空目录要以目录项进包，实得：{names:?}"
+        );
     }
 
     #[test]
@@ -279,6 +328,7 @@ mod tests {
         let files = vec![ExportFile {
             path: "../外面/a.SC2Map".to_string(),
             abs: map.to_string_lossy().into_owned(),
+            is_dir: false,
         }];
         assert!(export(&dest, &PackageMeta::default(), &files).is_err());
     }

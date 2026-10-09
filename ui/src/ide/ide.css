@@ -949,16 +949,8 @@ body {
   color: #fff;
 }
 
-/* 空目录没有可勾的东西 —— 不画勾选框，占位保持对齐 */
-.tcheck--empty {
-  display: inline-block;
-  visibility: hidden;
-}
 
-/* 空目录：整行压暗 + 一个「空」字 —— 让"没有东西可勾"看起来是事实，不是坏了 */
-.trow2--empty {
-  opacity: 0.55;
-}
+
 .tag--empty {
   flex: none;
   padding: 0 5px;

@@ -88,7 +88,19 @@ function buildTree(entries: DevEntry[]): TreeNode[] {
   return roots;
 }
 
-/** 这个节点底下的全部文件（含自己）。 */
+/**
+ * 勾一个节点 = 勾住**它自己 + 底下所有东西**（文件和目录都算）。
+ *
+ * 目录也算进去是为了**空目录**：作者可能就是要留一个空壳子，
+ * 只搬文件的话那种目录根本进不了包。
+ */
+function selectionUnder(node: TreeNode, out: string[] = []): string[] {
+  out.push(node.path);
+  node.children.forEach((child) => selectionUnder(child, out));
+  return out;
+}
+
+/** 这个节点底下的全部文件（不含目录）—— 提交历史只记文件。 */
 function filesUnder(node: TreeNode, out: string[] = []): string[] {
   if (node.entry && !node.entry.is_dir) out.push(node.path);
   node.children.forEach((child) => filesUnder(child, out));
@@ -287,12 +299,10 @@ export function IdeApp() {
     setPicked((prev) => (prev.includes(path) ? prev.filter((item) => item !== path) : [...prev, path]));
 
   /** 目录：整棵子树一起选 / 一起撤。 */
-  const toggleDir = (node: TreeNode) => {
-    const files = filesUnder(node);
-    const all = files.length > 0 && files.every((file) => picked.includes(file));
-    setPicked((prev) =>
-      all ? prev.filter((item) => !files.includes(item)) : [...new Set([...prev, ...files])],
-    );
+  const toggleNode = (node: TreeNode) => {
+    const all = selectionUnder(node);
+    const every = all.every((path) => picked.includes(path));
+    setPicked((prev) => (every ? prev.filter((item) => !all.includes(item)) : [...new Set([...prev, ...all])]));
   };
 
   const tree = useMemo(() => {
@@ -313,6 +323,18 @@ export function IdeApp() {
     return filter(roots);
   }, [entries, search]);
 
+  /** 每个节点"勾了它等于勾了哪些路径"—— 预计算一遍，渲染里别再递归。 */
+  const selections = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const walk = (node: TreeNode): string[] => {
+      const all = [node.path, ...node.children.flatMap(walk)];
+      map.set(node.path, all);
+      return all;
+    };
+    tree.forEach(walk);
+    return map;
+  }, [tree]);
+
   const pickedBytes = useMemo(
     () => entries.filter((entry) => picked.includes(entry.path)).reduce((sum, entry) => sum + entry.bytes, 0),
     [entries, picked],
@@ -332,8 +354,9 @@ export function IdeApp() {
       setStatus("写一句这次改了什么再提交");
       return;
     }
+    // 提交历史只记文件 —— 那是一条条"这一版有哪些文件"
     const files = entries
-      .filter((entry) => picked.includes(entry.path))
+      .filter((entry) => picked.includes(entry.path) && !entry.is_dir)
       .map((entry) => ({ path: entry.path, abs: entry.abs }));
     const item = await commitVersion(pkg.trim(), message, null, files);
     if (!item) {
@@ -369,7 +392,7 @@ export function IdeApp() {
     };
     const files = entries
       .filter((entry) => picked.includes(entry.path))
-      .map((entry) => ({ path: entry.path, abs: entry.abs }));
+      .map((entry) => ({ path: entry.path, abs: entry.abs, is_dir: entry.is_dir }));
     try {
       setStatus("正在打包…");
       const report = await exportPackage(dest, payload, files);
@@ -381,11 +404,11 @@ export function IdeApp() {
 
   const renderNode = (node: TreeNode, depth: number) => {
     const isDir = !node.entry || node.entry.is_dir;
-    const files = isDir ? filesUnder(node) : [node.path];
-    const selected = files.filter((file) => picked.includes(file)).length;
-    const isOpen = !isDir || expanded.includes(node.path) || search.trim().length > 0;
-    // 目录里一个文件都没有（只有空壳子）—— 没什么可勾的，得让用户看出来
+    const selection = selections.get(node.path) ?? [node.path];
+    const files = filesUnder(node);
+    const selected = selection.filter((path) => picked.includes(path)).length;
     const isEmpty = isDir && files.length === 0;
+    const isOpen = !isDir || expanded.includes(node.path) || search.trim().length > 0;
 
     return (
       <div key={node.path} className="tnode">
@@ -422,17 +445,17 @@ export function IdeApp() {
           ) : (
             <span className="tcaret tcaret--leaf" />
           )}
-          {files.length > 0 ? (
-            <Toggle
-              checked={selected === files.length}
-              partial={selected > 0}
-              title={isDir ? "整棵子树一起选（" + files.length + " 个文件）" : "选它"}
-              onChange={() => (isDir ? toggleDir(node) : toggleFile(node.path))}
-            />
-          ) : (
-            <span className="tcheck tcheck--empty" />
-          )}
-          {isEmpty && <span className="tag tag--empty">空</span>}
+          <Toggle
+            checked={selection.length > 0 && selected === selection.length}
+            partial={selected > 0 && selected < selection.length}
+            title={
+              isDir
+                ? "整棵子树一起选（" + files.length + " 个文件" + (isEmpty ? "，这是个空目录" : "") + "）"
+                : "选它"
+            }
+            onChange={() => (isDir ? toggleNode(node) : toggleFile(node.path))}
+          />
+          {isEmpty && <span className="tag tag--empty" title="里面一个文件都没有（但空目录本身可以打包）">空</span>}
           <span className={"tname" + (node.entry?.external ? " tname--ext" : "")} title={node.path}>
             {node.name}
           </span>
