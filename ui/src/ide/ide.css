@@ -949,18 +949,8 @@ body {
   color: #fff;
 }
 
-.warnbox {
-  margin: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--danger);
-  border-left-width: 3px;
-  border-radius: 4px;
-  background: var(--danger-soft);
-  font-size: 11.5px;
-  line-height: 1.8;
-  color: var(--on-surface);
-}
-.tcheck:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+/* 空目录没有可勾的东西 —— 不画勾选框，占位保持对齐 */
+.tcheck--empty {
+  display: inline-block;
+  visibility: hidden;
 }

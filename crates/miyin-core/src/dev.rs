@@ -15,12 +15,6 @@ use serde::Serialize;
 use crate::error::Result;
 use crate::sc2::Installation;
 
-/// 一次最多列这么多条 —— 游戏目录能塞十万个地图，界面撑不住。
-///
-/// **上限不是"随便截"**：截断了界面就没法保证"勾一个目录 = 勾住它底下所有文件"，
-/// 所以宁可放宽到这个数，并在截断时明确告诉用户。
-pub const MAX_ENTRIES: usize = 20000;
-
 /// 文本预览最多读这么多字节，超了就只给前面一段。
 pub const MAX_TEXT_BYTES: usize = 512 * 1024;
 
@@ -43,8 +37,6 @@ pub struct DevEntry {
 #[derive(Debug, Clone, Serialize)]
 pub struct DevScan {
     pub entries: Vec<DevEntry>,
-    /// 被 [`MAX_ENTRIES`] 截断了吗。
-    pub truncated: bool,
     /// 列了几个自定义目录。
     pub external_roots: Vec<String>,
 }
@@ -55,54 +47,39 @@ pub struct DevScan {
 /// 就是要看游戏目录外面的东西；越界由界面标红提示，写盘时才由安装引擎拦。
 pub fn scan(installation: &Installation, extra: &[String]) -> Result<DevScan> {
     let mut entries = Vec::new();
-    let mut truncated = false;
-
     for root in [
         &installation.maps_root,
         &installation.mods_root,
         &installation.interfaces_root,
     ] {
-        if walk(root, installation, false, &mut entries, &mut truncated) {
-            break;
-        }
+        walk(root, installation, false, &mut entries);
     }
 
     let mut external_roots = Vec::new();
-    if !truncated {
-        for raw in extra {
-            let dir = PathBuf::from(raw);
-            if !dir.is_dir() {
-                continue;
-            }
-            external_roots.push(raw.clone());
-            if walk(&dir, installation, true, &mut entries, &mut truncated) {
-                break;
-            }
+    for raw in extra {
+        let dir = PathBuf::from(raw);
+        if !dir.is_dir() {
+            continue;
         }
+        external_roots.push(raw.clone());
+        walk(&dir, installation, true, &mut entries);
     }
 
     Ok(DevScan {
         entries,
-        truncated,
         external_roots,
     })
 }
 
-/// 走一棵树。返回 true 表示撞到上限了，调用方该停。
-fn walk(
-    root: &Path,
-    installation: &Installation,
-    external: bool,
-    out: &mut Vec<DevEntry>,
-    truncated: &mut bool,
-) -> bool {
+/// 走一棵树，**走完**。
+///
+/// 打包要的是"这个目录底下到底有哪些文件" —— 浅扫或截断都会让父目录的勾选
+/// 漏掉东西，而且是静默地漏。界面只渲染展开的节点，几万条也画得动。
+fn walk(root: &Path, installation: &Installation, external: bool, out: &mut Vec<DevEntry>) {
     if !root.is_dir() {
-        return false;
+        return;
     }
 
-    // **走完**：打包要的是"这个目录底下到底有哪些文件"，
-    // 浅扫会让父目录的勾选漏掉深处的东西 —— 那种漏是静默的，最危险。
-    // 深度靠 MAX_ENTRIES 兜底，界面只渲染展开的节点，不会一次画两万行。
     for entry in walkdir::WalkDir::new(root)
         .into_iter()
         .filter_map(std::result::Result::ok)
@@ -134,14 +111,7 @@ fn walk(
             bytes,
             external,
         });
-
-        if out.len() >= MAX_ENTRIES {
-            *truncated = true;
-            return true;
-        }
     }
-
-    false
 }
 
 /// 文件预览：编辑器按它决定怎么开。

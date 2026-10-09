@@ -12,7 +12,6 @@ export type DevEntry = {
 
 export type DevScan = {
   entries: DevEntry[];
-  truncated: boolean;
   external_roots: string[];
 };
 
@@ -32,7 +31,6 @@ export const isDesktop =
  * 不给一份数据整页就是空的，看不出界面长什么样。**桌面版永远走真扫描。**
  */
 const SAMPLE: DevScan = {
-  truncated: false,
   external_roots: [],
   entries: [
     { path: "Maps", abs: "", name: "Maps", is_dir: true, bytes: 0, external: false },
