@@ -6,6 +6,8 @@ import { useLauncher } from "../composables/useLauncher";
 import ToolsPanel from "../components/ToolsPanel.vue";
 import UpdatePanel from "../components/UpdatePanel.vue";
 
+const openDevPage = () => { location.href = "/ide.html"; };
+
 const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
 
 const rows = computed(() => {
@@ -92,6 +94,21 @@ const rows = computed(() => {
           包里的说明文字会自动识别编码，简繁中文的战役包都能正常显示。
         </li>
       </ul>
+    </section>
+
+    <section class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">开发者页</h3>
+        <span class="version">实验</span>
+      </header>
+      <p class="hint">
+        给包作者的工作台：扫游戏目录、勾选要打进包的内容、按行读文本文件。
+        地图和模组这类二进制会明确告诉你打不开、可以用什么打开。
+      </p>
+      <p class="hint">版本管理（提交 / 回滚 / 日志）还没接，界面里那一块标着「示例」。</p>
+      <p class="about__actions">
+        <button class="btn btn-tonal" type="button" @click="openDevPage">打开开发者页</button>
+      </p>
     </section>
 
     <ToolsPanel />

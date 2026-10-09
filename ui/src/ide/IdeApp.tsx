@@ -155,6 +155,8 @@ export function IdeApp() {
   return (
     <div className="ide">
       <div className="tb">
+        <Button onClick={() => (location.href = "/index.html")}>← 返回启动器</Button>
+        <span className="tsep" />
         <Button>复刻战役</Button>
         <Button>基线 v8.0</Button>
         <span className="tsep" />
