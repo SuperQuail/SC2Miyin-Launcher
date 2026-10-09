@@ -327,6 +327,134 @@ async function chooseGameDirectory(): Promise<void> {
   }
 }
 
+/** 待确认的启用：预演已经算好，等用户点头。 */
+type PendingActivation = {
+  slot: string;
+  variantId: string;
+  preview: NonNullable<Awaited<ReturnType<typeof api.previewActivation>>>;
+};
+
+const pendingActivation = ref<PendingActivation | null>(null);
+
+/** 存档（issue #20）：现在这份 + 已经备份的那些。 */
+const saves = ref<Awaited<ReturnType<typeof api.listSaves>> | null>(null);
+const saveBackups = ref<Awaited<ReturnType<typeof api.listSaveBackups>>>([]);
+
+async function refreshSaves(): Promise<void> {
+  try {
+    saves.value = await api.listSaves();
+    saveBackups.value = await api.listSaveBackups();
+  } catch (error) {
+    notify("error", errorText(error));
+  }
+}
+
+/** 备份现在的存档。label 一般填战役名。 */
+async function backupSaves(label: string): Promise<void> {
+  busy.value = true;
+  try {
+    const name = await api.backupSaves(label);
+    await refreshSaves();
+    notify("success", "存档已备份：" + name);
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 还原一份备份。后端会先把现在的存档另存一份。 */
+async function restoreSaves(name: string): Promise<void> {
+  busy.value = true;
+  try {
+    const safety = await api.restoreSaves(name);
+    await refreshSaves();
+    notify("success", safety ? "已还原，还原前那份存为 " + safety : "已还原");
+  } catch (error) {
+    notify("error", errorText(error));
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 日间 / 夜间。存在 localStorage —— 这是界面偏好，不必让后端知道。 */
+/** `?theme=dark` 能强制一次 —— 截图和排查用，不写进 localStorage。 */
+const forcedTheme = new URLSearchParams(location.search).get("theme");
+
+const theme = ref<"light" | "dark">(
+  forcedTheme === "dark" || forcedTheme === "light"
+    ? forcedTheme
+    : typeof localStorage !== "undefined" && localStorage.getItem("miyin.theme") === "dark"
+      ? "dark"
+      : "light",
+);
+
+function applyTheme(): void {
+  document.documentElement.dataset.theme = theme.value;
+  if (forcedTheme) return;
+  try {
+    localStorage.setItem("miyin.theme", theme.value);
+  } catch {
+    // 隐私模式下 localStorage 会抛；主题当次有效就行
+  }
+}
+
+function toggleTheme(): void {
+  theme.value = theme.value === "dark" ? "light" : "dark";
+  applyTheme();
+}
+
+applyTheme();
+
+/**
+ * 请求启用 —— **先算预演，再让用户点头**。
+ *
+ * 写盘闸门放开到「安装目录里任意位置」之后，这是唯一一眼：
+ * 会新增什么、覆盖什么（覆盖前会备份）、把谁的东西接管过来、删掉什么。
+ * 切回原版不拦（那只是撤下我们装的东西）。
+ */
+async function requestActivation(slot: string, variantId: string | null): Promise<boolean> {
+  if (variantId === null) return await activate(slot, null);
+  busy.value = true;
+  try {
+    // 游戏跑着的时候换文件，Windows 上会删不掉 / 覆盖失败，留下记了一半的清单
+    const running = await api.sc2Running();
+    if (running) {
+      notify("error", "星际争霸 II 正在运行（" + running + "），先退出游戏再切换。");
+      return false;
+    }
+  } finally {
+    busy.value = false;
+  }
+  busy.value = true;
+  try {
+    const preview = await api.previewActivation(slot, variantId);
+    if (!preview) return await activate(slot, variantId);
+    const touched =
+      preview.add.length + preview.overwrite.length + preview.takeover.length + preview.delete.length;
+    // 没什么可看的就别拦路
+    if (touched === 0) return await activate(slot, variantId);
+    pendingActivation.value = { slot, variantId, preview };
+    return false;
+  } catch (error) {
+    notify("error", errorText(error));
+    return false;
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 用户在预演里点了「继续」。 */
+async function confirmActivation(): Promise<boolean> {
+  const pending = pendingActivation.value;
+  pendingActivation.value = null;
+  return pending ? await activate(pending.slot, pending.variantId) : false;
+}
+
+function cancelActivation(): void {
+  pendingActivation.value = null;
+}
+
 /** 启用某个版本（variantId 为 null 表示切回原版战役）。 */
 async function activate(slot: string, variantId: string | null): Promise<boolean> {
   busy.value = true;
@@ -418,6 +546,17 @@ export function useLauncher() {
     refresh,
     chooseGameDirectory,
     activate,
+  requestActivation,
+  confirmActivation,
+  cancelActivation,
+  pendingActivation,
+  theme,
+  toggleTheme,
+  saves,
+  saveBackups,
+  refreshSaves,
+  backupSaves,
+  restoreSaves,
     removeVariant,
     launch,
     reveal,

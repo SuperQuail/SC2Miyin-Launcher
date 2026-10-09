@@ -201,6 +201,22 @@ export interface Preview {
   bytes: number;
 }
 
+/** 现在的存档里有什么。对应 `miyin_core::saves::SaveSet`。 */
+export interface SaveSet {
+  files: { name: string; bytes: number }[];
+  bytes: number;
+  /** 目录不存在（还没产生过存档） */
+  missing: boolean;
+}
+
+/** 一份已备份的存档。 */
+export interface SaveBackup {
+  name: string;
+  label: string;
+  bytes: number;
+  files: number;
+}
+
 export interface ImportPreview {
   path: string;
   inspection: PackageInspection;
@@ -566,6 +582,24 @@ export interface LauncherApi {
   listSlots(): Promise<SlotView[]>;
   inspectPackage(path: string): Promise<PackageInspection>;
   /** 启用某个版本；variantId 传 null 表示切回原版战役。 */
+  /** 现在的存档里有什么（我的文档 / StarCraft II / Banks）。 */
+  listSaves(): Promise<SaveSet>;
+
+  /** 把现在的存档备份一份。label 是备注（一般填战役名）。 */
+  backupSaves(label: string): Promise<string>;
+
+  /** 已经备份了哪些。 */
+  listSaveBackups(): Promise<SaveBackup[]>;
+
+  /** 还原一份备份；还原前会先把现在的存档另存一份，返回那份的名字。 */
+  restoreSaves(name: string): Promise<string>;
+
+  /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
+  sc2Running(): Promise<string | null>;
+
+  /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
+  previewActivation(slot: string, variantId: string): Promise<Preview | null>;
+
   activateVariant(slot: string, variantId: string | null): Promise<string[]>;
   deleteVariant(slot: string, variantId: string): Promise<void>;
   launchGame(): Promise<void>;

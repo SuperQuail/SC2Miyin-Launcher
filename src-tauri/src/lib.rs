@@ -14,6 +14,7 @@ use miyin_core::library::{
     self, Binding, Conflict, DocInfo, ImportMode, Library, LibraryMod, MainMapChoice, MapEntry,
     ModChanges, ModEntry, Patch, SlotView, StandaloneMod, Variant, VariantChanges, mods,
 };
+use miyin_core::saves as library_saves;
 use miyin_core::sc2::{DiscoverySource, GameModEntry, Installation};
 use miyin_core::tools::{self, ToolRelease, ToolStatus};
 use miyin_core::update::Reporter;
@@ -189,6 +190,51 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     state.remember(&installation);
     *state.installation.lock().map_err(lock_error)? = Some(installation.clone());
     Ok(installation)
+}
+
+/// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
+#[tauri::command(async)]
+fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
+    let banks = banks_root(&state)?;
+    library_saves::snapshot(&banks).map_err(|error| error.to_string())
+}
+
+/// 把现在的存档备份一份，`label` 是给用户看的备注（一般填战役名）。
+#[tauri::command(async)]
+fn backup_saves(label: String, state: State<'_, AppState>) -> Result<String, String> {
+    let banks = banks_root(&state)?;
+    library_saves::backup(&banks, state.library.root(), &label).map_err(|error| error.to_string())
+}
+
+/// 已经备份了哪些。
+#[tauri::command(async)]
+fn list_save_backups(
+    state: State<'_, AppState>,
+) -> Result<Vec<library_saves::BackupEntry>, String> {
+    library_saves::backups(state.library.root()).map_err(|error| error.to_string())
+}
+
+/// 还原一份备份。**还原前会先把现在的存档另存一份**，返回那份安全备份的名字。
+#[tauri::command(async)]
+fn restore_saves(name: String, state: State<'_, AppState>) -> Result<String, String> {
+    let banks = banks_root(&state)?;
+    library_saves::restore(&banks, state.library.root(), &name).map_err(|error| error.to_string())
+}
+
+/// 存档目录：`Documents\StarCraft II\Banks`。找不到就报错，**不猜**。
+fn banks_root(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    installation
+        .banks_root
+        .clone()
+        .ok_or_else(|| "找不到「我的文档 / StarCraft II」—— 游戏还没产生过存档？".to_string())
+}
+
+/// 游戏是不是正跑着。启用 / 停用前先问它。
+#[tauri::command(async)]
+fn sc2_running() -> Option<String> {
+    miyin_core::platform::game_running()
 }
 
 /// 启用前先看：这次会往游戏目录里放什么、覆盖什么、删什么。**不写盘。**
@@ -1559,6 +1605,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            list_saves,
+            backup_saves,
+            restore_saves,
+            list_save_backups,
+            sc2_running,
             preview_activation,
             dev_pick_directory,
             dev_read_file,

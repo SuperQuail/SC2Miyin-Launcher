@@ -30,6 +30,8 @@ const {
   currentView,
   launcherVersion,
   ensureTools,
+  theme,
+  toggleTheme,
 } = useLauncher();
 
 /** 会出水波纹的元素。加新组件时把类名补进来就行。 */
@@ -322,6 +324,20 @@ onUnmounted(() => {
       <span v-else class="tab tab--active">预览</span>
 
       <div class="topbar__right">
+        <button
+          class="themectl"
+          type="button"
+          :title="theme === 'dark' ? '切到日间' : '切到夜间'"
+          @click="toggleTheme()"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path v-if="theme === 'dark'" d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" />
+            <template v-else>
+              <circle cx="8" cy="8" r="3" />
+              <path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.2 3.2l1.3 1.3M11.5 11.5l1.3 1.3M12.8 3.2l-1.3 1.3M4.5 11.5l-1.3 1.3" />
+            </template>
+          </svg>
+        </button>
         <button
           v-if="updateAvailable"
           class="update-badge"
@@ -655,6 +671,30 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.18);
   font-size: 11.5px;
   letter-spacing: 0.4px;
+}
+
+.themectl {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+.themectl:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.themectl svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .update-badge {

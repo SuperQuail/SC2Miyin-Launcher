@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
@@ -8,7 +8,12 @@ import UpdatePanel from "../components/UpdatePanel.vue";
 
 const openDevPage = () => { location.href = "/ide.html"; };
 
-const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
+const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop, saves, saveBackups, refreshSaves, backupSaves, restoreSaves } =
+  useLauncher();
+
+onMounted(() => {
+  void refreshSaves();
+});
 
 const rows = computed(() => {
   const current = installation.value;
@@ -94,6 +99,32 @@ const rows = computed(() => {
           包里的说明文字会自动识别编码，简繁中文的战役包都能正常显示。
         </li>
       </ul>
+    </section>
+
+    <section class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">存档</h3>
+        <span class="version">我的文档 / StarCraft II / Banks</span>
+      </header>
+      <p class="hint" v-if="saves?.missing">还没有存档 —— 玩过一关之后这里才会有东西。</p>
+      <p class="hint" v-else-if="saves">
+        现在有 {{ saves.files.length }} 个存档文件，共 {{ (saves.bytes / 1024).toFixed(0) }} KB。
+      </p>
+      <p class="about__actions">
+        <button class="btn btn-tonal" type="button" :disabled="!saves || saves.missing" @click="backupSaves('手动')">
+          备份这份存档
+        </button>
+      </p>
+      <template v-if="saveBackups.length">
+        <p class="hint">已备份 {{ saveBackups.length }} 份。还原前会先把现在这份另存一份。</p>
+        <ul class="plist">
+          <li v-for="item in saveBackups" :key="item.name" class="pitem">
+            <span class="pitem__name">{{ item.label }}</span>
+            <span class="tag">{{ item.files }} 个文件</span>
+            <button class="btn btn-text" type="button" @click="restoreSaves(item.name)">还原</button>
+          </li>
+        </ul>
+      </template>
     </section>
 
     <section class="card panel">

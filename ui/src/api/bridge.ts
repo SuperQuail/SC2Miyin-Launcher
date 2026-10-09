@@ -34,6 +34,9 @@ import type {
   ImportPreview,
   Installation,
   LauncherApi,
+  Preview,
+  SaveBackup,
+  SaveSet,
   PackageInspection,
   Patch,
   SlotView,
@@ -51,6 +54,15 @@ const desktop: LauncherApi = {
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
+  sc2Running: () => invoke<string | null>("sc2_running"),
+  listSaves: () => invoke<SaveSet>("list_saves"),
+  backupSaves: (label) => invoke<string>("backup_saves", { label }),
+  listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
+  restoreSaves: (name) => invoke<string>("restore_saves", { name }),
+
+  /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
+  previewActivation: (slot, variantId) =>
+    invoke<Preview>("preview_activation", { slot, variantId }),
   activateVariant: (slot, variantId) =>
     invoke<string[]>("activate_variant", { slot, variantId }),
   deleteVariant: (slot, variantId) => invoke<void>("delete_variant", { slot, variantId }),
@@ -491,6 +503,16 @@ const demo: LauncherApi = {
       issues: [],
     } satisfies PackageInspection),
 
+  sc2Running: async () => null,
+  listSaves: async () => ({ files: [], bytes: 0, missing: true }),
+  backupSaves: async () => {
+    throw new Error("演示模式没有存档可备份");
+  },
+  listSaveBackups: async () => [],
+  restoreSaves: async () => {
+    throw new Error("演示模式没有备份可还原");
+  },
+  previewActivation: async () => null,
   activateVariant: (slot, variantId) =>
     delay(
       (() => {
