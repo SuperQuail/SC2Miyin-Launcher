@@ -51,7 +51,6 @@ const desktop: LauncherApi = {
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
-  importPackage: (path, slot) => invoke<Variant>("import_package", { path, slot }),
   activateVariant: (slot, variantId) =>
     invoke<string[]>("activate_variant", { slot, variantId }),
   deleteVariant: (slot, variantId) => invoke<void>("delete_variant", { slot, variantId }),
@@ -491,25 +490,6 @@ const demo: LauncherApi = {
       unpacked_bytes: 512_000_000,
       issues: [],
     } satisfies PackageInspection),
-
-  importPackage: (path, slot) =>
-    delay(
-      (() => {
-        counter += 1;
-        const created = variant(
-          "演示战役包 " + counter,
-          "演示战役包",
-          "Demo",
-          "1.0",
-          counter,
-          512_000_000,
-        );
-        const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
-        target.variants.unshift(created);
-        void path;
-        return created;
-      })(),
-    ),
 
   activateVariant: (slot, variantId) =>
     delay(
