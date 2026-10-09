@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+// 窗口按钮走启动器那套命令（bridge 是框架无关的纯 TS，两边共用 —— AGENTS.md §18）
+import { api as launcher } from "../api/bridge";
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input from "@jetbrains/ring-ui-built/components/input/input";
 import Tag from "@jetbrains/ring-ui-built/components/tag/tag";
@@ -161,6 +164,28 @@ function Toggle({
   );
 }
 
+/**
+ * 按住工具栏拖动窗口。
+ *
+ * 这一页和启动器共用同一个无边框窗口，所以窗口控件得自己画。
+ * `data-tauri-drag-region` 只认事件落在**带这个属性的元素本身** ——
+ * 点在里面的文字上就不响应，用户感觉是"有时能拖有时不能"。所以自己接管：
+ * 落点不在按钮/输入框/窗口控件上，就调系统拖动。
+ */
+function startWindowDrag(event: React.MouseEvent): void {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button, a, input, select, textarea, .winctl")) return;
+  void (async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().startDragging();
+    } catch {
+      // 浏览器演示模式没有这个能力，忽略
+    }
+  })();
+}
+
 export function IdeApp() {
   const [entries, setEntries] = useState<DevEntry[]>([]);
   const [truncated, setTruncated] = useState(false);
@@ -178,6 +203,16 @@ export function IdeApp() {
   const [logPicked, setLogPicked] = useState<number | null>(null);
   const [pendingDiff, setPendingDiff] = useState<HistoryDiff | null>(null);
   const [message, setMessage] = useState("");
+  const [maximized, setMaximized] = useState(false);
+
+  // 双击标题栏 / Win+↑ 是系统改的最大化状态，只能靠 resize 补上
+  useEffect(() => {
+    if (!isDesktop) return;
+    const sync = () => void launcher.windowIsMaximized().then(setMaximized).catch(() => {});
+    sync();
+    addEventListener("resize", sync);
+    return () => removeEventListener("resize", sync);
+  }, []);
 
   const renamePackage = (value: string) => {
     setPkg(value);
@@ -398,7 +433,7 @@ export function IdeApp() {
 
   return (
     <div className="ide">
-      <div className="tb">
+      <div className="tb" data-tauri-drag-region onMouseDown={startWindowDrag}>
         <Button onClick={() => (location.href = "/index.html")}>← 返回启动器</Button>
         <span className="tsep" />
         <label className="pkgnamectl" title="这个包的名字 —— 提交历史和导出都用它">
@@ -418,6 +453,39 @@ export function IdeApp() {
         <Button primary disabled={!pkg.trim() || picked.length === 0} onClick={() => void exportNow()}>
           导出压缩包
         </Button>
+
+        {/* 窗口按钮：这页用的是同一个无边框窗口，不画就没有最小化/关闭 */}
+        <div className="winctl">
+          <button className="winctl__btn" type="button" title="最小化" onClick={() => void launcher.windowMinimize()}>
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6h7" /></svg>
+          </button>
+          <button
+            className="winctl__btn"
+            type="button"
+            title={maximized ? "还原" : "最大化"}
+            onClick={() => void launcher.windowToggleMaximize().then(setMaximized).catch(() => {})}
+          >
+            {maximized ? (
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <rect x="2.5" y="4.5" width="5" height="5" rx="1" />
+                <path d="M4.5 4.5v-2h5v5h-2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 12 12" aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx="1.5" /></svg>
+            )}
+          </button>
+          <button
+            className="winctl__btn winctl__btn--close"
+            type="button"
+            title="关闭"
+            onClick={() => void launcher.windowClose()}
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M3 3l6 6" />
+              <path d="M9 3l-6 6" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="body">

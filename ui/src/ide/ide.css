@@ -899,3 +899,42 @@ body {
   font-size: 12px;
   font-family: inherit;
 }
+
+/* ---------- 窗口按钮（这一页没有系统边框，得自己画） ---------- */
+.tb {
+  padding-right: 0;
+}
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.winctl__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.winctl__btn:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
+}
+/* 关闭按钮悬停变红 —— 桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
+}
