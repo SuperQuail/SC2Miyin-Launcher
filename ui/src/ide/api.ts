@@ -156,28 +156,10 @@ export type PackageMeta = {
   mods?: string[];
 };
 
-/** 解析器读回来的关键字段 —— 导出后自检用。 */
-export type ReadBack = {
-  name: string | null;
-  author: string | null;
-  version: string | null;
-  description: string | null;
-  id: string | null;
-  campaign: string | null;
-  tags: string[];
-  main_map: string | null;
-  doc: string | null;
-  cover: string | null;
-  payloads: number;
-};
+export type ExportReport = { path: string; files: number; bytes: number };
 
-export type ExportReport = {
-  path: string;
-  files: number;
-  bytes: number;
-  /** 用真正的解析器把自己刚写的包读了一遍的结果 */
-  read_back: ReadBack | null;
-};
+/** 导出进度：写完几个 / 一共几个。 */
+export type ExportProgress = { done: number; total: number };
 
 /** 选一个导出路径（走 Rust 侧的 rfd）。 */
 export async function pickExportPath(defaultName: string): Promise<string | null> {
@@ -204,10 +186,22 @@ export async function exportPackage(
   dest: string,
   meta: PackageMeta,
   files: { path: string; abs: string; is_dir: boolean }[],
+  onProgress?: (progress: ExportProgress) => void,
 ): Promise<ExportReport> {
   if (!isDesktop) throw new Error("浏览器预览导不了 —— 没有 IPC");
-  // **不吞错**：导出失败的原因（文件没了、勾太多、路径不合法）必须原样给用户看
-  return await invoke<ExportReport>("dev_export", { dest, meta, files });
+
+  // 大包要几十秒 —— 订阅后端每写完一个文件报的进度
+  let unlisten: (() => void) | undefined;
+  if (onProgress) {
+    const { listen } = await import("@tauri-apps/api/event");
+    unlisten = await listen<ExportProgress>("dev://export", (event) => onProgress(event.payload));
+  }
+  try {
+    // **不吞错**：导出失败的原因必须原样给用户看
+    return await invoke<ExportReport>("dev_export", { dest, meta, files });
+  } finally {
+    unlisten?.();
+  }
 }
 
 /** 删掉一条提交记录（只删记录，不动任何文件）。 */

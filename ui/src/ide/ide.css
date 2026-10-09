@@ -1037,3 +1037,24 @@ body {
   color: var(--danger);
   font-weight: 600;
 }
+
+/* ---------- 导出进度 ---------- */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.progress__bar {
+  display: inline-block;
+  width: 160px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}

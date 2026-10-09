@@ -360,9 +360,20 @@ fn dev_export(
     dest: String,
     meta: miyin_core::dev::export::PackageMeta,
     files: Vec<miyin_core::dev::export::ExportFile>,
+    window: tauri::Window,
 ) -> Result<miyin_core::dev::export::ExportReport, String> {
-    miyin_core::dev::export::export(std::path::Path::new(&dest), &meta, &files)
-        .map_err(|error| error.to_string())
+    // 打包大包要几十秒，界面得看得见进度 —— 每写完一个文件报一次
+    miyin_core::dev::export::export(std::path::Path::new(&dest), &meta, &files, |done, total| {
+        let _ = window.emit("dev://export", ExportProgress { done, total });
+    })
+    .map_err(|error| error.to_string())
+}
+
+/// 导出进度（发给界面画进度条）。
+#[derive(Clone, serde::Serialize)]
+struct ExportProgress {
+    done: usize,
+    total: usize,
 }
 
 /// 开发者页：这个包的提交历史。

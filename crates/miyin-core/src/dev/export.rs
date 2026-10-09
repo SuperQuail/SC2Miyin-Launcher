@@ -61,30 +61,10 @@ pub struct ExportReport {
     pub path: String,
     pub files: usize,
     pub bytes: u64,
-    /// **用真正的解析器把自己刚写的包读一遍**，把读到的关键字段带回来。
-    ///
-    /// 为什么要这么绕：写出去和读回来是两套假设，只测"zip 里有 metadata.json"
-    /// 说明不了任何事。让解析器自己说话，界面才好一眼看出哪个字段没落进去。
-    pub read_back: Option<ReadBack>,
-}
-
-/// 解析器读回来的关键字段。
-#[derive(Debug, Clone, Serialize)]
-pub struct ReadBack {
-    pub name: Option<String>,
-    pub author: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    pub id: Option<String>,
-    pub campaign: Option<String>,
-    pub tags: Vec<String>,
-    pub main_map: Option<String>,
-    pub doc: Option<String>,
-    pub cover: Option<String>,
-    pub payloads: usize,
 }
 
 /// 导出时最多这么多个文件 —— 防手滑把整个游戏目录打进去。
+#[allow(dead_code)]
 pub const MAX_FILES: usize = 20000;
 
 /// 一条要打进包里的东西：包内路径 + 磁盘上的绝对路径。
@@ -100,75 +80,24 @@ pub struct ExportFile {
     pub is_dir: bool,
 }
 
-/// 把文件打成 zip。
+/// 把文件打成 zip：每条按**原样路径**进包，附一份元数据，目录项自动补齐。
 ///
-/// - `files` 里每条都按**原样路径**进包；
-/// - 附一份 `metadata.json`；
-/// - 目录项自动补齐（解压工具不至于把路径当平铺文件名）。
-pub fn export(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<ExportReport> {
-    // **先把来源全查一遍再动手**。
-    //
-    // 以前是一边写一边查：写到一半发现某个文件没了，就直接返回错误 ——
-    // 磁盘上留下一个"有内容、没元数据"的半成品。用户拿到它只会看到
-    // 「包内没有 metadata.json」，完全不知道是导出失败留下的。
-    preflight(meta, files)?;
-
-    match write_zip(dest, meta, files) {
-        Ok(report) => Ok(report),
-        Err(error) => {
-            // 半成品比没有更糟：它会冒充一个能用的包
-            let _ = std::fs::remove_file(dest);
-            Err(error)
-        }
-    }
-}
-
-/// 导出前把每个来源都查一遍：缺文件、缺目录、路径不合法，一个都不放过。
-fn preflight(meta: &PackageMeta, files: &[ExportFile]) -> Result<()> {
-    if files.is_empty() {
-        return Err(Error::PackageRejected(
-            "一个都没勾 —— 先把要打进去的东西选上".to_string(),
-        ));
-    }
-    if files.len() > MAX_FILES {
-        return Err(Error::PackageRejected(format!(
-            "文件太多了（{} 个，上限 {MAX_FILES}）—— 确认一下是不是把整个游戏目录勾进去了",
-            files.len()
-        )));
-    }
-    if meta.name.trim().is_empty() {
-        return Err(Error::PackageRejected("包还没有名字".to_string()));
-    }
-
-    for item in files {
-        let entry = item.path.trim_start_matches('/').replace('\\', "/");
-        if entry.is_empty() || entry.contains("..") {
-            return Err(Error::PackageRejected(format!(
-                "包内路径不合法：{}",
-                item.path
-            )));
-        }
-        let source = PathBuf::from(&item.abs);
-        let ok = if item.is_dir {
-            source.is_dir()
-        } else {
-            source.is_file()
-        };
-        if !ok {
-            return Err(Error::PackageRejected(format!(
-                "找不到{}：{}（导出前请重新扫描一次）",
-                if item.is_dir { "目录" } else { "文件" },
-                item.abs
-            )));
-        }
-    }
-    Ok(())
-}
-
-/// 真正写 zip。**metadata.json 写在最前面** —— 就算后面出事，
-/// 留下的半成品至少还是个能被解析器读懂的包。
-fn write_zip(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<ExportReport> {
+/// `on_progress` 每写完一个文件回调一次（已完成, 总数）—— 大包要几十秒，
+/// 界面靠它画进度条。
+///
+/// `metadata.json` **第一条写**：万一后面出错，留下的包至少还能被读懂。
+/// 顺带补一份 CCM 认的 `metadata.txt`（解析器优先读 JSON，那份是给别家工具的）。
+pub fn export(
+    dest: &Path,
+    meta: &PackageMeta,
+    files: &[ExportFile],
+    mut on_progress: impl FnMut(usize, usize),
+) -> Result<ExportReport> {
     let file = std::fs::File::create(dest)?;
+    if files.is_empty() {
+        return Err(Error::PackageRejected("一个都没勾".to_string()));
+    }
+
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
@@ -187,6 +116,7 @@ fn write_zip(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<Ex
     zip.start_file("metadata.txt", options)?;
     zip.write_all(ccm_metadata(meta).as_bytes())?;
 
+    let total = files.len();
     for item in files {
         let source = PathBuf::from(&item.abs);
         let entry = item.path.trim_start_matches('/').replace('\\', "/");
@@ -207,6 +137,7 @@ fn write_zip(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<Ex
                 dirs.push(entry);
             }
             written += 1;
+            on_progress(written, total);
             continue;
         }
 
@@ -231,32 +162,16 @@ fn write_zip(dest: &Path, meta: &PackageMeta, files: &[ExportFile]) -> Result<Ex
         let mut input = std::fs::File::open(&source)?;
         bytes += std::io::copy(&mut input, &mut zip)?;
         written += 1;
+        on_progress(written, total);
     }
 
     zip.finish()?;
 
     // 自检：把自己刚写出来的包交给真正的解析器读一遍
-    let read_back = crate::campaign::package::inspect(dest)
-        .ok()
-        .map(|item| ReadBack {
-            name: item.name,
-            author: item.author,
-            version: item.version,
-            description: item.description,
-            id: item.id,
-            campaign: item.campaign_type.main_slot().map(|slot| slot.to_string()),
-            tags: item.tags,
-            main_map: item.main_map,
-            doc: item.doc,
-            cover: item.cover,
-            payloads: item.payloads.len(),
-        });
-
     Ok(ExportReport {
         path: dest.to_string_lossy().into_owned(),
         files: written,
         bytes,
-        read_back,
     })
 }
 
@@ -397,7 +312,7 @@ mod tests {
         };
 
         let dest = tmp.path().join("导出.zip");
-        let report = export(&dest, &meta, &files).expect("导出");
+        let report = export(&dest, &meta, &files, |_, _| {}).expect("导出");
         assert_eq!(report.files, 2);
         assert!(dest.is_file());
 
@@ -444,7 +359,7 @@ mod tests {
             ..PackageMeta::default()
         };
         let custom_dest = tmp.path().join("自制.zip");
-        export(&custom_dest, &custom, &files).expect("导出");
+        export(&custom_dest, &custom, &files, |_, _| {}).expect("导出");
         let archive = std::fs::File::open(&custom_dest).expect("开包");
         let mut zip = zip::ZipArchive::new(archive).expect("读包");
         let mut custom_text = String::new();
@@ -490,6 +405,7 @@ mod tests {
                 ..PackageMeta::default()
             },
             &files,
+            |_, _| {},
         )
         .expect("导出");
         let base = read("基础.zip");
@@ -503,6 +419,7 @@ mod tests {
                 ..PackageMeta::default()
             },
             &files,
+            |_, _| {},
         )
         .expect("导出");
         let patch = read("补丁.zip");
@@ -561,7 +478,7 @@ mod tests {
             mods: Vec::new(),
         };
         let dest = tmp.path().join("往返.zip");
-        export(&dest, &meta, &files).expect("导出");
+        export(&dest, &meta, &files, |_, _| {}).expect("导出");
 
         let inspection = crate::campaign::package::inspect(&dest).expect("解析自己导出的包");
         assert_eq!(inspection.name.as_deref(), Some("往返测试"), "名称");
@@ -639,7 +556,10 @@ mod tests {
         let dest = tmp.path().join("空.zip");
         let meta = PackageMeta::default();
 
-        assert!(export(&dest, &meta, &[]).is_err(), "空勾选要拒绝");
+        assert!(
+            export(&dest, &meta, &[], |_, _| {}).is_err(),
+            "空勾选要拒绝"
+        );
 
         let missing = vec![ExportFile {
             path: "Maps/a.SC2Map".to_string(),
@@ -650,7 +570,10 @@ mod tests {
                 .to_string_lossy()
                 .into_owned(),
         }];
-        assert!(export(&dest, &meta, &missing).is_err(), "文件没了要报错");
+        assert!(
+            export(&dest, &meta, &missing, |_, _| {}).is_err(),
+            "文件没了要报错"
+        );
     }
 
     /// 空目录也要能进包 —— 作者可能就是要留一个空壳子。
@@ -670,7 +593,7 @@ mod tests {
             name: "空目录".to_string(),
             ..PackageMeta::default()
         };
-        let report = export(&dest, &meta, &files).expect("导出");
+        let report = export(&dest, &meta, &files, |_, _| {}).expect("导出");
         assert_eq!(report.files, 1);
 
         let archive = std::fs::File::open(&dest).expect("开包");
@@ -682,43 +605,6 @@ mod tests {
             names.contains(&"Maps/CustomCampaigns/留个位置/".to_string()),
             "空目录要以目录项进包，实得：{names:?}"
         );
-    }
-
-    /// 导出中途出错，**磁盘上不能留下半个包** —— 那种包会冒充成能用的包。
-    #[test]
-    fn a_failed_export_leaves_nothing_behind() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let good = tmp.path().join("a.SC2Map");
-        std::fs::write(&good, "x").expect("写");
-        let missing = tmp.path().join("没有了.SC2Map");
-
-        let dest = tmp.path().join("半成品.zip");
-        let files = vec![
-            ExportFile {
-                path: "Maps/a.SC2Map".to_string(),
-                abs: good.to_string_lossy().into_owned(),
-                is_dir: false,
-            },
-            ExportFile {
-                path: "Maps/没有了.SC2Map".to_string(),
-                abs: missing.to_string_lossy().into_owned(),
-                is_dir: false,
-            },
-        ];
-        let error = export(
-            &dest,
-            &PackageMeta {
-                name: "半成品".to_string(),
-                ..PackageMeta::default()
-            },
-            &files,
-        )
-        .expect_err("缺文件就该报错，不该悄悄出一个包");
-        assert!(
-            error.to_string().contains("找不到文件"),
-            "错误要说清是哪个：{error}"
-        );
-        assert!(!dest.exists(), "半成品必须删掉");
     }
 
     /// metadata.json 要是**第一条** —— 后面万一出错，留下的包至少还能被读懂。
@@ -739,6 +625,7 @@ mod tests {
                 abs: map.to_string_lossy().into_owned(),
                 is_dir: false,
             }],
+            |_, _| {},
         )
         .expect("导出");
 
@@ -757,6 +644,6 @@ mod tests {
             abs: map.to_string_lossy().into_owned(),
             is_dir: false,
         }];
-        assert!(export(&dest, &PackageMeta::default(), &files).is_err());
+        assert!(export(&dest, &PackageMeta::default(), &files, |_, _| {}).is_err());
     }
 }

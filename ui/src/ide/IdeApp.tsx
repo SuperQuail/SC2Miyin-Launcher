@@ -14,7 +14,7 @@ import {
   type PackageMeta,
   commit as commitVersion,
   diff as diffVersions,
-  type ReadBack,
+  type ExportProgress,
   exportPackage,
   forgetCommit,
   history as loadHistory,
@@ -47,6 +47,8 @@ type DevSettings = {
   meta: DevMeta;
   cover: string;
   doc: string;
+  /** 勾了哪些文件 —— 重开页面、重启启动器都要还在 */
+  picked: string[];
 };
 
 function loadSettings(): DevSettings | null {
@@ -65,6 +67,13 @@ function saveSettings(settings: DevSettings): void {
     // 隐私模式下存不了，当次有效就行
   }
 }
+
+/**
+ * 版本管理（提交 / 日志）暂时**藏起来** —— 现在这套只记路径+大小+修改时间，
+ * 给不了"内容回退"这种真正有用的能力，摆在那儿只会误导人。代码留着，
+ * 等接上 SC2Diff 再打开。
+ */
+const SHOW_VERSION_CONTROL = false;
 
 /** 表单里的包信息。 */
 type DevMeta = {
@@ -254,7 +263,7 @@ function startWindowDrag(event: React.MouseEvent): void {
 export function IdeApp() {
   const [entries, setEntries] = useState<DevEntry[]>([]);
   const [extras, setExtras] = useState<string[]>([]);
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(() => loadSettings()?.picked ?? []);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [opened, setOpened] = useState<DevEntry[]>([]);
   const [active, setActive] = useState<string | null>(null);
@@ -291,8 +300,8 @@ export function IdeApp() {
   const [menu, setMenu] = useState<{ x: number; y: number; node?: TreeNode; commit?: CommitRecord } | null>(
     null,
   );
-  /** 导出后自检的结果：解析器从刚写出的包里读回了什么。 */
-  const [readBack, setReadBack] = useState<ReadBack | null>(null);
+  /** 导出进度：写完几个 / 一共几个。null 表示没在导出。 */
+  const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
 
   // 点别处 / 按 Esc 关掉菜单
   useEffect(() => {
@@ -324,8 +333,8 @@ export function IdeApp() {
 
   // 包信息一变就存 —— 重开页面原样回来
   useEffect(() => {
-    saveSettings({ pkg, meta, cover: coverPath, doc: docPath });
-  }, [pkg, meta, coverPath, docPath]);
+    saveSettings({ pkg, meta, cover: coverPath, doc: docPath, picked });
+  }, [pkg, meta, coverPath, docPath, picked]);
 
   const refresh = useCallback(async (extra: string[]) => {
     setStatus("正在扫描游戏目录…");
@@ -335,6 +344,9 @@ export function IdeApp() {
       return;
     }
     setEntries(result.entries);
+    // 上次勾的文件里，已经不在的剔掉；还在的原样保留
+    const known = new Set(result.entries.map((entry) => entry.path));
+    setPicked((prev) => prev.filter((path) => known.has(path)));
     // 顶层默认展开，省得每次点开
     const tops = new Set(result.entries.map((entry) => entry.path.split("/")[0]).filter(Boolean));
     setExpanded((prev) => (prev.length ? prev : [...tops]));
@@ -592,11 +604,13 @@ export function IdeApp() {
     if (docName) files.push({ path: docName, abs: docPath, is_dir: false });
     try {
       setStatus("正在打包…");
-      const report = await exportPackage(dest, payload, files);
-      setReadBack(report.read_back);
+      setExportProgress({ done: 0, total: files.length });
+      const report = await exportPackage(dest, payload, files, setExportProgress);
       setStatus("导出完成：" + report.files + " 个文件 · " + formatBytes(report.bytes) + " → " + report.path);
     } catch (error) {
       setStatus("导出失败：" + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setExportProgress(null);
     }
   }, [pkg, picked, entries, meta]);
 
@@ -828,6 +842,22 @@ export function IdeApp() {
 
               <footer className="status">
                 <span>{status}</span>
+                {exportProgress && (
+                  <span className="progress" title="正在打包">
+                    <span className="progress__bar">
+                      <span
+                        className="progress__fill"
+                        style={{
+                          width:
+                            (exportProgress.total
+                              ? Math.round((exportProgress.done / exportProgress.total) * 100)
+                              : 0) + "%",
+                        }}
+                      />
+                    </span>
+                    {exportProgress.done} / {exportProgress.total}
+                  </span>
+                )}
                 <span className="sspacer" />
                 <span>{extras.length > 0 ? extras.length + " 个自定义目录" : ""}</span>
               </footer>
@@ -895,32 +925,12 @@ export function IdeApp() {
                 <p className="hintbox">
                   这个包会包含 <strong>{picked.length}</strong> 个文件，共 <strong>{formatBytes(pickedBytes) || "0 B"}</strong>。
                 </p>
-                {readBack && (
-                  <div className="hintbox hintbox--check">
-                    <strong>刚导出的包，解析器读回来是：</strong>
-                    {(
-                      [
-                        ["名称", pkg.trim(), readBack.name],
-                        ["作者", meta.author.trim(), readBack.author],
-                        ["版本", meta.version.trim(), readBack.version],
-                        ["注册 ID", meta.id.trim(), readBack.id],
-                        ["说明书", docPath ? "已选" : "", readBack.doc],
-                        ["封面", coverPath ? "已选" : "", readBack.cover],
-                        ["主地图", meta.mainMap, readBack.main_map],
-                      ] as [string, string, string | null][]
-                    ).map(([label, typed, got]) => (
-                      <span key={label} className={"checkline" + (typed && !got ? " checkline--bad" : "")}>
-                        {label}：{got ?? "（没读到）"}
-                        {typed && !got ? " ← 你填了但它没进包" : ""}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             </section>
           </div>
 
-          {/* ---------- 日志 ---------- */}
+          {/* ---------- 日志（暂时藏起来，见 SHOW_VERSION_CONTROL）---------- */}
+          {SHOW_VERSION_CONTROL && (
           <section className="pane pane--log">
             <header className="pbar">
               <span className="ptitle">日志</span>
@@ -1011,6 +1021,7 @@ export function IdeApp() {
               </aside>
             </div>
           </section>
+          )}
         </div>
       </div>
 
