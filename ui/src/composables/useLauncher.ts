@@ -48,7 +48,12 @@ const showRestartPrompt = ref(false);
 export type ViewId = "campaigns" | "custom" | "mods" | "settings";
 
 /** 当前页面。放在这里而不是 App.vue 里，是为了让更新公告也能切页面。 */
-const currentView = ref<ViewId>("campaigns");
+/** `?view=settings` 能直接进某一页 —— 截图与排查用，不是给用户的功能。 */
+const initialView = new URLSearchParams(location.search).get("view");
+
+const currentView = ref<ViewId>(
+  initialView === "settings" || initialView === "campaigns" || initialView === "mods" ? initialView : "campaigns",
+);
 
 /** 启动器自己的版本（对外写法，如 0.1.0a3）。顶栏与更新面板共用。 */
 const launcherVersion = ref("");
