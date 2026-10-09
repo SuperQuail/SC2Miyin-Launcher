@@ -10,6 +10,7 @@
 //! （见 `AGENTS.md` §4 依赖方向）。
 
 pub mod campaign;
+pub mod dev;
 pub mod error;
 pub mod library;
 pub mod platform;

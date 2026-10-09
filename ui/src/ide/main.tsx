@@ -17,5 +17,5 @@ document.documentElement.dataset.theme = dark ? "dark" : "light";
 document.documentElement.classList.toggle("ring-ui-theme-dark", dark);
 
 createRoot(document.getElementById("ide")!).render(
-  <IdeApp file={params.get("file") ?? "text"} />,
+  <IdeApp />,
 );

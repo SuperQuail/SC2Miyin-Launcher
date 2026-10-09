@@ -192,6 +192,34 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
     Ok(installation)
 }
 
+/// 开发者页：扫游戏目录 + 用户自己加的目录。
+///
+/// 只读。越界（不在游戏目录里）不作拒绝，标成 `external` 交给界面提示。
+#[tauri::command(async)]
+fn dev_scan(
+    extra: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::dev::DevScan, String> {
+    let guard = state.installation.lock().map_err(lock_error)?;
+    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    miyin_core::dev::scan(installation, &extra).map_err(|error| error.to_string())
+}
+
+/// 开发者页：选一个自定义目录（可以是游戏目录外面的）。
+#[tauri::command(async)]
+fn dev_pick_directory() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("选一个目录加进这个包")
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 开发者页：只读预览一个文件（文本 / 图片 / 二进制）。
+#[tauri::command(async)]
+fn dev_read_file(path: String) -> Result<miyin_core::dev::FilePreview, String> {
+    miyin_core::dev::read_preview(std::path::Path::new(&path)).map_err(|error| error.to_string())
+}
+
 /// 战役库根目录（软件同级的 data 目录）。
 #[tauri::command(async)]
 fn library_root(state: State<'_, AppState>) -> String {
@@ -1514,6 +1542,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            dev_scan,
+            dev_pick_directory,
+            dev_read_file,
             detect_installation,
             set_installation,
             library_root,

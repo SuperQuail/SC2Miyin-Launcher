@@ -728,3 +728,30 @@ body {
   width: 12px;
   color: var(--on-surface-variant);
 }
+
+/* ---------- 目录树分组 / 空状态 / 提示块 ---------- */
+.treegroup {
+  margin-bottom: 6px;
+}
+.empty {
+  margin: 10px 4px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--on-surface-variant);
+}
+.hintbox {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--outline);
+  border-left: 3px solid var(--warning);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.frow--ext .fname {
+  color: var(--warning);
+}
+.frow {
+  cursor: default;
+}
