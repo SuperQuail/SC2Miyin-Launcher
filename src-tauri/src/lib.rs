@@ -340,6 +340,20 @@ fn dev_pick_export_path(default_name: String) -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 开发者页：选一个要带进包的文件（封面图 / 说明书 PDF）。
+#[tauri::command(async)]
+fn dev_pick_doc(kind: String) -> Option<String> {
+    let (title, extensions): (&str, &[&str]) = match kind.as_str() {
+        "cover" => ("选一张封面图", &["png", "jpg", "jpeg", "webp", "gif"]),
+        _ => ("选一份说明书（PDF）", &["pdf"]),
+    };
+    rfd::FileDialog::new()
+        .set_title(title)
+        .add_filter("文件", extensions)
+        .pick_file()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
 /// 开发者页：把勾选的文件打成一个包（附元数据）。
 #[tauri::command(async)]
 fn dev_export(
@@ -1756,6 +1770,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             dev_scan,
             dev_export,
+            dev_pick_doc,
             dev_pick_export_path,
             list_installed_campaigns,
             dev_history,

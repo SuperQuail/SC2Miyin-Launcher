@@ -148,6 +148,9 @@ export type PackageMeta = {
   tags?: string[];
   main_map?: string | null;
   doc?: string | null;
+  cover?: string | null;
+  modid?: string | null;
+  mods?: string[];
 };
 
 export type ExportReport = { path: string; files: number; bytes: number };
@@ -157,6 +160,16 @@ export async function pickExportPath(defaultName: string): Promise<string | null
   if (!isDesktop) return null;
   try {
     return await invoke<string | null>("dev_pick_export_path", { defaultName });
+  } catch {
+    return null;
+  }
+}
+
+/** 选一个要带进包的文件（封面图 / 说明书 PDF）。 */
+export async function pickDocFile(kind: "cover" | "doc"): Promise<string | null> {
+  if (!isDesktop) return null;
+  try {
+    return await invoke<string | null>("dev_pick_doc", { kind });
   } catch {
     return null;
   }

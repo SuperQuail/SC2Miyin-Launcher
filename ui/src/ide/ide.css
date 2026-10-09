@@ -959,3 +959,21 @@ body {
   color: var(--on-surface-variant);
   font-size: 10px;
 }
+
+.field--bad input {
+  border-color: var(--danger);
+}
+.field__error {
+  margin: -2px 0 8px 70px;
+  font-size: 11px;
+  color: var(--danger);
+}
+.field__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}

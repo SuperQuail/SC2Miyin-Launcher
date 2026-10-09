@@ -18,6 +18,7 @@ import {
   history as loadHistory,
   isDesktop,
   pickDirectory,
+  pickDocFile,
   pickExportPath,
   readFile,
   scan,
@@ -210,7 +211,37 @@ export function IdeApp() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState(isDesktop ? "正在扫描游戏目录…" : "浏览器预览：没有 IPC，数据是示例");
   const [pkg, setPkg] = useState(loadPackageName);
-  const [meta, setMeta] = useState({ author: "", version: "", description: "", tags: "", id: "", kind: "campaign", campaign: "", mainMap: "" });
+  const [meta, setMeta] = useState({
+    author: "",
+    version: "",
+    description: "",
+    tags: "",
+    id: "",
+    kind: "campaign",
+    campaign: "",
+    mainMap: "",
+    modid: "",
+    mods: "",
+  });
+  // 封面 / 说明书是从**别的目录**挑的文件，导出时按包内路径一起带上
+  const [coverPath, setCoverPath] = useState("");
+  const [docPath, setDocPath] = useState("");
+
+  /**
+   * 版本号校验。
+   *
+   * 约定里版本号是自由字符串（`1.2` / `v8.0.1` / `1.0.2a2` 都行），但**必须能比** ——
+   * 导入时判断"这是新版本还是旧版本"靠的是抽数字段比较。不写版本号没关系，
+   * 写了就得让人能比。规则写在 docs/package-format.md §1.2。
+   */
+  const versionError = useMemo(() => {
+    const value = meta.version.trim();
+    if (!value) return "";
+    if (!/^[A-Za-z0-9._+-]+$/.test(value)) return "只能用字母、数字和 . - _ +";
+    if (!/[0-9]/.test(value)) return "至少要有一个数字 —— 不然导入时没法判断新旧";
+    if (value.length > 32) return "太长了（32 个字符以内）";
+    return "";
+  }, [meta.version]);
   const [commits, setCommits] = useState<CommitRecord[]>([]);
   const [logPicked, setLogPicked] = useState<number | null>(null);
   const [pendingDiff, setPendingDiff] = useState<HistoryDiff | null>(null);
@@ -368,6 +399,17 @@ export function IdeApp() {
     setStatus("已提交 #" + item.id + "：" + item.files.length + " 个文件");
   }, [pkg, message, entries, picked, refreshHistory]);
 
+  /** 挑封面图 / 说明书 —— 它们不在游戏目录里，导出时一起打进去。 */
+  const pickCover = useCallback(async () => {
+    const path = await pickDocFile("cover");
+    if (path) setCoverPath(path);
+  }, []);
+
+  const pickDoc = useCallback(async () => {
+    const path = await pickDocFile("doc");
+    if (path) setDocPath(path);
+  }, []);
+
   const exportNow = useCallback(async () => {
     if (!pkg.trim()) {
       setStatus("先给这个包起个名字");
@@ -377,8 +419,17 @@ export function IdeApp() {
       setStatus("一个文件都没勾");
       return;
     }
+    if (versionError) {
+      setStatus("版本号有问题：" + versionError);
+      return;
+    }
     const dest = await pickExportPath(pkg.trim() + ".zip");
     if (!dest) return;
+
+    // 封面 / 说明书是从别处挑的：给它们在包里安排一个位置，再把路径写进元数据
+    const coverName = coverPath ? "cover" + (coverPath.match(/\.[A-Za-z0-9]+$/)?.[0] ?? "") : "";
+    const docName = docPath ? (docPath.split(/[\\/]/).pop() ?? "") : "";
+
     const payload: PackageMeta = {
       name: pkg.trim(),
       author: meta.author.trim() || null,
@@ -388,11 +439,17 @@ export function IdeApp() {
       kind: meta.kind || null,
       id: meta.id.trim() || null,
       tags: meta.tags.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean),
-      main_map: meta.mainMap || null,
+      main_map: meta.campaign === "" ? meta.mainMap || null : null,
+      cover: coverName || null,
+      doc: docName || null,
+      modid: meta.modid.trim() || null,
+      mods: meta.mods.split(/[,，]/).map((mod) => mod.trim()).filter(Boolean),
     };
     const files = entries
       .filter((entry) => picked.includes(entry.path))
       .map((entry) => ({ path: entry.path, abs: entry.abs, is_dir: entry.is_dir }));
+    if (coverName) files.push({ path: coverName, abs: coverPath, is_dir: false });
+    if (docName) files.push({ path: docName, abs: docPath, is_dir: false });
     try {
       setStatus("正在打包…");
       const report = await exportPackage(dest, payload, files);
@@ -486,7 +543,7 @@ export function IdeApp() {
         <Button onClick={() => void addDirectory()}>添加目录…</Button>
         <span className="tspacer" />
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索" className="tsearch" />
-        <Button primary disabled={!pkg.trim() || picked.length === 0} onClick={() => void exportNow()}>
+        <Button primary disabled={!pkg.trim() || picked.length === 0 || !!versionError} onClick={() => void exportNow()}>
           导出压缩包
         </Button>
 
@@ -636,7 +693,15 @@ export function IdeApp() {
               <div className="pbody">
                 <label className="field"><span>名称</span><input value={pkg} onChange={(event) => renamePackage(event.target.value)} placeholder="必填" /></label>
                 <label className="field"><span>作者</span><input value={meta.author} onChange={(event) => setMeta({ ...meta, author: event.target.value })} placeholder="你的名字" /></label>
-                <label className="field"><span>版本</span><input value={meta.version} onChange={(event) => setMeta({ ...meta, version: event.target.value })} placeholder="比如 1.0" /></label>
+                <label className={"field" + (versionError ? " field--bad" : "")}>
+                  <span>版本</span>
+                  <input
+                    value={meta.version}
+                    onChange={(event) => setMeta({ ...meta, version: event.target.value })}
+                    placeholder="比如 1.0 / v8.0.1"
+                  />
+                </label>
+                {versionError && <p className="field__error">版本号：{versionError}</p>}
                 <label className="field"><span>注册 ID</span><input value={meta.id} onChange={(event) => setMeta({ ...meta, id: event.target.value })} placeholder="同一个战役的多个版本靠它认亲" /></label>
                 <label className="field"><span>标签</span><input value={meta.tags} onChange={(event) => setMeta({ ...meta, tags: event.target.value })} placeholder="逗号分开，比如 重制, 剧情" /></label>
                 <label className="field"><span>归属战役</span>
@@ -654,15 +719,29 @@ export function IdeApp() {
                     <option value="patch">patch（覆盖层）</option>
                   </select>
                 </label>
+                <label className="field"><span>模组 ID</span><input value={meta.modid} onChange={(event) => setMeta({ ...meta, modid: event.target.value })} placeholder="模组包才填（modid）" /></label>
+                <label className="field"><span>依赖模组</span><input value={meta.mods} onChange={(event) => setMeta({ ...meta, mods: event.target.value })} placeholder="逗号分开；这张地图要靠哪些模组" /></label>
                 <label className="field field--full"><span>说明</span>
                   <textarea rows={3} value={meta.description} onChange={(event) => setMeta({ ...meta, description: event.target.value })} placeholder="一两句说清这个包是什么" />
                 </label>
-                <label className="field field--full"><span>主地图</span>
-                  <select value={meta.mainMap} onChange={(event) => setMeta({ ...meta, mainMap: event.target.value })}>
-                    <option value="">{maps.length ? "不指定" : "先勾选一张 .SC2Map"}</option>
-                    {maps.map((path) => <option key={path} value={path}>{path}</option>)}
-                  </select>
-                </label>
+                <div className="field field--full">
+                  <span>封面图</span>
+                  <button className="btn btn-tonal" type="button" onClick={() => void pickCover()}>选图片…</button>
+                  <span className="field__file">{coverPath ? coverPath.split(/[\\/]/).pop() : "没选（用官方美术）"}</span>
+                </div>
+                <div className="field field--full">
+                  <span>说明书</span>
+                  <button className="btn btn-tonal" type="button" onClick={() => void pickDoc()}>选 PDF…</button>
+                  <span className="field__file">{docPath ? docPath.split(/[\\/]/).pop() : "没选"}</span>
+                </div>
+                {meta.campaign === "" && (
+                  <label className="field field--full"><span>主地图</span>
+                    <select value={meta.mainMap} onChange={(event) => setMeta({ ...meta, mainMap: event.target.value })}>
+                      <option value="">{maps.length ? "不指定" : "先勾选一张 .SC2Map"}</option>
+                      {maps.map((path) => <option key={path} value={path}>{path}</option>)}
+                    </select>
+                  </label>
+                )}
                 <p className="hintbox">
                   自制战役建议指定主地图 —— 它是玩家从启动器进游戏的入口。
                   包内路径保持游戏目录里的相对路径，导入时不用重新猜落点。

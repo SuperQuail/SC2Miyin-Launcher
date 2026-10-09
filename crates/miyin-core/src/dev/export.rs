@@ -44,6 +44,15 @@ pub struct PackageMeta {
     /// 说明文档（包内路径）。
     #[serde(default)]
     pub doc: Option<String>,
+    /// 封面图（包内路径）。对应约定里的顶层 `cover`。
+    #[serde(default)]
+    pub cover: Option<String>,
+    /// 模组身份（模组包用）。
+    #[serde(default)]
+    pub modid: Option<String>,
+    /// 这个包里的地图依赖哪些模组。
+    #[serde(default)]
+    pub mods: Vec<String>,
 }
 
 /// 导出结果。
@@ -169,23 +178,39 @@ fn metadata_json(meta: &PackageMeta) -> Result<String> {
             miyin.insert(key.to_string(), serde_json::Value::from(value.clone()));
         }
     }
-    if let Some(main_map) = meta
-        .main_map
-        .as_ref()
-        .filter(|text| !text.trim().is_empty())
-    {
-        miyin.insert(
-            "main_map".to_string(),
-            serde_json::Value::from(main_map.clone()),
-        );
-    }
     if let Some(doc) = meta.doc.as_ref().filter(|text| !text.trim().is_empty()) {
         miyin.insert("doc".to_string(), serde_json::Value::from(doc.clone()));
+    }
+    if let Some(modid) = meta.modid.as_ref().filter(|text| !text.trim().is_empty()) {
+        miyin.insert("modid".to_string(), serde_json::Value::from(modid.clone()));
+    }
+    if !meta.mods.is_empty() {
+        miyin.insert(
+            "mods".to_string(),
+            serde_json::Value::from(meta.mods.clone()),
+        );
     }
     if !meta.tags.is_empty() {
         miyin.insert(
             "tags".to_string(),
             serde_json::Value::from(meta.tags.clone()),
+        );
+    }
+
+    // `main_map` 是**自制战役**的键（约定 §「自制战役的两个新键」）——
+    // 官方战役改版没有"入口地图"这回事，写了只会让别家工具困惑。
+    if meta
+        .campaign
+        .as_ref()
+        .is_none_or(|text| text.trim().is_empty())
+        && let Some(main_map) = meta
+            .main_map
+            .as_ref()
+            .filter(|text| !text.trim().is_empty())
+    {
+        miyin.insert(
+            "main_map".to_string(),
+            serde_json::Value::from(main_map.clone()),
         );
     }
 
@@ -196,6 +221,8 @@ fn metadata_json(meta: &PackageMeta) -> Result<String> {
         "version": meta.version,
         "description": meta.description,
         "campaign": meta.campaign,
+        // 封面走顶层 `cover`（CCM 与枢纽都认这个位置）
+        "cover": meta.cover,
         "miyin": miyin,
     });
 
@@ -269,8 +296,32 @@ mod tests {
         )
         .expect("读");
         assert!(text.contains("我的战役"));
-        assert!(text.contains("main_map"), "主地图要写进 miyin 命名空间");
         assert!(text.contains("重制"), "标签要带上");
+        assert!(
+            !text.contains("main_map"),
+            "归属官方战役时不该写 main_map —— 那是自制战役的键"
+        );
+
+        // 自制战役（不填归属）才写 main_map
+        let custom = PackageMeta {
+            name: "自制".to_string(),
+            main_map: Some("Maps/CustomCampaigns/自制/01.SC2Map".to_string()),
+            ..PackageMeta::default()
+        };
+        let custom_dest = tmp.path().join("自制.zip");
+        export(&custom_dest, &custom, &files).expect("导出");
+        let archive = std::fs::File::open(&custom_dest).expect("开包");
+        let mut zip = zip::ZipArchive::new(archive).expect("读包");
+        let mut custom_text = String::new();
+        std::io::Read::read_to_string(
+            &mut zip.by_name("metadata.json").expect("元数据"),
+            &mut custom_text,
+        )
+        .expect("读");
+        assert!(
+            custom_text.contains("main_map"),
+            "自制战役要写 main_map：{custom_text}"
+        );
     }
 
     #[test]
