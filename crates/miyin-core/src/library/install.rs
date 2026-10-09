@@ -95,6 +95,44 @@ impl Plan {
     }
 }
 
+/// 预演里的一条：一个会被动到的目标。
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewEntry {
+    /// 相对游戏根目录，`/` 分隔。
+    pub target: String,
+    /// 这个位置现在多大（不存在就是 0）。
+    pub existing_bytes: u64,
+    /// 我们准备放进去的多大。
+    pub incoming_bytes: u64,
+    /// 现在归谁（别人占着才是 `Some`）。
+    pub owner: Option<Owner>,
+}
+
+/// 铺盘前的**预演**：会把游戏目录改成什么样。
+///
+/// 一个字都不写盘。这是导入 / 启用确认框要显示的内容 —— 用户先看见要动哪些文件
+/// 再决定，也是"落点不限制"的安全感来源。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Preview {
+    /// 目标原本不存在。
+    pub add: Vec<PreviewEntry>,
+    /// 目标存在（官方文件、用户自己放的、或我们上次装的），**会先备份再覆盖**。
+    pub overwrite: Vec<PreviewEntry>,
+    /// 目标现在归**别人** —— 覆盖会从对方账上转过来。
+    pub takeover: Vec<PreviewEntry>,
+    /// 我们上次装的、这次不要了：会被删掉（删之前同样备份）。
+    pub delete: Vec<String>,
+    /// 要拷进游戏目录的总字节。
+    pub bytes: u64,
+}
+
+impl Preview {
+    /// 一共要动几个位置（不含"我们自己的东西被删掉"）。
+    pub fn touched(&self) -> usize {
+        self.add.len() + self.overwrite.len() + self.takeover.len()
+    }
+}
+
 /// 清单里的一条记录：游戏目录里某个位置是我们放的。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Installed {
@@ -323,6 +361,46 @@ impl Manifest {
             .map(|item| &item.owner)
     }
 
+    /// 算一遍"这份计划会把游戏目录改成什么样"，**不写盘**。
+    ///
+    /// 和 `apply` 走同一个 `resolve`，所以两边的判断不会分叉 ——
+    /// 预演说不行的地方，`apply` 一样会拒绝。
+    pub fn preview(&self, installation: &Installation, plan: &Plan) -> Result<Preview> {
+        let mut preview = Preview::default();
+
+        for item in &plan.items {
+            let target = resolve(installation, &item.target)?;
+            let existing_owner = self.owner_of(&item.target).cloned();
+            let entry = PreviewEntry {
+                target: item.target.clone(),
+                existing_bytes: path_bytes(&target),
+                incoming_bytes: path_bytes(&item.source),
+                // 自己占着的位置不算"接管"，只是重铺一遍
+                owner: existing_owner.clone().filter(|other| other != &plan.owner),
+            };
+
+            preview.bytes += entry.incoming_bytes;
+
+            if !target.exists() {
+                preview.add.push(entry);
+            } else if existing_owner.is_none() || existing_owner.as_ref() == Some(&plan.owner) {
+                preview.overwrite.push(entry);
+            } else {
+                preview.takeover.push(entry);
+            }
+        }
+
+        // 本次计划里没有、但我们上次装过的：会被撤掉
+        let planned: Vec<&str> = plan.items.iter().map(|item| item.target.as_str()).collect();
+        for installed in self.of(&plan.owner) {
+            if !planned.contains(&installed.target.as_str()) {
+                preview.delete.push(installed.target.clone());
+            }
+        }
+
+        Ok(preview)
+    }
+
     /// **应用一份计划**：先撤掉同一个 owner 的旧东西，再按计划装。
     ///
     /// 返回冲突提示（目标被别的 owner 占着）—— 不阻断，但要让用户知道
@@ -505,33 +583,48 @@ fn resolve(installation: &Installation, relative: &str) -> Result<PathBuf> {
     allowed_target(installation, &path)
 }
 
-/// 校验目标落在游戏目录的**内容区**之内。
+/// 校验目标落在**星际争霸安装目录之内**。
 ///
-/// 白名单是这三个根（与 AGENTS.md §10.5 一致）：
-///
-/// `@text
-/// <游戏>/Maps/        游戏扫的所有地图 —— 官方战役、自制战役、以及
-///                     作者按自己结构摆的整包（SCMR 就是 Maps/Starcraft Mass Recall/…）
-/// <游戏>/Mods/        模组
-/// <游戏>/Interfaces/  界面
-/// `@
-///
-/// **别收窄成 Maps/Campaign 那种子目录** —— 收窄过，代价是复刻战役整包装不进去：
-/// 地图被正确放到 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 Maps/ 的
+/// 早先只放行 `Maps` / `Mods` / `Interfaces` 三个根，代价是复刻战役整包装不进去：
+/// 地图要落在 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 `Maps/` 的
 /// 路径联动关卡），却被自己的闸门拒绝，用户看到的是「拒绝往 … 写东西」。
-/// 只要还在 `Maps/` 底下就不会污染别的地方，游戏也确实会去扫。
+///
+/// 现在放开成**目录内任意位置**：想覆盖 `SC2Data/`、想换 `Versions/` 里的东西
+/// 都随作者 —— 自由度归作者，**出目录一律拒绝**。
+///
+/// 安全感不来自收窄路径，而来自**动之前先备份**：`apply` 会把要覆盖的原件挪进
+/// `data/backup/` 并记账，`remove` 原样还原；`preview` 先把要动的东西列出来。
+/// 见 `docs/developer-workflow.md` §2。
 ///
 /// 这是写盘的最后一道闸门 —— 不依赖上游校验过没有。
 fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
-    safety::ensure_within(&installation.maps_root, path)
-        .or_else(|_| safety::ensure_within(&installation.mods_root, path))
-        .or_else(|_| safety::ensure_within(&installation.interfaces_root, path))
-        .map_err(|_| {
-            Error::PackageRejected(format!(
-                "拒绝往 {} 写东西 —— 只允许写游戏目录下的 Maps、Mods 和 Interfaces",
-                path.display()
-            ))
-        })
+    safety::ensure_within(&installation.root, path).map_err(|_| {
+        Error::PackageRejected(format!(
+            "拒绝往 {} 写东西 —— 只能写星际争霸安装目录里面的文件",
+            path.display()
+        ))
+    })
+}
+
+/// 一个文件或一棵目录树有多大；不存在就是 0。
+fn path_bytes(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_file() {
+        return meta.len();
+    }
+    if !meta.is_dir() {
+        return 0;
+    }
+
+    walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|meta| meta.len())
+        .sum()
 }
 
 /// 拷一个文件或一棵目录树。

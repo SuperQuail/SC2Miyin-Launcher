@@ -2263,3 +2263,125 @@ fn opening_a_map_uses_the_installed_copy() {
             .is_none()
     );
 }
+
+/// 预演要说清「这份计划会动到游戏目录里的哪些东西」，而且一个字都不写盘。
+#[test]
+fn preview_says_what_will_be_touched() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+    let work = fixture.work.path();
+
+    let ours = work.join("ours.SC2Mod");
+    let extra = work.join("extra.SC2Mod");
+    std::fs::write(&ours, b"ours").expect("写");
+    std::fs::write(&extra, b"extra").expect("写");
+
+    // 游戏目录里先有一份「官方文件」，它会是被覆盖的那一类
+    std::fs::create_dir_all(&fixture.installation.mods_root).expect("建模组目录");
+    std::fs::write(
+        fixture.installation.mods_root.join("Official.SC2Mod"),
+        b"official",
+    )
+    .expect("写官方文件");
+
+    let campaign = Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "v1".to_string(),
+    };
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+    let mut plan = Plan::new(campaign.clone());
+    plan.push(&ours, "Mods/Official.SC2Mod");
+    plan.push(&extra, "Mods/New.SC2Mod");
+
+    // 还没装：一条覆盖、一条新增
+    let fresh = manifest
+        .preview(&fixture.installation, &plan)
+        .expect("预演");
+    assert_eq!(fresh.add.len(), 1, "New.SC2Mod 是新的");
+    assert_eq!(fresh.overwrite.len(), 1, "Official.SC2Mod 会被备份后覆盖");
+    assert_eq!(fresh.takeover.len(), 0);
+    assert_eq!(fresh.bytes, 9, "ours(4) + extra(5)");
+
+    manifest
+        .apply(data, &fixture.installation, &plan)
+        .expect("装");
+
+    // 装完再预演同一份计划：两条都成了「重铺我们自己的」，不算接管
+    let again = manifest
+        .preview(&fixture.installation, &plan)
+        .expect("预演");
+    assert_eq!(again.add.len(), 0);
+    assert_eq!(again.overwrite.len(), 2);
+    assert_eq!(again.takeover.len(), 0);
+    assert!(again.delete.is_empty());
+
+    // 换成只装一条：另一条会被撤掉
+    let mut smaller = Plan::new(campaign.clone());
+    smaller.push(&ours, "Mods/Official.SC2Mod");
+    let fewer = manifest
+        .preview(&fixture.installation, &smaller)
+        .expect("预演");
+    assert_eq!(fewer.delete, vec!["Mods/New.SC2Mod".to_string()]);
+
+    // 别人想抢同一个位置：算接管，界面上要说清是谁让位
+    let mut other = Plan::new(Owner::Mod {
+        id: "m1".to_string(),
+    });
+    other.push(&extra, "Mods/Official.SC2Mod");
+    let takeover = manifest
+        .preview(&fixture.installation, &other)
+        .expect("预演");
+    assert_eq!(takeover.takeover.len(), 1);
+    assert_eq!(takeover.add.len(), 0);
+    assert_eq!(
+        takeover.takeover[0].owner.as_ref().map(|owner| owner.key()),
+        Some("campaign-wol-v1".to_string()),
+        "要说清现在归谁"
+    );
+}
+
+/// 落点只要求「在游戏目录里」：不在 Maps / Mods / Interfaces 里也允许，出目录一律拒绝。
+#[test]
+fn anything_inside_the_game_folder_can_be_written() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+    let work = fixture.work.path();
+
+    let blob = work.join("blob.bin");
+    std::fs::write(&blob, b"blob").expect("写");
+
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+    let mut plan = Plan::new(Owner::Mod {
+        id: "m1".to_string(),
+    });
+    plan.push(&blob, "SC2Data/thing.bin");
+    plan.push(&blob, "root-level.txt");
+    manifest
+        .apply(data, &fixture.installation, &plan)
+        .expect("装");
+
+    assert!(
+        fixture
+            .installation
+            .root
+            .join("SC2Data/thing.bin")
+            .is_file()
+    );
+    assert!(fixture.installation.root.join("root-level.txt").is_file());
+
+    let mut escape = Plan::new(Owner::Mod {
+        id: "m2".to_string(),
+    });
+    escape.push(&blob, "../outside.bin");
+    let error = manifest
+        .apply(data, &fixture.installation, &escape)
+        .expect_err("出游戏目录必须拒绝");
+    assert!(
+        format!("{error}").contains("只能写星际争霸安装目录里面的文件"),
+        "{error}"
+    );
+}
