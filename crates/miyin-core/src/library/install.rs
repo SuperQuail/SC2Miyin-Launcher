@@ -135,12 +135,22 @@ impl Default for Manifest {
 }
 
 impl Manifest {
-    /// 读清单。文件不在或读坏了都当空 —— 大不了下次重装，不能让界面起不来。
+    /// 读清单。文件不在就当空 —— 大不了下次重装，不能让界面起不来。
+    ///
+    /// 读坏了则**留证据**（改名成 .corrupt）：直接当空清单的话，我们铺进
+    /// 游戏目录的那些文件就再也没人认领了，删不掉也还原不回去。
     pub fn load(data: &Path) -> Self {
-        std::fs::read_to_string(Self::path(data))
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        let path = Self::path(data);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(manifest) => manifest,
+            Err(_) => {
+                let _ = std::fs::rename(&path, path.with_extension("json.corrupt"));
+                Self::default()
+            }
+        }
     }
 
     /// 清单文件在哪。
@@ -153,11 +163,10 @@ impl Manifest {
         data.join("backup")
     }
 
-    /// 写清单。
+    /// 写清单（原子写，见 crate::library::write_atomic）。
     pub fn save(&self, data: &Path) -> Result<()> {
         std::fs::create_dir_all(data)?;
-        std::fs::write(Self::path(data), serde_json::to_string_pretty(self)?)?;
-        Ok(())
+        crate::library::write_atomic(&Self::path(data), &serde_json::to_string_pretty(self)?)
     }
 
     /// 某个 owner 现在装了哪些。
@@ -343,7 +352,7 @@ impl Manifest {
                     other.label(),
                     plan.owner.label()
                 ));
-                self.remove(data, installation, &other)?;
+                self.release(data, installation, &other, &item.target)?;
             }
 
             // 3) 目标已存在（多半是官方文件，或用户自己放的）：先挪进备份区
@@ -366,20 +375,61 @@ impl Manifest {
                 None
             };
 
-            // 4) 铺进去
-            copy_entry(&item.source, &target)?;
-
-            // 5) 记账
+            // 4) **先记账再落地**：官方文件已经从原位挪走，这一步万一失败，
+            //    账上必须留着备份路径 —— 否则它就永远躺在备份区没人认领
             self.files.push(Installed {
                 target: item.target.clone(),
                 owner: plan.owner.clone(),
-                backup,
+                backup: backup.clone(),
                 source: Some(item.source.to_string_lossy().to_string()),
             });
+            self.save(data)?;
+
+            // 5) 铺进去；失败就把备份还回去、把这条账撤掉
+            if let Err(error) = copy_entry(&item.source, &target) {
+                self.files
+                    .retain(|entry| !(entry.owner == plan.owner && entry.target == item.target));
+                restore_backup(data, &target, backup.as_deref())?;
+                self.save(data)?;
+                return Err(error);
+            }
         }
 
-        self.save(data)?;
         Ok(warnings)
+    }
+
+    /// 让出**一个**目标路径：删掉我们放的，还原被挪走的官方文件。
+    ///
+    /// 与 remove 的区别：只动这一条，其余仍然归原 owner —— 目标撞车时
+    /// 把别人的整套文件都撤掉，会留下「库里写着启用中、游戏目录已经空了」。
+    fn release(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        owner: &Owner,
+        target: &str,
+    ) -> Result<()> {
+        let Some(entry) = self
+            .files
+            .iter()
+            .find(|item| &item.owner == owner && item.target == target)
+            .cloned()
+        else {
+            return Ok(());
+        };
+
+        // 先销账再动磁盘，理由同 remove
+        self.files
+            .retain(|item| !(&item.owner == owner && item.target == target));
+        self.save(data)?;
+
+        let path = resolve(installation, target)?;
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
+        restore_backup(data, &path, entry.backup.as_deref())
     }
 
     /// **撤掉某个 owner 装的东西**：删掉我们放的，还原被挪走的官方文件。
@@ -396,6 +446,11 @@ impl Manifest {
             return Ok(());
         }
 
+        // **先销账再动磁盘**：中途失败时账面是「已经撤下」，最坏剩几个文件；
+        // 反过来（先动磁盘后销账）失败一次，重试就会把刚还原的官方文件删掉
+        self.files.retain(|item| &item.owner != owner);
+        self.save(data)?;
+
         for item in &leaving {
             let target = resolve(installation, &item.target)?;
 
@@ -407,19 +462,8 @@ impl Manifest {
             }
 
             // 原本有官方文件被挪走的：原样还原
-            if let Some(relative) = &item.backup {
-                let backup = Self::backup_root(data).join(relative);
-                if backup.exists() {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::rename(&backup, &target)?;
-                }
-            }
+            restore_backup(data, &target, item.backup.as_deref())?;
         }
-
-        self.files.retain(|item| &item.owner != owner);
-        self.save(data)?;
 
         // 备份区里这个 owner 的目录空了就收掉
         let dir = Self::backup_root(data).join(owner.key());
@@ -429,6 +473,28 @@ impl Manifest {
 
         Ok(())
     }
+}
+
+/// 把被挪走的官方文件还原回原位。
+///
+/// relative 是从清单里读出来的 —— **清单文件是可以被手改的**，所以这里
+/// 和白名单路径一样要过 safety::ensure_within，否则一条
+/// "backup": "../../../Windows/x" 就能把任意文件搬进游戏目录。
+fn restore_backup(data: &Path, target: &Path, relative: Option<&str>) -> Result<()> {
+    let Some(relative) = relative else {
+        return Ok(());
+    };
+
+    let root = Manifest::backup_root(data);
+    let backup = safety::ensure_within(&root, &root.join(relative))?;
+    if !backup.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&backup, target)?;
+    Ok(())
 }
 
 /// 把相对路径解析成游戏目录下的绝对路径，并过白名单校验。

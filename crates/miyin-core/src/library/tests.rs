@@ -1368,6 +1368,51 @@ fn enabling_a_mod_disables_its_siblings() {
         .collect();
     assert_eq!(on, vec![all[1].id.as_str()], "同 modid 只能有一个启用");
 }
+
+/// 「作为独立改版」导入的副本 modid 不同（X#alt），落点却是同一个
+/// Mods/<folder> —— 两份都开着只会互相覆盖，让位规则必须按落点也比一次。
+#[test]
+fn copies_of_one_mod_cannot_be_enabled_together() {
+    use crate::library::mods::{self, ModImportMode};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+
+    let src = fixture.work.path().join("Alenger");
+    std::fs::create_dir_all(&src).expect("建模组目录");
+    std::fs::write(src.join("1钢铁.SC2Mod"), b"one").expect("写文件");
+
+    let first = mods::import(
+        data,
+        &src,
+        Some("demo.mod"),
+        Some("1.0"),
+        ModImportMode::Auto,
+    )
+    .expect("导入");
+    let second = mods::import(
+        data,
+        &src,
+        Some("demo.mod"),
+        Some("2.0"),
+        ModImportMode::Separate,
+    )
+    .expect("作为独立改版再导一份");
+
+    assert_ne!(first.record.id, second.record.id);
+    assert_eq!(
+        mods::placed_name(&first.record),
+        mods::placed_name(&second.record),
+        "两份抢的是同一个 Mods/<folder>"
+    );
+
+    mods::set_enabled(data, &first.record.id, true).expect("启用第一份");
+    mods::set_enabled(data, &second.record.id, true).expect("启用第二份");
+
+    let on = mods::list(data).iter().filter(|item| item.enabled).count();
+    assert_eq!(on, 1, "同一个落点上只能开一份");
+}
+
 #[test]
 fn imported_mods_keep_their_original_folder_shape() {
     use crate::library::mods::{self, ModKind};
@@ -1783,6 +1828,60 @@ fn conflicting_targets_warn_instead_of_silently_overwriting() {
         "位置被接管后，原来的 owner 不该还记着它"
     );
 }
+/// 位置撞车时只让出**那一条**，不是把别人的整套文件都撤掉 ——
+/// 全撤的话，库里还写着「启用中」，游戏目录里却已经空了。
+#[test]
+fn a_conflict_takes_over_one_path_not_the_whole_owner() {
+    use crate::library::install::{Manifest, Owner, Plan};
+
+    let fixture = fixture();
+    let data = fixture.library.root();
+    let work = fixture.work.path();
+
+    let only = work.join("wol-only.SC2Mod");
+    let shared = work.join("shared.SC2Mod");
+    let newcomer = work.join("new.SC2Mod");
+    std::fs::write(&only, b"wol").expect("写");
+    std::fs::write(&shared, b"shared").expect("写");
+    std::fs::write(&newcomer, b"new").expect("写");
+
+    let campaign = Owner::Campaign {
+        slot: "wol".to_string(),
+        variant: "v1".to_string(),
+    };
+    let mut manifest = Manifest::load_migrating(data, &fixture.installation);
+
+    // 战役占两个位置
+    let mut plan_a = Plan::new(campaign.clone());
+    plan_a.push(&only, "Mods/WolOnly.SC2Mod");
+    plan_a.push(&shared, "Mods/Shared.SC2Mod");
+    manifest
+        .apply(data, &fixture.installation, &plan_a)
+        .expect("装 A");
+
+    // 独立模组只抢其中一个
+    let mut plan_b = Plan::new(Owner::Mod {
+        id: "m1".to_string(),
+    });
+    plan_b.push(&newcomer, "Mods/Shared.SC2Mod");
+    let warnings = manifest
+        .apply(data, &fixture.installation, &plan_b)
+        .expect("装 B");
+    assert_eq!(warnings.len(), 1, "抢同一个位置要说一声");
+
+    let mods = fixture.installation.mods_root.clone();
+    assert_eq!(
+        std::fs::read(mods.join("Shared.SC2Mod")).expect("读"),
+        b"new",
+        "后装的赢"
+    );
+    assert!(
+        mods.join("WolOnly.SC2Mod").is_file(),
+        "撞车只让出一条，别人其余的还在"
+    );
+    assert_eq!(manifest.of(&campaign).len(), 1, "账上也只剩那一条");
+}
+
 #[test]
 fn a_custom_campaign_lands_in_custom_campaigns() {
     // 踩过的坑：require_slot 多加了 is_main() 过滤，custom 被挡在门外，

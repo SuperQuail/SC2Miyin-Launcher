@@ -1104,17 +1104,20 @@ pub fn update(data: &Path, id: &str, changes: ModChanges) -> Result<StandaloneMo
 /// 同时开着只会互相覆盖，留下一堆说不清是谁的文件。
 pub fn set_enabled(data: &Path, id: &str, enabled: bool) -> Result<StandaloneMod> {
     let mut mods = list(data);
-    let target_id = mods
+    // 抢同一个位置有两种情形：同一个 modid 的另一个版本；或者 modid 不同
+    // （「作为独立改版」导入的副本是 X#alt）却落到同一个 Mods/<folder>。
+    // 两种都得让位 —— 只比 modid 的话，后一种会同时开着互相覆盖。
+    let (target_id, target_place) = mods
         .iter()
         .find(|item| item.id == id)
-        .map(effective_id)
+        .map(|item| (effective_id(item), placed_name(item)))
         .ok_or_else(|| Error::CampaignNotFound(id.to_string()))?;
 
     for item in mods.iter_mut() {
         if item.id == id {
             item.enabled = enabled;
-        } else if enabled && effective_id(item) == target_id {
-            // 同一个模组的另一个版本：让位
+        } else if enabled && (effective_id(item) == target_id || placed_name(item) == target_place)
+        {
             item.enabled = false;
         }
     }
@@ -1166,7 +1169,7 @@ pub fn export(data: &Path, id: &str, target: &Path) -> Result<()> {
             .path()
             .strip_prefix(&dir)
             .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
-        let name = relative.to_string_lossy().replace('`', "/");
+        let name = relative.to_string_lossy().replace('\\', "/");
         if name.is_empty() {
             continue;
         }
@@ -1273,7 +1276,7 @@ pub fn export_many(data: &Path, ids: &[String], target: &Path) -> Result<usize> 
                 .path()
                 .strip_prefix(&dir)
                 .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
-            let name = relative.to_string_lossy().replace('`', "/");
+            let name = relative.to_string_lossy().replace('\\', "/");
             if name.is_empty() {
                 continue;
             }
@@ -1421,7 +1424,7 @@ pub fn compare(data: &Path, before_id: &str, after_id: &str) -> Result<ModCompar
     } else if identical {
         note = Some("两个版本内容完全一样，没什么好比的".to_string());
     } else {
-        let tmp = crate::library::default_root(data)
+        let tmp = data
             .join("diff-work")
             .join(crate::library::now_seconds().to_string());
 
