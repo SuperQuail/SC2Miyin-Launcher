@@ -447,13 +447,14 @@ StarCraft II/
       本地目录 `HSCL` 暂不改名，避免破坏现有工作流。
 - [x] **CI**：`.github/workflows/ci.yml`（核心测试双平台 / 前端构建 / 桌面端整工作区）。
 - [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.11）。
-- [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
-- [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
-      （`campaign::package` 已经能读目录形态的包，缺的是接进库的导入流程）。
+- [x] **游戏运行时探测**：`platform::game_running()`（走 tasklist 认 `SC2.exe` / `SC2_x64.exe`）；
+      启用 / 停用前先问它，跑着就拒绝切换。
+- [x] **从游戏目录反向导入**：`campaign::collect` 扫 `Maps/CustomCampaigns/*`，
+      设置页列出还没进库的，一键收编；导入复用 `library::import`，**不删原目录**。
 - [x] **包格式规范**：已写成 `docs/package-format.md`（兼容 CCM 与枢纽标准 + 弥音扩展）。
-- [ ] 包格式的**可视化说明**：给包作者一份带示例的打包指南（放 `docs/`）。
+- [x] 包格式的**打包指南**：`docs/package-authoring.md`（给作者的，带示例与常见坑）。
 - [x] `README.md` / `LICENSE` / `CHANGELOG.md` / CI 工作流。
-- [ ] `CONTRIBUTING.md` 与 Issue / PR 模板（欢迎外部贡献前补齐）。
+- [x] `CONTRIBUTING.md` 与 Issue / PR 模板（`.github/ISSUE_TEMPLATE/`）。
 
 ---
 
@@ -634,6 +635,19 @@ StarCraft II/
   用户机器上没有 dev server -> 白屏 + ERR_CONNECTION_REFUSED。
 - 绿色版：exe 与 `data/` 同级，整个文件夹拷走即可。
 - 出包前先 `pnpm -C ui build`，否则内嵌的是旧前端。
+
+### 14.10 存档管理（issue #20）
+
+实现在 `crates/miyin-core/src/saves.rs`：**看 / 备份 / 还原** `Documents\StarCraft II\Banks`。
+
+- 存档是**用户数据**，不走游戏目录那套写盘闸门，但同样两条：**动之前先备份**、
+  **先给人看**（`snapshot()` 就是给人看的那一份）。
+- **还原前自动把现在这份另存为 `还原前-<时间戳>`** —— 点错了还能退回来。
+- 还原会**先清空再铺**：不清的话备份里没有的旧文件会剩下来，两份混在一起。
+- 备份目录不适用的场景（还没玩过）返回 `missing`，**不建空目录** ——
+  还原一个空备份只会让人以为"存档回来了"。
+
+按版本自动隔离（每个战役组合一套 Banks）要等游戏运行时探测接上再谈。
 
 ### 14.11 切换的安全底线
 
