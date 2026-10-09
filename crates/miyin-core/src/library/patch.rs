@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::campaign::metadata::PackageKind;
 use crate::campaign::package;
 use crate::error::{Error, Result};
-use crate::library::{Binding, Library, Patch, now_seconds, unique_suffix};
+use crate::library::{Binding, Library, LibraryIndex, Patch, now_seconds, unique_suffix};
 use crate::safety;
 
 /// 补丁的默认优先级；数值大的后覆盖。
@@ -21,11 +21,16 @@ pub const DEFAULT_PRIORITY: i64 = 100;
 /// - `requires` 为空 = 通用补丁，**只能手动指定**，自动匹配时一律不选
 /// - `requires` 非空 = 完全补丁，逐项与战役的注册 ID / 名称比对
 pub fn matches_slot(library: &Library, slot_slug: &str, patch: &Patch) -> bool {
+    matches_index(&library.index(), slot_slug, patch)
+}
+
+/// 同 matches_slot，但直接用手里的索引 —— auto_bind 已经读出来了，
+/// 别再为每个 (槽位, 补丁) 组合重读一遍 library.json。
+fn matches_index(index: &LibraryIndex, slot_slug: &str, patch: &Patch) -> bool {
     if patch.requires.is_empty() {
         return false;
     }
 
-    let index = library.index();
     let Some(slot) = index.slots.get(slot_slug) else {
         return false;
     };
@@ -64,7 +69,7 @@ pub fn auto_bind(library: &Library) -> Result<Vec<(String, String)>> {
 
     for slot_slug in slots {
         for patch in &patches {
-            if !matches_slot(library, &slot_slug, patch) {
+            if !matches_index(&index, &slot_slug, patch) {
                 continue;
             }
             let bindings = index.bindings.entry(slot_slug.clone()).or_default();
@@ -147,6 +152,7 @@ pub fn import_patch(library: &Library, package: &Path) -> Result<Patch> {
         priority: inspection.priority.unwrap_or(DEFAULT_PRIORITY),
         requires: inspection.requires.clone(),
         payloads: inspection.payloads.clone(),
+        overrides: inspection.overrides.clone(),
         imported_at: now_seconds(),
         size_bytes: stats.bytes,
         mod_count: stats.mods,

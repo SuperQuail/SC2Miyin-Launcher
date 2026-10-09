@@ -91,6 +91,26 @@ pub fn activate(
         return Err(Error::CampaignNotFound(variant.id.clone()));
     }
 
+    let plan = plan_for(library, slot_slug, &variant, &kind)?;
+
+    let warnings = manifest.apply(library.root(), installation, &plan)?;
+
+    if let Some(slot) = index.slots.get_mut(slot_slug) {
+        slot.active = Some(variant.id.clone());
+    }
+    library.save_index(&index)?;
+
+    Ok(warnings)
+}
+
+/// 攒出「启用这个版本」要铺的那份计划。`activate` 与 `preview` 共用同一份 ——
+/// 两处各写一遍的话，预演说"会覆盖 A"，实际却动了 B，那种错最要命。
+fn plan_for(
+    library: &Library,
+    slot_slug: &str,
+    variant: &super::Variant,
+    kind: &crate::campaign::CampaignType,
+) -> Result<Plan> {
     // 地图进 Maps/Campaign[/子目录]，模组进 Mods，自制战役的地图留在库里。
     // 目标子目录以**版本自己声明的**为准（进化包 -> swarm/evolution），槽位只作兜底。
     let sub = variant
@@ -99,7 +119,7 @@ pub fn activate(
         .or_else(|| kind.sub_directory().map(str::to_string));
 
     // 分层合成：战役本体 + 这个战役上启用的补丁（按优先级叠加）
-    let composition = compose::compose(library, slot_slug, &variant, sub.as_deref());
+    let composition = compose::compose(library, slot_slug, variant, sub.as_deref());
     if composition.files.is_empty() {
         return Err(Error::PackageRejected(
             "该版本里没有可用的地图或模组".to_string(),
@@ -115,12 +135,30 @@ pub fn activate(
         plan.push(item.source.clone(), item.target.clone());
     }
 
-    let warnings = manifest.apply(library.root(), installation, &plan)?;
+    Ok(plan)
+}
 
-    if let Some(slot) = index.slots.get_mut(slot_slug) {
-        slot.active = Some(variant.id.clone());
-    }
-    library.save_index(&index)?;
+/// **预演**：不写盘，只说清楚「启用这个版本会把游戏目录改成什么样」。
+///
+/// 这是「落点放开到整个游戏目录」之后的安全网 —— 用户先看见要动哪些文件
+/// （新增 / 覆盖 / 接管 / 删除，各自多大），再决定按不按。
+pub fn preview(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    variant_id: &str,
+) -> Result<super::Preview> {
+    let kind = require_slot(slot_slug)?;
+    let index = library.index();
+    let variant = index
+        .slots
+        .get(slot_slug)
+        .and_then(|slot| slot.variants.iter().find(|item| item.id == variant_id))
+        .cloned()
+        .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
 
-    Ok(warnings)
+    let plan = plan_for(library, slot_slug, &variant, &kind)?;
+    // 用迁移版：老清单里的东西也要认得出来，否则预演会漏报"接管"
+    let manifest = Manifest::load_migrating(library.root(), installation);
+    manifest.preview(installation, &plan)
 }

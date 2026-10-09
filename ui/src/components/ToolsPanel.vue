@@ -151,7 +151,10 @@ function versionLabel(release: ToolRelease): string {
 
       <!-- 版本列表 -->
       <ul v-if="picking === tool.id" class="versions">
-        <li v-if="!releases[tool.id]?.length" class="versions__empty">正在查询…</li>
+        <li v-if="busy === tool.id" class="versions__empty">正在查询…</li>
+        <li v-else-if="!releases[tool.id]?.length" class="versions__empty">
+          这个工具还没有可安装的版本
+        </li>
         <li v-for="release in releases[tool.id] ?? []" :key="release.tag" class="version">
           <span class="version__label">{{ versionLabel(release) }}</span>
           <button

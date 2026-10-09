@@ -183,6 +183,57 @@ export interface Conflict {
 }
 
 /** 导入预览。 */
+/** 预演里的一条：一个会被动到的目标。对应 `miyin_core::library::PreviewEntry`。 */
+export interface PreviewEntry {
+  target: string;
+  existing_bytes: number;
+  incoming_bytes: number;
+  /** 现在归谁；别人占着才会有值。 */
+  owner: string | null;
+}
+
+/** 铺盘前的预演。一个字都不写盘。 */
+export interface Preview {
+  add: PreviewEntry[];
+  overwrite: PreviewEntry[];
+  takeover: PreviewEntry[];
+  delete: string[];
+  bytes: number;
+}
+
+/** 现在的存档里有什么。对应 `miyin_core::saves::SaveSet`。 */
+export interface SaveSet {
+  files: { name: string; bytes: number }[];
+  bytes: number;
+  /** 目录不存在（还没产生过存档） */
+  missing: boolean;
+}
+
+/** 存档隔离状态。默认关着 —— 不开的时候启动器不碰 Banks。 */
+export interface SaveIsolation {
+  enabled: boolean;
+  /** 现在游戏里这份存档属于哪个组 */
+  active: string | null;
+  /** 组名 -> 战役槽位 */
+  assignments: Record<string, string>;
+}
+
+/** 一份已备份的存档。 */
+export interface SaveBackup {
+  name: string;
+  label: string;
+  bytes: number;
+  files: number;
+}
+
+/** 游戏目录里已经装着的一个自制战役（收编用）。 */
+export interface InstalledCampaign {
+  dir: string;
+  name: string;
+  bytes: number;
+  files: number;
+}
+
 export interface ImportPreview {
   path: string;
   inspection: PackageInspection;
@@ -547,8 +598,40 @@ export interface LauncherApi {
   /** 全部槽位，已按官方发布顺序排列。 */
   listSlots(): Promise<SlotView[]>;
   inspectPackage(path: string): Promise<PackageInspection>;
-  importPackage(path: string, slot: string | null): Promise<Variant>;
   /** 启用某个版本；variantId 传 null 表示切回原版战役。 */
+  /** 存档隔离状态。 */
+  saveIsolation(): Promise<SaveIsolation>;
+
+  /** 打开 / 关掉隔离。**打开时会把现在这份 Banks 收成「原版」。** */
+  setSaveIsolation(enabled: boolean): Promise<SaveIsolation>;
+
+  /** 把现在这份存档存回它所属的组。 */
+  saveCurrentSaves(): Promise<SaveIsolation>;
+
+  /** 切到某个存档组（先存回现在这份）。 */
+  switchSaveProfile(name: string): Promise<SaveIsolation>;
+
+  /** 手动改归属：指给某个战役，或 null 表示算原版。 */
+  assignSaveProfile(name: string, slot: string | null): Promise<SaveIsolation>;
+
+  /** 现在的存档里有什么（我的文档 / StarCraft II / Banks）。 */
+  listSaves(): Promise<SaveSet>;
+
+  /** 把现在的存档备份一份。label 是备注（一般填战役名）。 */
+  backupSaves(label: string): Promise<string>;
+
+  /** 已经备份了哪些。 */
+  listSaveBackups(): Promise<SaveBackup[]>;
+
+  /** 还原一份备份；还原前会先把现在的存档另存一份，返回那份的名字。 */
+  restoreSaves(name: string): Promise<string>;
+
+  /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
+  sc2Running(): Promise<string | null>;
+
+  /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
+  previewActivation(slot: string, variantId: string): Promise<Preview | null>;
+
   activateVariant(slot: string, variantId: string | null): Promise<string[]>;
   deleteVariant(slot: string, variantId: string): Promise<void>;
   launchGame(): Promise<void>;
@@ -565,6 +648,9 @@ export interface LauncherApi {
    * `entry` 是**用户从哪个入口点的导入**：`custom` 表示站在「自制战役」页 ——
    * 那就不再判断它属于哪部原版战役，直接按自制战役来。
    */
+  /** 游戏目录里已经装着的自制战役（收编进库用）。 */
+  listInstalledCampaigns(): Promise<InstalledCampaign[]>;
+
   prepareImport(path: string, entry?: "campaign" | "custom"): Promise<ImportPreview>;
   /** 按指定战役导入；传了 slot 就按传的来，覆盖自动判定。 */
   importPackageWith(

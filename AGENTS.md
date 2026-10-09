@@ -90,13 +90,19 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │           ├── campaign/      # 战役包领域（与游戏目录耦合的那部分）
 │           │   ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
 │           │   ├── sanitize.rs    # 目录名安全化（防目录穿越）
-│           │   ├── package.rs     # zip 预检：格式识别、zip-slip、体积上限、解压
-│           │   ├── installer.rs   # 直接装进游戏目录（旧路径，保留）
-│           │   └── scanner.rs     # 目录扫描与核对
+│           │   ├── package.rs     # 包预检：格式识别、zip-slip、体积上限、解压
+│           │   ├── contents.rs    # 任意打包形式的读取（zip / 7z / rar / tar）
+│           │   └── identify.rs    # 没有元数据时按证据链判定归属
 │           └── library/       # **战役库**：多版本共存与切换（见 §14）
-│               ├── mod.rs          # 索引模型、槽位、封面与路径规则
-│               ├── store.rs        # 导入 / 删除版本
-│               └── activation.rs   # 启用 / 停用（按清单精确回滚）
+│               ├── mod.rs          # 索引模型、槽位、路径规则
+│               ├── compose.rs      # 分层合成：落点与补丁覆盖
+│               ├── install.rs      # 统一安装引擎（白名单 + 清单记账）
+│               ├── store.rs        # 导入 / 删除 / 编辑版本
+│               ├── mods.rs         # 模组的独立版本管理
+│               ├── activation.rs   # 启用 / 停用（按清单精确回滚）
+│               ├── export.rs       # 导出 CCM 兼容包
+│               ├── naming.rs       # 注册 ID 与版本号校验
+│               └── known.rs        # 已知复刻战役的落点与启动器地图
 ├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
 │   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
 │   ├── tauri.conf.json
@@ -381,18 +387,25 @@ StarCraft II/
 
 ### 10.5 文件写入安全（务必遵守）
 
-采用**路径白名单**策略（参考 scnexus 的 `PATH_WHITE_LIST`）：所有写/删操作的目标路径，必须校验落在以下白名单根内，且解析后（`canonicalize`）不得越界：
+**写盘闸门（2026-10 放开）**：所有写/删操作的目标路径，必须是**星际争霸安装目录之内**的
+相对路径。出目录（`..`、绝对路径、盘符）一律拒绝；**安装目录里任意位置允许覆盖** ——
+`SC2Data/`、`Versions/` 也一样（决定：自由度给作者，安全靠下面这两条）。
 
-```
-<game_root>/Maps
-<game_root>/Mods
-<game_root>/Interfaces
-<game_root>/Maps/CustomCampaigns
-<game_root>/Maps/Campaign/**           # 官方战役目录：默认只读，改前必须显式确认
-<documents>/StarCraft II/Banks         # 存档操作
-```
+**硬性要求**（少一条都不行）：
 
-**硬性要求**：删除前打印并核对绝对路径；解析符号链接/junction 后再次校验；对可恢复的破坏性操作提供备份或回收站（`IFileOperation`）而非直接 `remove_dir_all`。
+1. **动之前先备份**：任何会被覆盖或删除的既有文件，先挪进 `data/backup/<owner>/…` 并记账
+   （`Manifest::apply` 负责），切回去时原样还原（`Manifest::remove`）。
+2. **先给用户看**：铺盘前出一份预演（`Manifest::preview`）—— 新增 / 覆盖 / 接管 / 删除
+   各有几项、一共多少字节。
+3. 删除前打印并核对绝对路径；解析符号链接 / junction 后再次校验。
+4. 可恢复的破坏性操作提供备份或回收站（`IFileOperation`），**不要**直接 `remove_dir_all`。
+
+> 为什么不收窄到 `Maps` / `Mods` / `Interfaces`：收窄过，代价是复刻战役整包装不进去
+> （地图要落在 `Maps/Starcraft Mass Recall/…`），用户看到的是「拒绝往 … 写东西」。
+> 闸门改成「目录内随便写」之后，兜底就是上面第 1、2 条。
+
+存档目录 `<documents>/StarCraft II/Banks` 是**用户数据**而不是游戏本体，
+按 issue #20 的存档隔离单独处理，不走这里的闸门。
 
 ---
 
@@ -434,13 +447,14 @@ StarCraft II/
       本地目录 `HSCL` 暂不改名，避免破坏现有工作流。
 - [x] **CI**：`.github/workflows/ci.yml`（核心测试双平台 / 前端构建 / 桌面端整工作区）。
 - [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.11）。
-- [ ] **游戏运行时探测**：识别 SC2 进程是否在运行，避免切换时文件被占用。
-- [ ] **从游戏目录反向导入**：把已经装在 `Maps/CustomCampaigns` 里的旧战役收进库
-      （`campaign::scanner` 已经能扫描这类目录，缺的是收编流程）。
+- [x] **游戏运行时探测**：`platform::game_running()`（走 tasklist 认 `SC2.exe` / `SC2_x64.exe`）；
+      启用 / 停用前先问它，跑着就拒绝切换。
+- [x] **从游戏目录反向导入**：`campaign::collect` 扫 `Maps/CustomCampaigns/*`，
+      设置页列出还没进库的，一键收编；导入复用 `library::import`，**不删原目录**。
 - [x] **包格式规范**：已写成 `docs/package-format.md`（兼容 CCM 与枢纽标准 + 弥音扩展）。
-- [ ] 包格式的**可视化说明**：给包作者一份带示例的打包指南（放 `docs/`）。
+- [x] 包格式的**打包指南**：`docs/package-authoring.md`（给作者的，带示例与常见坑）。
 - [x] `README.md` / `LICENSE` / `CHANGELOG.md` / CI 工作流。
-- [ ] `CONTRIBUTING.md` 与 Issue / PR 模板（欢迎外部贡献前补齐）。
+- [x] `CONTRIBUTING.md` 与 Issue / PR 模板（`.github/ISSUE_TEMPLATE/`）。
 
 ---
 
@@ -622,6 +636,19 @@ StarCraft II/
 - 绿色版：exe 与 `data/` 同级，整个文件夹拷走即可。
 - 出包前先 `pnpm -C ui build`，否则内嵌的是旧前端。
 
+### 14.10 存档管理（issue #20）
+
+实现在 `crates/miyin-core/src/saves.rs`：**看 / 备份 / 还原** `Documents\StarCraft II\Banks`。
+
+- 存档是**用户数据**，不走游戏目录那套写盘闸门，但同样两条：**动之前先备份**、
+  **先给人看**（`snapshot()` 就是给人看的那一份）。
+- **还原前自动把现在这份另存为 `还原前-<时间戳>`** —— 点错了还能退回来。
+- 还原会**先清空再铺**：不清的话备份里没有的旧文件会剩下来，两份混在一起。
+- 备份目录不适用的场景（还没玩过）返回 `missing`，**不建空目录** ——
+  还原一个空备份只会让人以为"存档回来了"。
+
+按版本自动隔离（每个战役组合一套 Banks）要等游戏运行时探测接上再谈。
+
 ### 14.11 切换的安全底线
 
 启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
@@ -738,3 +765,71 @@ unless defined with `#[tauri::command(async)]`*。）
 `tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
 
 **自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。
+
+
+
+---
+
+## 18. 双前端：用户侧 Vue，开发者侧 React
+
+**两个入口，不是两套框架混在一页。**
+
+```text
+ui/index.html → src/main.ts     → Vue 3      用户侧（战役 / 模组 / 设置）
+ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台）
+```
+
+**为什么**：开发者页要用 JetBrains 官方的 [Ring UI](https://github.com/JetBrains/ring-ui)，
+它是 React 组件库；用户侧已经用 Vue 写完，重写一遍不值。两边各用各的，靠 IPC 说话。
+
+**硬规矩**（越过这条，构建和样式会一起出鬼）：
+
+1. **用户侧只准 import `src/` 下 Vue 的那部分**；反过来也一样。两边**不共享组件**。
+2. 想共享的只能是**框架无关的纯 TS**（现在是 `api/bridge.ts`、`api/types.ts`、`api/markdown.ts`）。
+   共享文件里**不许出现 `vue` 或 `react` 的 import**。
+3. 跨页跳转是**换入口**（整页加载），不是路由跳转 —— 别假装它们在一个 SPA 里。
+4. 别为了"顺手"把某个 Ring UI 组件搬进 Vue 页面。要那个控件就在 IDE 页里用。
+
+**Ring UI 的三个坑**（都踩过）：
+
+| 坑 | 说明 |
+| --- | --- |
+| 用 `@jetbrains/ring-ui-built`，**不是** `@jetbrains/ring-ui` | 后者是源码包，`.js` 里带裸 JSX，rolldown 不转 `node_modules` |
+| 必须手动引 `@jetbrains/ring-ui-built/components/style.css` | 不带样式就等于没装（控件渲染成原生，标签还会叠字） |
+| `icon` 要**组件类型**，不是 `<svg/>` 元素 | 传元素会炸在 `Element type is invalid` |
+
+React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`）。
+
+**构建是两次，顺序不能乱**：
+
+```bash
+pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发者页（vite.ide.config.ts）
+```
+
+- **两个入口必须分开构建**。放同一次构建里，rolldown 会把两边的公共块塞进
+  `index.html` 预加载 —— 用户侧执行到 `createRoot(#ide)` 直接白屏（踩过）。
+- 两次构建都设了 `emptyOutDir: false`，**清空统一在 build 脚本开头做一次**。
+  否则单独跑一次 `vite build` 就会把 `dist/ide.html` 抹掉，
+  表现是「点开发者页闪一下、进不去」—— 因为文件根本不在包里（也踩过）。
+
+**它的 `Tabs` 不要用**：那是"切换面板"的组件，在自定义容器里排不出多个标签，
+而我们要的是"文档标签页"。用 `Button` + 自己的下划线（见 `src/ide/IdeApp.tsx` 的 `.doc`）。
+
+---
+
+## 17. 界面改动：先渲染，再定方案
+
+**涉及前端 GUI 的重构或新做，不许直接写代码。** 顺序固定：
+
+1. **先渲染** —— 用真实的设计令牌和组件做出能看的版本（不是线框图），
+   在浏览器演示模式（`pnpm -C ui dev`）里真的跑起来
+2. **有不确定性的设计，至少出三个版本**，每个都截图交付预览
+3. **用户选一个，或者打回重做** —— 选定之后才动真格的代码
+
+「不确定性」指的是：布局怎么摆、信息密度多少、交互走哪条路、视觉重心在哪。
+机械改动（改文案、补图标、修对齐）不需要走这套。
+
+**为什么**：界面方案是唯一没法靠测试对齐的东西 —— 代码错了测试会红，
+界面丑了只有人看得出来。先渲染再选，比写完再推倒重来便宜得多。
+
+预览产物不入库（`ui/preview.*` 已在 `.gitignore` 里），截图随当次交付给用户。
