@@ -1,12 +1,40 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 
 import { MIYIN } from "../api/art";
 import { useLauncher } from "../composables/useLauncher";
 import ToolsPanel from "../components/ToolsPanel.vue";
 import UpdatePanel from "../components/UpdatePanel.vue";
 
-const { installation, libraryRoot, chooseGameDirectory, reveal, isDesktop } = useLauncher();
+const openDevPage = () => { location.href = "/ide.html"; };
+
+const {
+  busy,
+  installation,
+  libraryRoot,
+  chooseGameDirectory,
+  reveal,
+  isDesktop,
+  installedCampaigns,
+  refreshInstalled,
+  collectCampaign,
+  saves,
+  saveBackups,
+  saveIsolation,
+  toggleSaveIsolation,
+  saveCurrentSaves,
+  switchSaveProfile,
+  assignSaveProfile,
+  slots,
+  refreshSaves,
+  backupSaves,
+  restoreSaves,
+} = useLauncher();
+
+onMounted(() => {
+  void refreshSaves();
+  void refreshInstalled();
+});
 
 const rows = computed(() => {
   const current = installation.value;
@@ -94,6 +122,117 @@ const rows = computed(() => {
       </ul>
     </section>
 
+    <section v-if="installedCampaigns.length" class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">游戏目录里已经装着的</h3>
+        <span class="version">{{ installedCampaigns.length }} 个</span>
+      </header>
+      <p class="hint">
+        这些是直接扔进 <code>Maps/CustomCampaigns</code> 的战役，还没进库 —— 收编之后就能用启动器管版本了。
+        <strong>收编不会删原目录。</strong>
+      </p>
+      <ul class="plist">
+        <li v-for="item in installedCampaigns" :key="item.dir" class="pitem">
+          <span class="pitem__name">{{ item.name }}</span>
+          <span class="tag">{{ item.files }} 个文件 · {{ (item.bytes / 1024 / 1024).toFixed(1) }} MB</span>
+          <button class="btn btn-text" type="button" @click="collectCampaign(item.dir)">收进库</button>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">存档</h3>
+        <span class="version">我的文档 / StarCraft II / Banks</span>
+      </header>
+      <p class="hint" v-if="saves?.missing">还没有存档 —— 玩过一关之后这里才会有东西。</p>
+      <p class="hint" v-else-if="saves">
+        现在有 {{ saves.files.length }} 个存档文件，共 {{ (saves.bytes / 1024).toFixed(0) }} KB。
+        <template v-if="saveIsolation.enabled && saveIsolation.active">
+          正在用「{{ saveIsolation.active }}」这一份。
+        </template>
+      </p>
+
+      <!-- 按战役隔离：默认关着，打开时会把当前进度收成「原版」 -->
+      <div class="isolation">
+        <label class="isolation__switch">
+          <input
+            type="checkbox"
+            :checked="saveIsolation.enabled"
+            :disabled="busy"
+            @change="toggleSaveIsolation(($event.target as HTMLInputElement).checked)"
+          />
+          <span>按战役隔离存档</span>
+        </label>
+        <p class="hint">
+          打开之后，每个战役用自己的一份存档 —— 换战役不会把上一部的进度冲掉。
+          <strong>打开这一刻，现在这份会存成「原版」</strong>，不会被谁顶掉。
+          关掉只是不再自动切，已经存下的组都留着。
+        </p>
+      </div>
+
+      <p class="about__actions">
+        <button class="btn btn-tonal" type="button" :disabled="!saves || saves.missing" @click="saveCurrentSaves()">
+          把现在这份存起来
+        </button>
+        <button class="btn btn-text" type="button" :disabled="!saves || saves.missing" @click="backupSaves('手动')">
+          另外备份一份
+        </button>
+      </p>
+
+      <template v-if="saveBackups.length">
+        <p class="hint">
+          已存档 {{ saveBackups.length }} 份。切过去、或者把某一份<strong>指给</strong>别的战役。
+          切换时会先把现在这份存回去。
+        </p>
+        <ul class="plist">
+          <li v-for="item in saveBackups" :key="item.name" class="pitem pitem--save">
+            <span class="pitem__name">{{ item.label }}</span>
+            <span class="tag">{{ item.files }} 个文件 · {{ (item.bytes / 1024).toFixed(0) }} KB</span>
+            <select
+              class="savepick"
+              :value="saveIsolation.assignments[item.name] ?? ''"
+              @change="assignSaveProfile(item.name, ($event.target as HTMLSelectElement).value || null)"
+            >
+              <option value="">不算任何战役</option>
+              <option v-for="slot in slots" :key="slot.slug" :value="slot.slug">{{ slot.display_name }}</option>
+            </select>
+            <button
+              class="btn btn-text"
+              type="button"
+              :disabled="busy || saveIsolation.active === item.name"
+              @click="switchSaveProfile(item.name)"
+            >
+              {{ saveIsolation.active === item.name ? "正在用" : "切过去" }}
+            </button>
+            <button
+              class="btn btn-text"
+              type="button"
+              :disabled="busy || saveIsolation.active === item.name"
+              @click="restoreSaves(item.name)"
+            >
+              还原
+            </button>
+          </li>
+        </ul>
+      </template>
+    </section>
+
+    <section class="card panel">
+      <header class="panel__head">
+        <h3 class="panel__title">开发者页</h3>
+        <span class="version">实验</span>
+      </header>
+      <p class="hint">
+        给包作者的工作台：扫游戏目录、勾选要打进包的内容、按行读文本文件。
+        地图和模组这类二进制会明确告诉你打不开、可以用什么打开。
+      </p>
+      <p class="hint">版本管理（提交 / 回滚 / 日志）还没接，界面里那一块标着「示例」。</p>
+      <p class="about__actions">
+        <button class="btn btn-tonal" type="button" @click="openDevPage">打开开发者页</button>
+      </p>
+    </section>
+
     <ToolsPanel />
     <UpdatePanel />
 
@@ -117,6 +256,37 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
+.isolation {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.isolation__switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.isolation__switch input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+.pitem--save {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.savepick {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-size: 12px;
+}
+
 .page {
   display: flex;
   flex-direction: column;

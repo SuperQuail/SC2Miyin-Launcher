@@ -34,10 +34,16 @@ pub const MAX_UNPACKED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// 允许的最大条目数。
 pub const MAX_ENTRIES: usize = 100_000;
 
-/// 当前启动器支持的**弥音扩展格式**版本（见 `docs/package-format.md`）。
+/// 当前启动器支持的**弥音扩展格式**版本（见 `docs/package-format.md` §5）。
 ///
 /// 包内 `miyin.format` 高于这个值时会被明确拒绝，而不是猜着解析。
-pub const MIYIN_FORMAT_VERSION: u32 = 1;
+///
+/// 三档分别是（和文档里的对应关系要一致）：
+///
+/// - `1` 基础字段：name / author / version / campaign / id / cover / tags
+/// - `2` 补丁字段：kind / priority / requires（这些**必须理解**才能正确安装）
+/// - `3` 覆盖规则：overrides
+pub const MIYIN_FORMAT_VERSION: u32 = 3;
 
 /// 包内的一个**载荷**：一张地图或一个模组。
 ///
@@ -134,6 +140,8 @@ pub struct PackageInspection {
     /// 由用户在界面上自己挑（见 `library::resolve_main_map`）。
     #[serde(default)]
     pub main_map: Option<String>,
+    /// 作者声明的覆盖规则（v3）。
+    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
     /// 包内声明的 **modid**：这个模组的身份。
     ///
     /// 判定「同一个模组的不同版本，还是另一个模组」全看它。
@@ -197,6 +205,7 @@ fn unusable(path: &Path, code: &str, message: String, hint: &str) -> PackageInsp
         description: None,
         campaign_type: CampaignType::Other(String::new()),
         cover: None,
+        overrides: Vec::new(),
         tags: Vec::new(),
         main_map: None,
         doc: None,
@@ -290,9 +299,11 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
             .components()
             .next()
             .map(|first| {
-                // 与 `payload_target` 一致：只认规范拼写
+                // 与 `payload_target` 一致：只认规范拼写。
+                // Interfaces 也算 —— 白名单早就放行它，但这里一直不认，
+                // 结果是界面 Mod 装不进去（v3 要补的第一个缺口）。
                 let name = first.as_os_str().to_string_lossy();
-                name == "Maps" || name == "Mods"
+                name == "Maps" || name == "Mods" || name == "Interfaces"
             })
             .unwrap_or(false)
     })
@@ -453,7 +464,7 @@ fn game_relative(source: &str) -> Option<String> {
     let parts: Vec<&str> = normalised.split('/').collect();
 
     for (index, part) in parts.iter().enumerate() {
-        if *part == "Maps" || *part == "Mods" {
+        if *part == "Maps" || *part == "Mods" || *part == "Interfaces" {
             return Some(parts[index..].join("/"));
         }
     }
@@ -704,6 +715,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
     let mut declared_mods_raw: Vec<String> = Vec::new();
     let mut declared_mod: Option<String> = None;
     let mut declared_cover = None;
+    let mut declared_overrides = Vec::new();
     let mut declared_tags: Vec<String> = Vec::new();
     let mut declared_id: Option<String> = None;
     let mut declared_kind = PackageKind::Campaign;
@@ -724,6 +736,11 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
                     declared_mods_raw = meta.mods();
                     declared_mod = meta.modid().map(str::to_string);
                     declared_cover = clean(meta.cover_path().map(str::to_owned));
+                    declared_overrides = meta
+                        .miyin
+                        .as_ref()
+                        .map(|extensions| extensions.overrides.clone())
+                        .unwrap_or_default();
                     declared_tags = meta.tags();
                     declared_id = clean(meta.id().map(str::to_owned));
                     declared_kind = meta.package_kind();
@@ -1010,6 +1027,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         requires: declared_requires,
         priority: declared_priority,
         payloads,
+        overrides: declared_overrides,
         main_map: main_map_claim,
         doc: declared_doc,
         declared_mods,
@@ -1360,6 +1378,21 @@ mod payload_tests {
         assert!(payload.expanded, "目录树应标记为 expanded");
         // 包内已经是游戏目录镜像，落点保持原路径
         assert!(payload.target_name().starts_with("epiloguestory01.SC2Map"));
+    }
+
+    /// 界面 Mod：`Interfaces/` 下的东西要原样落到 `<游戏>/Interfaces/`。
+    #[test]
+    fn interface_payloads_keep_their_path() {
+        let target = payload_target("Interfaces/Pro_2020/UI.SC2Interface", false, "", false);
+        assert_eq!(
+            crate::library::compose::payload_target_path(
+                &target,
+                &crate::library::compose::Placement::Campaign { sub: None }
+            )
+            .as_deref(),
+            Some("Interfaces/Pro_2020/UI.SC2Interface"),
+            "界面 Mod 必须原样落，不能拍进 Maps"
+        );
     }
 
     #[test]

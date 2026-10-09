@@ -97,7 +97,19 @@ const openedDoc = ref<DocInfo | null>(null);
 /** 等待确认删除的那个版本 —— 删战役不可逆，先问一句。 */
 const confirming = ref<Variant | null>(null);
 
-const { activate, removeVariant, launch, busy, refresh, notify, libraryRoot } = useLauncher();
+const {
+  activate,
+  requestActivation,
+  confirmActivation,
+  cancelActivation,
+  pendingActivation,
+  removeVariant,
+  launch,
+  busy,
+  refresh,
+  notify,
+  libraryRoot,
+} = useLauncher();
 const menu = useContextMenu();
 
 /** 当前选中的版本；null 表示原版战役。 */
@@ -112,13 +124,13 @@ const dirty = computed(() => selected.value !== props.slot.active);
 
 /** 启用当前选中的版本。 */
 async function apply(): Promise<void> {
-  const ok = await activate(props.slot.slug, selected.value);
+  const ok = await requestActivation(props.slot.slug, selected.value);
   if (ok) emit("back");
 }
 
 /** 启用并立刻启动游戏。 */
 async function applyAndPlay(): Promise<void> {
-  const ok = await activate(props.slot.slug, selected.value);
+  const ok = await requestActivation(props.slot.slug, selected.value);
   if (ok) await launch();
 }
 
@@ -400,13 +412,14 @@ async function doExport(mergePatches: boolean): Promise<void> {
     <div class="section-head">
       <h3 class="section-head__title">
         可选版本
-        <span class="section-head__count">{{ slot.variants.length + 1 }}</span>
+        <span class="section-head__count">{{ slot.variants.length + (isCustom ? 0 : 1) }}</span>
       </h3>
       <span class="section-head__hint">导入新版本请回到战役列表页</span>
     </div>
 
     <div class="grid">
       <VariantCard
+        v-if="!isCustom"
         :slot="slot"
         :variant="null"
         :active="slot.active === null"
@@ -540,7 +553,12 @@ async function doExport(mergePatches: boolean): Promise<void> {
       >
         导出（含补丁）
       </button>
-      <button class="btn btn-outline" type="button" :disabled="busy" @click="applyAndPlay">
+      <button
+        class="btn btn-outline"
+        type="button"
+        :disabled="busy || !dirty"
+        @click="applyAndPlay"
+      >
         启用并开始游戏
       </button>
       <button class="btn btn-primary" type="button" :disabled="!dirty || busy" @click="apply">
@@ -648,6 +666,43 @@ async function doExport(mergePatches: boolean): Promise<void> {
     />
 
     <!-- 删版本：先确认 -->
+    <!-- 铺盘前的预演：会动哪些文件，先给人看一眼 -->
+    <div v-if="pendingActivation" class="sheet" @click.self="cancelActivation()">
+      <div class="sheet__card">
+        <h3 class="sheet__title">启用「{{ pendingActivation.variantId }}」会改动这些</h3>
+        <ul class="plist">
+          <li v-if="pendingActivation.preview.add.length" class="pitem">
+            <span class="pitem__name">新增</span><span class="tag">{{ pendingActivation.preview.add.length }} 项</span>
+          </li>
+          <li v-if="pendingActivation.preview.overwrite.length" class="pitem">
+            <span class="pitem__name">覆盖（会先备份原文件）</span><span class="tag">{{ pendingActivation.preview.overwrite.length }} 项</span>
+          </li>
+          <li v-if="pendingActivation.preview.takeover.length" class="pitem">
+            <span class="pitem__name">接管别人的文件</span><span class="tag">{{ pendingActivation.preview.takeover.length }} 项</span>
+          </li>
+          <li v-if="pendingActivation.preview.delete.length" class="pitem">
+            <span class="pitem__name">删掉上次装的</span><span class="tag">{{ pendingActivation.preview.delete.length }} 项</span>
+          </li>
+        </ul>
+        <p class="sheet__text">
+          要往游戏目录写 {{ (pendingActivation.preview.bytes / 1024 / 1024).toFixed(1) }} MB。
+          被覆盖的文件会先挪进 data/backup，切回原版时原样还原。
+        </p>
+        <details v-if="pendingActivation.preview.overwrite.length" class="sheet__note">
+          <summary>看覆盖了哪些（前 20 个）</summary>
+          <p v-for="item in pendingActivation.preview.overwrite.slice(0, 20)" :key="item.target" class="hint">
+            {{ item.target }}
+          </p>
+        </details>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="cancelActivation()">取消</button>
+          <button class="btn btn-primary" type="button" :disabled="busy" @click="confirmActivation()">
+            继续，写进游戏目录
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="confirming" class="sheet" @click.self="confirming = null">
       <div class="sheet__card">
         <h3 class="sheet__title">删除「{{ confirming.name }}」？</h3>

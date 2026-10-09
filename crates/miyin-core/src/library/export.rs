@@ -200,24 +200,24 @@ pub fn export(
 /// CCM 读的那份元数据（键=值）。
 fn ccm_metadata(variant: &Variant) -> String {
     let mut out = String::new();
-    out.push_str(&format!("title={}\n", variant.name));
+    out.push_str(&format!("title={}\n", one_line(&variant.name)));
     if let Some(description) = &variant.description {
         out.push_str(&format!("desc={}\n", one_line(description)));
     }
     if let Some(author) = &variant.author {
-        out.push_str(&format!("author={author}\n"));
+        out.push_str(&format!("author={}\n", one_line(author)));
     }
     if let Some(campaign) = variant.target_sub.as_deref().and_then(sub_to_campaign) {
         out.push_str(&format!("campaign={campaign}\n"));
     }
     if let Some(version) = &variant.version {
-        out.push_str(&format!("version={version}\n"));
+        out.push_str(&format!("version={}\n", one_line(version)));
     }
     if let Some(id) = &variant.registration_id {
-        out.push_str(&format!("id={id}\n"));
+        out.push_str(&format!("id={}\n", one_line(id)));
     }
     if !variant.tags.is_empty() {
-        out.push_str(&format!("tags={}\n", variant.tags.join(", ")));
+        out.push_str(&format!("tags={}\n", one_line(&variant.tags.join(", "))));
     }
     out
 }
@@ -253,6 +253,8 @@ fn miyin_metadata(slot_slug: &str, variant: &Variant) -> String {
             "format": crate::campaign::package::MIYIN_FORMAT_VERSION,
             "id": variant.registration_id,
             "tags": variant.tags,
+            // 覆盖规则要原样带出去，否则"导入 -> 导出 -> 再导入"会丢掉落点
+            "overrides": variant.overrides,
         },
         "payloads": payloads,
         "note": "本目录是弥音启动器的附加数据。CCM 及其他工具可以完全忽略它；启动器读回时会用它还原版本、注册 ID 与载荷落点。",
@@ -491,13 +493,13 @@ fn patch_metadata(patch: &Patch) -> String {
         out.push_str(&format!("desc={}\n", one_line(description)));
     }
     if let Some(author) = &patch.author {
-        out.push_str(&format!("author={author}\n"));
+        out.push_str(&format!("author={}\n", one_line(author)));
     }
     if let Some(version) = &patch.version {
-        out.push_str(&format!("version={version}\n"));
+        out.push_str(&format!("version={}\n", one_line(version)));
     }
     if let Some(id) = &patch.registration_id {
-        out.push_str(&format!("id={id}\n"));
+        out.push_str(&format!("id={}\n", one_line(id)));
     }
     if !patch.requires.is_empty() {
         out.push_str(&format!("requires={}\n", patch.requires.join(", ")));

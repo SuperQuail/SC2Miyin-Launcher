@@ -95,6 +95,44 @@ impl Plan {
     }
 }
 
+/// 预演里的一条：一个会被动到的目标。
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewEntry {
+    /// 相对游戏根目录，`/` 分隔。
+    pub target: String,
+    /// 这个位置现在多大（不存在就是 0）。
+    pub existing_bytes: u64,
+    /// 我们准备放进去的多大。
+    pub incoming_bytes: u64,
+    /// 现在归谁（别人占着才是 `Some`）。
+    pub owner: Option<Owner>,
+}
+
+/// 铺盘前的**预演**：会把游戏目录改成什么样。
+///
+/// 一个字都不写盘。这是导入 / 启用确认框要显示的内容 —— 用户先看见要动哪些文件
+/// 再决定，也是"落点不限制"的安全感来源。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Preview {
+    /// 目标原本不存在。
+    pub add: Vec<PreviewEntry>,
+    /// 目标存在（官方文件、用户自己放的、或我们上次装的），**会先备份再覆盖**。
+    pub overwrite: Vec<PreviewEntry>,
+    /// 目标现在归**别人** —— 覆盖会从对方账上转过来。
+    pub takeover: Vec<PreviewEntry>,
+    /// 我们上次装的、这次不要了：会被删掉（删之前同样备份）。
+    pub delete: Vec<String>,
+    /// 要拷进游戏目录的总字节。
+    pub bytes: u64,
+}
+
+impl Preview {
+    /// 一共要动几个位置（不含"我们自己的东西被删掉"）。
+    pub fn touched(&self) -> usize {
+        self.add.len() + self.overwrite.len() + self.takeover.len()
+    }
+}
+
 /// 清单里的一条记录：游戏目录里某个位置是我们放的。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Installed {
@@ -135,12 +173,22 @@ impl Default for Manifest {
 }
 
 impl Manifest {
-    /// 读清单。文件不在或读坏了都当空 —— 大不了下次重装，不能让界面起不来。
+    /// 读清单。文件不在就当空 —— 大不了下次重装，不能让界面起不来。
+    ///
+    /// 读坏了则**留证据**（改名成 .corrupt）：直接当空清单的话，我们铺进
+    /// 游戏目录的那些文件就再也没人认领了，删不掉也还原不回去。
     pub fn load(data: &Path) -> Self {
-        std::fs::read_to_string(Self::path(data))
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        let path = Self::path(data);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        match serde_json::from_str(&text) {
+            Ok(manifest) => manifest,
+            Err(_) => {
+                let _ = std::fs::rename(&path, path.with_extension("json.corrupt"));
+                Self::default()
+            }
+        }
     }
 
     /// 清单文件在哪。
@@ -153,11 +201,10 @@ impl Manifest {
         data.join("backup")
     }
 
-    /// 写清单。
+    /// 写清单（原子写，见 crate::library::write_atomic）。
     pub fn save(&self, data: &Path) -> Result<()> {
         std::fs::create_dir_all(data)?;
-        std::fs::write(Self::path(data), serde_json::to_string_pretty(self)?)?;
-        Ok(())
+        crate::library::write_atomic(&Self::path(data), &serde_json::to_string_pretty(self)?)
     }
 
     /// 某个 owner 现在装了哪些。
@@ -314,6 +361,46 @@ impl Manifest {
             .map(|item| &item.owner)
     }
 
+    /// 算一遍"这份计划会把游戏目录改成什么样"，**不写盘**。
+    ///
+    /// 和 `apply` 走同一个 `resolve`，所以两边的判断不会分叉 ——
+    /// 预演说不行的地方，`apply` 一样会拒绝。
+    pub fn preview(&self, installation: &Installation, plan: &Plan) -> Result<Preview> {
+        let mut preview = Preview::default();
+
+        for item in &plan.items {
+            let target = resolve(installation, &item.target)?;
+            let existing_owner = self.owner_of(&item.target).cloned();
+            let entry = PreviewEntry {
+                target: item.target.clone(),
+                existing_bytes: path_bytes(&target),
+                incoming_bytes: path_bytes(&item.source),
+                // 自己占着的位置不算"接管"，只是重铺一遍
+                owner: existing_owner.clone().filter(|other| other != &plan.owner),
+            };
+
+            preview.bytes += entry.incoming_bytes;
+
+            if !target.exists() {
+                preview.add.push(entry);
+            } else if existing_owner.is_none() || existing_owner.as_ref() == Some(&plan.owner) {
+                preview.overwrite.push(entry);
+            } else {
+                preview.takeover.push(entry);
+            }
+        }
+
+        // 本次计划里没有、但我们上次装过的：会被撤掉
+        let planned: Vec<&str> = plan.items.iter().map(|item| item.target.as_str()).collect();
+        for installed in self.of(&plan.owner) {
+            if !planned.contains(&installed.target.as_str()) {
+                preview.delete.push(installed.target.clone());
+            }
+        }
+
+        Ok(preview)
+    }
+
     /// **应用一份计划**：先撤掉同一个 owner 的旧东西，再按计划装。
     ///
     /// 返回冲突提示（目标被别的 owner 占着）—— 不阻断，但要让用户知道
@@ -343,7 +430,7 @@ impl Manifest {
                     other.label(),
                     plan.owner.label()
                 ));
-                self.remove(data, installation, &other)?;
+                self.release(data, installation, &other, &item.target)?;
             }
 
             // 3) 目标已存在（多半是官方文件，或用户自己放的）：先挪进备份区
@@ -366,20 +453,61 @@ impl Manifest {
                 None
             };
 
-            // 4) 铺进去
-            copy_entry(&item.source, &target)?;
-
-            // 5) 记账
+            // 4) **先记账再落地**：官方文件已经从原位挪走，这一步万一失败，
+            //    账上必须留着备份路径 —— 否则它就永远躺在备份区没人认领
             self.files.push(Installed {
                 target: item.target.clone(),
                 owner: plan.owner.clone(),
-                backup,
+                backup: backup.clone(),
                 source: Some(item.source.to_string_lossy().to_string()),
             });
+            self.save(data)?;
+
+            // 5) 铺进去；失败就把备份还回去、把这条账撤掉
+            if let Err(error) = copy_entry(&item.source, &target) {
+                self.files
+                    .retain(|entry| !(entry.owner == plan.owner && entry.target == item.target));
+                restore_backup(data, &target, backup.as_deref())?;
+                self.save(data)?;
+                return Err(error);
+            }
         }
 
-        self.save(data)?;
         Ok(warnings)
+    }
+
+    /// 让出**一个**目标路径：删掉我们放的，还原被挪走的官方文件。
+    ///
+    /// 与 remove 的区别：只动这一条，其余仍然归原 owner —— 目标撞车时
+    /// 把别人的整套文件都撤掉，会留下「库里写着启用中、游戏目录已经空了」。
+    fn release(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        owner: &Owner,
+        target: &str,
+    ) -> Result<()> {
+        let Some(entry) = self
+            .files
+            .iter()
+            .find(|item| &item.owner == owner && item.target == target)
+            .cloned()
+        else {
+            return Ok(());
+        };
+
+        // 先销账再动磁盘，理由同 remove
+        self.files
+            .retain(|item| !(&item.owner == owner && item.target == target));
+        self.save(data)?;
+
+        let path = resolve(installation, target)?;
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else if path.is_file() {
+            let _ = std::fs::remove_file(&path);
+        }
+        restore_backup(data, &path, entry.backup.as_deref())
     }
 
     /// **撤掉某个 owner 装的东西**：删掉我们放的，还原被挪走的官方文件。
@@ -396,6 +524,11 @@ impl Manifest {
             return Ok(());
         }
 
+        // **先销账再动磁盘**：中途失败时账面是「已经撤下」，最坏剩几个文件；
+        // 反过来（先动磁盘后销账）失败一次，重试就会把刚还原的官方文件删掉
+        self.files.retain(|item| &item.owner != owner);
+        self.save(data)?;
+
         for item in &leaving {
             let target = resolve(installation, &item.target)?;
 
@@ -407,19 +540,8 @@ impl Manifest {
             }
 
             // 原本有官方文件被挪走的：原样还原
-            if let Some(relative) = &item.backup {
-                let backup = Self::backup_root(data).join(relative);
-                if backup.exists() {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::rename(&backup, &target)?;
-                }
-            }
+            restore_backup(data, &target, item.backup.as_deref())?;
         }
-
-        self.files.retain(|item| &item.owner != owner);
-        self.save(data)?;
 
         // 备份区里这个 owner 的目录空了就收掉
         let dir = Self::backup_root(data).join(owner.key());
@@ -429,34 +551,28 @@ impl Manifest {
 
         Ok(())
     }
+}
 
-    /// 把清单里已经不存在的文件清掉（用户手删了之类）。
-    pub fn prune(&mut self, data: &Path, installation: &Installation) -> Result<()> {
-        let before = self.files.len();
-        let mut keep = Vec::new();
+/// 把被挪走的官方文件还原回原位。
+///
+/// relative 是从清单里读出来的 —— **清单文件是可以被手改的**，所以这里
+/// 和白名单路径一样要过 safety::ensure_within，否则一条
+/// "backup": "../../../Windows/x" 就能把任意文件搬进游戏目录。
+fn restore_backup(data: &Path, target: &Path, relative: Option<&str>) -> Result<()> {
+    let Some(relative) = relative else {
+        return Ok(());
+    };
 
-        for item in self.files.drain(..) {
-            let target = resolve(installation, &item.target)?;
-            if target.exists() {
-                keep.push(item);
-            } else if let Some(relative) = &item.backup {
-                // 文件没了但备份还在 —— 说明是用户手删的，把备份还原回去
-                let backup = Self::backup_root(data).join(relative);
-                if backup.exists()
-                    && let Some(parent) = target.parent()
-                {
-                    let _ = std::fs::create_dir_all(parent);
-                    let _ = std::fs::rename(&backup, &target);
-                }
-            }
-        }
-
-        self.files = keep;
-        if self.files.len() != before {
-            self.save(data)?;
-        }
-        Ok(())
+    let root = Manifest::backup_root(data);
+    let backup = safety::ensure_within(&root, &root.join(relative))?;
+    if !backup.exists() {
+        return Ok(());
     }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::rename(&backup, target)?;
+    Ok(())
 }
 
 /// 把相对路径解析成游戏目录下的绝对路径，并过白名单校验。
@@ -467,33 +583,48 @@ fn resolve(installation: &Installation, relative: &str) -> Result<PathBuf> {
     allowed_target(installation, &path)
 }
 
-/// 校验目标落在游戏目录的**内容区**之内。
+/// 校验目标落在**星际争霸安装目录之内**。
 ///
-/// 白名单是这三个根（与 AGENTS.md §10.5 一致）：
-///
-/// `@text
-/// <游戏>/Maps/        游戏扫的所有地图 —— 官方战役、自制战役、以及
-///                     作者按自己结构摆的整包（SCMR 就是 Maps/Starcraft Mass Recall/…）
-/// <游戏>/Mods/        模组
-/// <游戏>/Interfaces/  界面
-/// `@
-///
-/// **别收窄成 Maps/Campaign 那种子目录** —— 收窄过，代价是复刻战役整包装不进去：
-/// 地图被正确放到 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 Maps/ 的
+/// 早先只放行 `Maps` / `Mods` / `Interfaces` 三个根，代价是复刻战役整包装不进去：
+/// 地图要落在 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 `Maps/` 的
 /// 路径联动关卡），却被自己的闸门拒绝，用户看到的是「拒绝往 … 写东西」。
-/// 只要还在 `Maps/` 底下就不会污染别的地方，游戏也确实会去扫。
+///
+/// 现在放开成**目录内任意位置**：想覆盖 `SC2Data/`、想换 `Versions/` 里的东西
+/// 都随作者 —— 自由度归作者，**出目录一律拒绝**。
+///
+/// 安全感不来自收窄路径，而来自**动之前先备份**：`apply` 会把要覆盖的原件挪进
+/// `data/backup/` 并记账，`remove` 原样还原；`preview` 先把要动的东西列出来。
+/// 见 `docs/developer-workflow.md` §2。
 ///
 /// 这是写盘的最后一道闸门 —— 不依赖上游校验过没有。
 fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
-    safety::ensure_within(&installation.maps_root, path)
-        .or_else(|_| safety::ensure_within(&installation.mods_root, path))
-        .or_else(|_| safety::ensure_within(&installation.interfaces_root, path))
-        .map_err(|_| {
-            Error::PackageRejected(format!(
-                "拒绝往 {} 写东西 —— 只允许写游戏目录下的 Maps、Mods 和 Interfaces",
-                path.display()
-            ))
-        })
+    safety::ensure_within(&installation.root, path).map_err(|_| {
+        Error::PackageRejected(format!(
+            "拒绝往 {} 写东西 —— 只能写星际争霸安装目录里面的文件",
+            path.display()
+        ))
+    })
+}
+
+/// 一个文件或一棵目录树有多大；不存在就是 0。
+fn path_bytes(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_file() {
+        return meta.len();
+    }
+    if !meta.is_dir() {
+        return 0;
+    }
+
+    walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|meta| meta.len())
+        .sum()
 }
 
 /// 拷一个文件或一棵目录树。
