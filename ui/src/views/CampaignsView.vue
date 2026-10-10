@@ -94,6 +94,20 @@ const importer = ref<InstanceType<typeof ImportDialog> | null>(null);
 /** 官方战役 = 除「自制战役」以外的槽位（菜单固定四部 + 自制）。 */
 const officialCount = computed(() => slots.value.filter((slot) => slot.slug !== "custom").length);
 
+/** 导入还是更新 —— 两个按钮共用同一个对话框。 */
+const importMode = ref<"import" | "update">("import");
+
+function startImport(): void {
+  importMode.value = "import";
+  void importer.value?.startImport();
+}
+
+/** 主页面这颗：目标由包自己认（认不出再让用户选）。 */
+function startUpdate(): void {
+  importMode.value = "update";
+  void importer.value?.startImport();
+}
+
 /** 导入完成后直接进那个战役的菜单页。 */
 function onImported(slot: string): void {
   opened.value = slot;
@@ -172,7 +186,15 @@ function onImported(slot: string): void {
             {{ loading ? "读取中…" : "重新读取" }}
           </button>
           <button class="btn btn-text" type="button" @click="openTools">小工具 ▾</button>
-          <button class="btn btn-primary" type="button" :disabled="importer?.busy" @click="importer?.startImport()">
+          <button
+          class="btn btn-outline"
+          type="button"
+          :disabled="importer?.busy"
+          @click="startUpdate"
+        >
+          更新战役包…
+        </button>
+        <button class="btn btn-primary" type="button" :disabled="importer?.busy" @click="startImport()">
             {{ importer?.busy ? "核对中…" : "＋ 导入战役包" }}
           </button>
         </div>
@@ -183,7 +205,7 @@ function onImported(slot: string): void {
         点开可以导入并切换不同玩家制作的版本，多个版本同时保留、互不覆盖。
       </p>
 
-      <ImportDialog ref="importer" entry="campaign" @imported="onImported" />
+      <ImportDialog ref="importer" entry="campaign" :mode="importMode" @imported="onImported" />
 
       <div class="grid">
           <SlotCard

@@ -741,6 +741,8 @@ export interface LauncherApi {
   mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
   /** 铺模组并用编辑器打开某张地图。 */
   openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 用压缩包更新某个战役（删旧的装新的；该跟着走的记录会带过去）。 */
+  updateVariantFromPackage(slot: string, path: string): Promise<Variant>;
   /** 直接启动星际争霸并进这张地图（不经过编辑器）。 */
   launchGameWithMap(slot: string, variantId: string, map: string): Promise<GameLaunch>;
   /** 版本自带的说明文档；没有就是 null。 */

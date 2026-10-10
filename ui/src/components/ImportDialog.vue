@@ -23,14 +23,23 @@ const props = withDefaults(
      * 没有元数据也不该被识别链带去别的战役。
      */
     entry?: "campaign" | "custom";
+    /**
+     * `update` 表示这次不是"再装一版"，而是**更新某个战役**：
+     * 删掉旧的、装进新的（见 `library::replace_variant`）。
+     */
+    mode?: "import" | "update";
+    /** 更新模式下点明的目标战役 —— 有它就是"强制更新"，不看包认得出谁。 */
+    slot?: string;
   }>(),
-  { entry: "campaign" },
+  { entry: "campaign", mode: "import", slot: "" },
 );
 
 const emit = defineEmits<{ imported: [string] }>();
 
 /** 是不是从「自制战役」页进来的。 */
 const isCustomEntry = computed(() => props.entry === "custom");
+/** 是不是"更新"而不是"导入"。 */
+const isUpdate = computed(() => props.mode === "update");
 
 const { slots, notify, refresh, droppedPackage } = useLauncher();
 
@@ -179,7 +188,9 @@ async function prepare(path: string): Promise<void> {
     // 自制战役入口：槽位由入口定死，不采信识别结果
     pending.value = {
       preview: result,
-      slot: isCustomEntry.value ? "custom" : (result.slot ?? ""),
+      // 更新模式：目标优先用调用方点明的（每个战役页那颗按钮就是这条路），
+      // 否则才采信识别结果。自制战役入口同样由入口定死。
+      slot: props.slot || (isCustomEntry.value ? "custom" : (result.slot ?? "")),
       mode: "rename",
     };
     mountMods.value = true;
@@ -219,8 +230,9 @@ async function confirmImport(): Promise<void> {
   const current = pending.value;
   if (!current || !current.slot) return;
 
-  // 高置信度却被强改 -> 先问一句，别默默装错
-  if (overrideWarning.value) {
+  // 高置信度却被强改 -> 先问一句，别默默装错。
+  // 更新模式不适用：目标是人点明的，不是"改"出来的。
+  if (overrideWarning.value && !isUpdate.value) {
     overrideOpen.value = true;
     return;
   }
@@ -242,13 +254,23 @@ function revertTarget(): void {
   overrideOpen.value = false;
 }
 
-/** 真正执行导入。 */
+/** 真正执行导入（或更新）。 */
 async function doImport(): Promise<void> {
   const current = pending.value;
   if (!current || !current.slot) return;
 
   importing.value = true;
   try {
+    // 更新：删旧的装新的，该跟着走的记录由后端带过去
+    if (isUpdate.value) {
+      const updated = await api.updateVariantFromPackage(current.slot, current.preview.path);
+      pending.value = null;
+      await refresh();
+      notify("success", "已更新「" + updated.name + "」");
+      emit("imported", current.slot);
+      return;
+    }
+
     const created = await api.importPackageWith(
       current.preview.path,
       current.slot,
@@ -287,7 +309,7 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
     <div class="import__head">
       <div>
         <div class="import__title">
-          将导入：{{ pendingName }}
+          {{ isUpdate ? "将更新：" : "将导入：" }}{{ pendingName }}
           <span v-if="inspection?.version" class="tag">v{{ inspection.version }}</span>
           <span class="tag" :class="{ 'tag--patch': isPatch }">
             {{ isPatch ? "补丁包" : "战役包" }}
@@ -324,9 +346,9 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
 
     <template v-else>
       <!-- 自制战役入口：归属已定，不显示选择器，也不显示识别结果 -->
-      <div v-if="isCustomEntry" class="import__field">
-        <span class="import__label">导入到：</span>
-        <span class="import__fixed">自制战役</span>
+      <div v-if="isCustomEntry || isUpdate" class="import__field">
+        <span class="import__label">{{ isUpdate ? "更新：" : "导入到：" }}</span>
+        <span class="import__fixed">{{ isUpdate ? chosenName : "自制战役" }}</span>
       </div>
 
       <!-- 目标：**始终可选**，默认填自动识别的结果 -->
@@ -355,7 +377,7 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
       </div>
 
       <!-- 带模组的包：问一句要不要一起装 -->
-      <label v-if="packageMods > 0" class="check">
+      <label v-if="packageMods > 0 && !isUpdate" class="check">
         <input v-model="mountMods" type="checkbox" />
         <span>
           一起挂载这 <strong>{{ packageMods }}</strong> 个模组
@@ -363,8 +385,8 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
         </span>
       </label>
 
-      <!-- 冲突：覆盖更新 or 重命名后导入 -->
-      <div v-if="preview?.conflict" class="conflict">
+      <!-- 冲突：覆盖更新 or 重命名后导入（更新模式不问 —— 更新就是换掉旧的） -->
+      <div v-if="preview?.conflict && !isUpdate" class="conflict">
         <div class="conflict__text">{{ conflictText }}</div>
         <div class="targets">
           <button
@@ -399,6 +421,10 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
     </ul>
 
     <div class="import__actions">
+      <p v-if="isUpdate" class="import__note">
+        更新会<strong>先删掉这一版、再装进新的</strong>；它正启用着的话，会先切回原版、装完再应用回去。
+        存档档案与补丁绑定挂在战役上，不受影响。
+      </p>
       <button class="btn btn-text" type="button" @click="cancel">取消</button>
       <button
         v-if="isPatch"
@@ -416,7 +442,7 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
         :disabled="importing || !pending.slot || !inspection?.installable"
         @click="confirmImport"
       >
-        {{ importing ? "导入中…" : "确认导入" }}
+        {{ importing ? "处理中…" : isUpdate ? "确认更新" : "确认导入" }}
       </button>
     </div>
   </section>

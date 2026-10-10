@@ -8,10 +8,28 @@ import { errorText, useLauncher } from "../composables/useLauncher";
 import VariantCard from "../components/VariantCard.vue";
 import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
 import DocViewer from "../components/DocViewer.vue";
+import ImportDialog from "../components/ImportDialog.vue";
 import { useContextMenu } from "../composables/useContextMenu";
 
 const props = defineProps<{ slot: SlotView }>();
 const emit = defineEmits<{ back: [] }>();
+
+/**
+ * 强制更新用的对话框。
+ *
+ * **目标就是这一部战役** —— 不看包能不能认出自己（没有元数据、元数据坏了都能用）。
+ * 更新 = 删掉旧的装新的，该跟着走的记录（存档档案、补丁绑定、模组清单）由后端带过去。
+ */
+const updater = ref<InstanceType<typeof ImportDialog> | null>(null);
+
+function startUpdate(): void {
+  void updater.value?.startImport();
+}
+
+/** 更新完刷新一下：版本列表、启用状态、游戏目录里的东西都变了。 */
+async function onUpdated(): Promise<void> {
+  await refresh();
+}
 
 /**
  * 版本卡片上的右键菜单。
@@ -394,18 +412,30 @@ async function doExport(mergePatches: boolean): Promise<void> {
         <h2 class="banner__title">{{ slot.display_name }}</h2>
         <p class="banner__sub">
           {{ isCustom
-            ? "挑一部战役，用编辑器打开它的地图来玩"
+            ? "挑一部战役，直接启动游戏来玩"
             : "选择要游玩的版本 —— 原版战役，或导入的玩家版本" }}
         </p>
       </div>
-      <button
-        v-if="!isCustom"
-        class="btn btn-primary banner__play"
-        type="button"
-        @click="launch"
-      >
-        开始游戏
-      </button>
+      <div class="banner__actions">
+        <!-- 强制更新：包里没元数据、或者元数据坏了时，就靠它把这一部换掉 -->
+        <button
+          class="btn btn-text banner__btn"
+          type="button"
+          :disabled="updater?.busy"
+          title="用压缩包把这一部战役换掉（删旧的、装新的）"
+          @click="startUpdate"
+        >
+          更新…
+        </button>
+        <button
+          v-if="!isCustom"
+          class="btn btn-primary banner__play"
+          type="button"
+          @click="launch"
+        >
+          开始游戏
+        </button>
+      </div>
     </header>
 
     <!-- 版本卡片：原版永远排第一 -->
@@ -565,6 +595,14 @@ async function doExport(mergePatches: boolean): Promise<void> {
         {{ dirty ? "启用这个版本" : "已是当前版本" }}
       </button>
     </footer>
+    <ImportDialog
+      ref="updater"
+      entry="campaign"
+      mode="update"
+      :slot="slot.slug"
+      @imported="onUpdated"
+    />
+
     <!-- 编辑补丁 -->
     <div v-if="editingPatch" class="sheet">
       <div class="sheet__card">
@@ -791,6 +829,23 @@ async function doExport(mergePatches: boolean): Promise<void> {
   margin: 5px 0 0;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.82);
+}
+
+/* 更新 / 开始游戏：横排，靠右侧各自成组 */
+.banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 深色底上的文字按钮：半透明底 + 白字才看得见 */
+.banner__btn.btn-text {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.banner__btn.btn-text:hover {
+  background: rgba(255, 255, 255, 0.26);
 }
 
 .banner__play {

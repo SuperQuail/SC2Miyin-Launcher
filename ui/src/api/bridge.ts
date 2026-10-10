@@ -119,6 +119,8 @@ const desktop: LauncherApi = {
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
   launchGameWithMap: (slot, variantId, map) =>
     invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
+  updateVariantFromPackage: (slot, path) =>
+    invoke<Variant>("update_variant_from_package", { slot, path }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
@@ -720,6 +722,26 @@ const demo: LauncherApi = {
   setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
   setMainMap: (_slot, _variantId, _map) => delay({} as never),
   mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  updateVariantFromPackage: (slot, path) =>
+    delay(
+      (() => {
+        counter += 1;
+        const created = variant(
+          "更新后的战役包 v" + counter,
+          "更新后的战役包",
+          "未知作者",
+          "2." + counter,
+          counter,
+          512_000_000,
+        );
+        const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
+        // 演示里"更新"= 换掉当前那一版（没有就装上）
+        if (target.variants.length > 0) target.variants[0] = created;
+        else target.variants.unshift(created);
+        void path;
+        return created;
+      })(),
+    ),
   launchGameWithMap: async (_slot, _variantId, map) => ({
     map,
     guidance: "（演示模式）已经交给星际争霸，正在加载这张地图。",
