@@ -14,8 +14,10 @@ use std::time::Duration;
 /// 这里也该穿 —— 不然探测结果和用户实际能打开的东西对不上。
 pub fn https_usable(url: &str) -> bool {
     let Ok(client) = reqwest::blocking::Client::builder()
-        .connect_timeout(Duration::from_secs(3))
-        .timeout(Duration::from_secs(6))
+        // 最坏 3 秒就放弃：这是用户点了一下按钮在等的结果，
+        // 宁可偶尔把"慢但能用"判成不能用（退回 HTTP 照样打得开），也不能让人干等
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(3))
         .redirect(reqwest::redirect::Policy::limited(5))
         .user_agent("SC2Miyin-Launcher")
         .build()
