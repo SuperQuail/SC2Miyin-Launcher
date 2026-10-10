@@ -82,8 +82,9 @@ pub struct ExportFile {
 
 /// 把文件打成 zip：每条按**原样路径**进包，附一份元数据，目录项自动补齐。
 ///
-/// `on_progress` 每写完一个文件回调一次（已完成, 总数）—— 大包要几十秒，
-/// 界面靠它画进度条。
+/// `on_progress` 每写完一个文件回调一次（已完成, 总数），**返回 false 表示用户取消了**：
+/// 这时会把写了一半的包删掉再报错 —— 留个半成品在那儿，它只会冒充一个能用的包。
+/// 大包要几十秒，界面靠这个回调画进度条、也是唯一能中途叫停的地方。
 ///
 /// `metadata.json` **第一条写**：万一后面出错，留下的包至少还能被读懂。
 /// 顺带补一份 CCM 认的 `metadata.txt`（解析器优先读 JSON，那份是给别家工具的）。
@@ -91,7 +92,7 @@ pub fn export(
     dest: &Path,
     meta: &PackageMeta,
     files: &[ExportFile],
-    mut on_progress: impl FnMut(usize, usize),
+    mut on_progress: impl FnMut(usize, usize) -> bool,
 ) -> Result<ExportReport> {
     let file = std::fs::File::create(dest)?;
     if files.is_empty() {
@@ -137,7 +138,9 @@ pub fn export(
                 dirs.push(entry);
             }
             written += 1;
-            on_progress(written, total);
+            if !on_progress(written, total) {
+                return cancelled(dest);
+            }
             continue;
         }
 
@@ -162,7 +165,9 @@ pub fn export(
         let mut input = std::fs::File::open(&source)?;
         bytes += std::io::copy(&mut input, &mut zip)?;
         written += 1;
-        on_progress(written, total);
+        if !on_progress(written, total) {
+            return cancelled(dest);
+        }
     }
 
     zip.finish()?;
@@ -173,6 +178,12 @@ pub fn export(
         files: written,
         bytes,
     })
+}
+
+/// 用户中途取消：**把写了一半的包删掉**，再报错。
+fn cancelled(dest: &Path) -> Result<ExportReport> {
+    let _ = std::fs::remove_file(dest);
+    Err(Error::PackageRejected("已取消导出".to_string()))
 }
 
 /// 拼 CCM 那种 `键=值` 的 `metadata.txt`。
@@ -312,7 +323,7 @@ mod tests {
         };
 
         let dest = tmp.path().join("导出.zip");
-        let report = export(&dest, &meta, &files, |_, _| {}).expect("导出");
+        let report = export(&dest, &meta, &files, |_, _| true).expect("导出");
         assert_eq!(report.files, 2);
         assert!(dest.is_file());
 
@@ -359,7 +370,7 @@ mod tests {
             ..PackageMeta::default()
         };
         let custom_dest = tmp.path().join("自制.zip");
-        export(&custom_dest, &custom, &files, |_, _| {}).expect("导出");
+        export(&custom_dest, &custom, &files, |_, _| true).expect("导出");
         let archive = std::fs::File::open(&custom_dest).expect("开包");
         let mut zip = zip::ZipArchive::new(archive).expect("读包");
         let mut custom_text = String::new();
@@ -405,7 +416,7 @@ mod tests {
                 ..PackageMeta::default()
             },
             &files,
-            |_, _| {},
+            |_, _| true,
         )
         .expect("导出");
         let base = read("基础.zip");
@@ -419,7 +430,7 @@ mod tests {
                 ..PackageMeta::default()
             },
             &files,
-            |_, _| {},
+            |_, _| true,
         )
         .expect("导出");
         let patch = read("补丁.zip");
@@ -478,7 +489,7 @@ mod tests {
             mods: Vec::new(),
         };
         let dest = tmp.path().join("往返.zip");
-        export(&dest, &meta, &files, |_, _| {}).expect("导出");
+        export(&dest, &meta, &files, |_, _| true).expect("导出");
 
         let inspection = crate::campaign::package::inspect(&dest).expect("解析自己导出的包");
         assert_eq!(inspection.name.as_deref(), Some("往返测试"), "名称");
@@ -557,7 +568,7 @@ mod tests {
         let meta = PackageMeta::default();
 
         assert!(
-            export(&dest, &meta, &[], |_, _| {}).is_err(),
+            export(&dest, &meta, &[], |_, _| true).is_err(),
             "空勾选要拒绝"
         );
 
@@ -571,7 +582,7 @@ mod tests {
                 .into_owned(),
         }];
         assert!(
-            export(&dest, &meta, &missing, |_, _| {}).is_err(),
+            export(&dest, &meta, &missing, |_, _| true).is_err(),
             "文件没了要报错"
         );
     }
@@ -593,7 +604,7 @@ mod tests {
             name: "空目录".to_string(),
             ..PackageMeta::default()
         };
-        let report = export(&dest, &meta, &files, |_, _| {}).expect("导出");
+        let report = export(&dest, &meta, &files, |_, _| true).expect("导出");
         assert_eq!(report.files, 1);
 
         let archive = std::fs::File::open(&dest).expect("开包");
@@ -625,13 +636,53 @@ mod tests {
                 abs: map.to_string_lossy().into_owned(),
                 is_dir: false,
             }],
-            |_, _| {},
+            |_, _| true,
         )
         .expect("导出");
 
         let archive = std::fs::File::open(&dest).expect("开包");
         let mut zip = zip::ZipArchive::new(archive).expect("读包");
         assert_eq!(zip.by_index(0).expect("第一条").name(), "metadata.json");
+    }
+
+    /// 中途取消：**半成品必须删掉**，不能留一个假装能用的包。
+    #[test]
+    fn cancelling_removes_the_partial_package() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let one = tmp.path().join("a.SC2Map");
+        let two = tmp.path().join("b.SC2Map");
+        std::fs::write(&one, "x").expect("写");
+        std::fs::write(&two, "y").expect("写");
+        let dest = tmp.path().join("取消.zip");
+        let files = vec![
+            ExportFile {
+                path: "Maps/a.SC2Map".to_string(),
+                abs: one.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+            ExportFile {
+                path: "Maps/b.SC2Map".to_string(),
+                abs: two.to_string_lossy().into_owned(),
+                is_dir: false,
+            },
+        ];
+
+        // 写完第一个就喊停
+        let error = export(
+            &dest,
+            &PackageMeta {
+                name: "取消".to_string(),
+                ..PackageMeta::default()
+            },
+            &files,
+            |done, _| done < 1,
+        )
+        .expect_err("取消了就该报错");
+        assert!(
+            error.to_string().contains("已取消"),
+            "错误要说清是取消：{error}"
+        );
+        assert!(!dest.exists(), "半成品必须删掉");
     }
 
     #[test]
@@ -644,6 +695,6 @@ mod tests {
             abs: map.to_string_lossy().into_owned(),
             is_dir: false,
         }];
-        assert!(export(&dest, &PackageMeta::default(), &files, |_, _| {}).is_err());
+        assert!(export(&dest, &PackageMeta::default(), &files, |_, _| true).is_err());
     }
 }

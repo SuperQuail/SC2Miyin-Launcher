@@ -46,6 +46,8 @@ struct AppState {
     network_path: PathBuf,
     /// 已经下载好、等着换上去的更新。
     staged: Mutex<Option<Staged>>,
+    /// 开发者页的导出被要求取消了没。导出过程中界面唯一能改的一个开关。
+    dev_cancel: std::sync::atomic::AtomicBool,
 }
 
 /// 下载进度事件（发给前端画进度条）。
@@ -84,6 +86,7 @@ impl AppState {
             network: Mutex::new(network),
             network_path,
             staged: Mutex::new(None),
+            dev_cancel: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -361,12 +364,27 @@ fn dev_export(
     meta: miyin_core::dev::export::PackageMeta,
     files: Vec<miyin_core::dev::export::ExportFile>,
     window: tauri::Window,
+    state: State<'_, AppState>,
 ) -> Result<miyin_core::dev::export::ExportReport, String> {
-    // 打包大包要几十秒，界面得看得见进度 —— 每写完一个文件报一次
+    use std::sync::atomic::Ordering;
+
+    // 这次导出从头开始算，先把上次可能留下的取消标记清掉
+    state.dev_cancel.store(false, Ordering::SeqCst);
+
+    // 打包大包要几十秒：每写完一个文件报一次进度，同时看一眼是不是被要求取消了
     miyin_core::dev::export::export(std::path::Path::new(&dest), &meta, &files, |done, total| {
         let _ = window.emit("dev://export", ExportProgress { done, total });
+        !state.dev_cancel.load(Ordering::SeqCst)
     })
     .map_err(|error| error.to_string())
+}
+
+/// 开发者页：取消正在进行的导出（写了一半的包会被删掉）。
+#[tauri::command(async)]
+fn dev_cancel_export(state: State<'_, AppState>) {
+    state
+        .dev_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// 导出进度（发给界面画进度条）。
@@ -1794,6 +1812,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             dev_scan,
             dev_export,
+            dev_cancel_export,
             dev_pick_doc,
             dev_pick_export_path,
             list_installed_campaigns,

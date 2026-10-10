@@ -181,6 +181,16 @@ export async function pickDocFile(kind: "cover" | "doc"): Promise<string | null>
   }
 }
 
+/** 取消正在进行的导出（后端会把写了一半的包删掉）。 */
+export async function cancelExport(): Promise<void> {
+  if (!isDesktop) return;
+  try {
+    await invoke("dev_cancel_export");
+  } catch {
+    // 取消了就取消了，没别的可做
+  }
+}
+
 /** 把勾选的文件打成一个包。 */
 export async function exportPackage(
   dest: string,

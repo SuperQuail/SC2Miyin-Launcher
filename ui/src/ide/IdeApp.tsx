@@ -15,6 +15,7 @@ import {
   commit as commitVersion,
   diff as diffVersions,
   type ExportProgress,
+  cancelExport,
   exportPackage,
   forgetCommit,
   history as loadHistory,
@@ -308,6 +309,9 @@ export function IdeApp() {
     const wanted = new URLSearchParams(location.search).get("guard");
     return wanted === "home" || wanted === "close" ? wanted : null;
   });
+
+  /** 取消导出之后要去哪 —— 等导出真的收尾了再走。 */
+  const pendingLeave = useRef<null | "home" | "close">(null);
 
   const busyExport = exportProgress !== null;
   // 审查时没有真的在导出，拿一个像样的数字把框画出来（只有 ?guard= 才会走到）
@@ -668,9 +672,15 @@ export function IdeApp() {
       const report = await exportPackage(dest, payload, files, setExportProgress);
       setStatus("导出完成：" + report.files + " 个文件 · " + formatBytes(report.bytes) + " → " + report.path);
     } catch (error) {
-      setStatus("导出失败：" + (error instanceof Error ? error.message : String(error)));
+      const message = error instanceof Error ? error.message : String(error);
+      setStatus(message.includes("已取消") ? "已取消导出，写了一半的包已删掉" : "导出失败：" + message);
     } finally {
       setExportProgress(null);
+      // 取消导出之后才真的走人 —— 走之前包已经删干净了
+      const action = pendingLeave.current;
+      pendingLeave.current = null;
+      if (action === "home") location.href = "/index.html";
+      else if (action === "close") void launcher.windowClose();
     }
   }, [pkg, picked, entries, meta]);
 
@@ -1090,22 +1100,23 @@ export function IdeApp() {
           <div className="guard__card" onClick={(event) => event.stopPropagation()}>
             <h3 className="guard__title">还在打包</h3>
             <p className="guard__text">
-              正写到 {shownProgress?.done ?? 0} / {shownProgress?.total ?? 0} ——
-              现在离开会留下一个<strong>不完整</strong>的包：拿它导入只会读不到元数据。
+              正写到 {shownProgress?.done ?? 0} / {shownProgress?.total ?? 0}。
+              离开就得先取消这次导出 —— <strong>写了一半的包会被删掉</strong>。
             </p>
             <div className="guard__actions">
               <button className="btn btn-tonal" type="button" onClick={() => setLeaveGuard(null)}>
-                继续等
+                不取消
               </button>
               <button
-                className="btn btn-primary"
+                className="btn btn-primary guard__danger"
                 type="button"
                 onClick={() => {
-                  if (leaveGuard === "home") location.href = "/index.html";
-                  else void launcher.windowClose();
+                  pendingLeave.current = leaveGuard;
+                  setLeaveGuard(null);
+                  void cancelExport();
                 }}
               >
-                仍然离开
+                取消导出并离开
               </button>
             </div>
           </div>

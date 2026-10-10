@@ -1091,3 +1091,9 @@ body {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* 取消导出：这是"丢掉手上的活"，不是普通的主按钮 */
+.guard__danger {
+  background: var(--danger);
+  color: #fff;
+}
