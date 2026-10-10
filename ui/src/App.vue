@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { api } from "./api/bridge";
 import { BACKDROP, MIYIN } from "./api/art";
+import { RESOURCE_SITE, useSiteLinks } from "./composables/useSiteLinks";
 import { useLauncher } from "./composables/useLauncher";
 import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
@@ -15,6 +16,9 @@ import CustomView from "./views/CustomView.vue";
 import ModsView from "./views/ModsView.vue";
 import CheatsView from "./views/CheatsView.vue";
 import SettingsView from "./views/SettingsView.vue";
+
+const { sitePending, siteResolved, siteProbing, requestSite, confirmSite, cancelSite } =
+  useSiteLinks();
 
 const {
   installation,
@@ -62,24 +66,6 @@ const tabs: { id: ViewId; label: string }[] = [
  * 预览件不入库（.gitignore 里有），所以用 glob 而不是 import：别人克隆下来
  * 没有那个目录，匹配到空，一切照旧；生产构建里这段也是死的。
  */
-/**
- * 资源网站。
- *
- * 显示给人看的是中文域名；**真正打开的是 punycode 那份** ——
- * 非 ASCII 域名交给系统「打开链接」时，各家实现对编码的处理并不一致，
- * punycode 是 ASCII，谁都不会弄错。
- */
-const SITE_NAME = "www.叽叽咕咕.fun";
-const SITE_URL = "https://www.xn--xpra07ba.fun";
-
-/** 「资源网站」的确认框开着没有。 */
-const askSite = ref(false);
-
-function openSite(): void {
-  askSite.value = false;
-  void api.openUrl(SITE_URL);
-}
-
 const previewName = import.meta.env.DEV
   ? new URLSearchParams(location.search).get("preview")
   : null;
@@ -350,7 +336,7 @@ onUnmounted(() => {
           class="tab tab--site"
           type="button"
           title="资源网站（用系统默认浏览器打开）"
-          @click="askSite = true"
+          @click="requestSite(RESOURCE_SITE)"
         >
           资源网站
         </button>
@@ -498,18 +484,24 @@ onUnmounted(() => {
     <UpdateNotice v-if="!previewView" />
 
     <!-- 更新下载完成后提示重启 -->
-    <!-- 资源网站：先问一句，别默默跳走 -->
-    <div v-if="askSite" class="sheet" @click.self="askSite = false">
+    <!-- 外部站点：先问一句，别默默跳走（弹窗归 useSiteLinks 管，这里只管画） -->
+    <div v-if="sitePending" class="sheet sheet--site" @click.self="cancelSite">
       <div class="sheet__card">
-        <h3 class="sheet__title">用浏览器打开资源网站？</h3>
+        <h3 class="sheet__title">用浏览器打开{{ sitePending.name }}？</h3>
         <p class="sheet__text">
-          会离开启动器，用系统默认浏览器打开 <strong>{{ SITE_NAME }}</strong>。
+          会离开启动器，用系统默认浏览器打开 <strong>{{ sitePending.host }}</strong>。
+          <template v-if="siteProbing">（正在确认能不能走 HTTPS…）</template>
+          <template v-else>
+            （走 <strong>{{ siteResolved.startsWith("https") ? "HTTPS" : "HTTP" }}</strong>）
+          </template>
         </p>
         <div class="sheet__actions">
-          <button class="btn btn-text" type="button" @click="askSite = false">取消</button>
-          <button class="btn btn-primary" type="button" @click="openSite">打开网站</button>
+          <button class="btn btn-text" type="button" @click="cancelSite">取消</button>
+          <button class="btn btn-primary" type="button" :disabled="siteProbing" @click="confirmSite">
+            打开网站
+          </button>
         </div>
-      </div>
+    </div>
     </div>
     <div v-if="showRestartPrompt && !previewView" class="sheet">
       <div class="sheet__card">

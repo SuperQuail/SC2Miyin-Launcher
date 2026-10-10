@@ -337,6 +337,18 @@ fn dev_pick_export_path(default_name: String) -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 探一下站点支不支持 HTTPS：支持就用 HTTPS，不支持退回 HTTP。
+///
+/// 前端点"打开网站"时先问它一次 —— 结果给用户看的就是**真正会打开的地址**。
+#[tauri::command(async)]
+fn resolve_site_url(https: String, http: String) -> String {
+    if miyin_core::net::https_usable(&https) {
+        https
+    } else {
+        http
+    }
+}
+
 /// 开发者页：选一个要带进包的文件（封面图 / 说明书 PDF）。
 #[tauri::command(async)]
 fn dev_pick_doc(kind: String) -> Option<String> {
@@ -1901,6 +1913,7 @@ pub fn run() {
             dev_export,
             dev_cancel_export,
             dev_pick_doc,
+            resolve_site_url,
             dev_pick_export_path,
             list_installed_campaigns,
             dev_history,

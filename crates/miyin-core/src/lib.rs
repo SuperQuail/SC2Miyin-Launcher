@@ -13,6 +13,7 @@ pub mod campaign;
 pub mod dev;
 pub mod error;
 pub mod library;
+pub mod net;
 pub mod platform;
 pub mod safety;
 pub mod saves;

@@ -120,6 +120,7 @@ const desktop: LauncherApi = {
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
   launchGameWithMap: (slot, variantId, map) =>
     invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
+  resolveSiteUrl: (https, http) => invoke<string>("resolve_site_url", { https, http }),
   updateVariantFromPackage: (slot, variantId, path) =>
     invoke<UpdateResult>("update_variant_from_package", { slot, variantId, path }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
@@ -723,6 +724,7 @@ const demo: LauncherApi = {
   setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
   setMainMap: (_slot, _variantId, _map) => delay({} as never),
   mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  resolveSiteUrl: async (https, _http) => https,
   updateVariantFromPackage: (slot, variantId, path) =>
     delay(
       (() => {

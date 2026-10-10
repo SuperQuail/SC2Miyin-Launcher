@@ -747,6 +747,8 @@ export interface LauncherApi {
   mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
   /** 铺模组并用编辑器打开某张地图。 */
   openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 探一下站点支不支持 HTTPS：支持返回 https 那份，不支持返回 http 那份。 */
+  resolveSiteUrl(https: string, http: string): Promise<string>;
   /** 用压缩包更新某个战役（删旧的装新的；该跟着走的记录会带过去）。 */
   updateVariantFromPackage(
     slot: string,
