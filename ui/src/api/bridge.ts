@@ -56,7 +56,6 @@ const desktop: LauncherApi = {
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
-  sc2Running: () => invoke<string | null>("sc2_running"),
   saveIsolation: () => invoke<SaveIsolation>("save_isolation"),
   setSaveIsolation: (enabled) => invoke<SaveIsolation>("set_save_isolation", { enabled }),
   saveCurrentSaves: () => invoke<SaveIsolation>("save_current_saves"),
@@ -511,7 +510,6 @@ const demo: LauncherApi = {
       issues: [],
     } satisfies PackageInspection),
 
-  sc2Running: async () => null,
   saveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
   setSaveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
   saveCurrentSaves: async () => ({ enabled: false, active: null, assignments: {} }),

@@ -1,4 +1,4 @@
-# 弥音战役包 / 补丁包格式 v2
+# 弥音战役包 / 补丁包格式
 
 > 本文档是**包作者**与**启动器实现**之间的契约，也是格式的唯一权威。
 > 实现见 `crates/miyin-core/src/campaign/` 与 `library/`。
@@ -373,6 +373,55 @@ doc=说明.pdf
 说明文档和封面一样，**连包一起解开后就留在版本目录里**，
 启动器读它不需要再碰原压缩包。
 
+## 1.9 覆盖文件夹（`overrides`）—— v3
+
+v2 里"不是地图/模组的文件"没有落点，只能被静默丢掉（`.SC2Interface`、`.dds`、
+`LocalizedData/*`…）。`overrides` 就是给它们一条**声明落点**的路子。
+
+```json
+{
+  "name": "复刻战役",
+  "campaign": "custom",
+  "miyin": {
+    "format": 3,
+    "overrides": [
+      { "from": "overrides" },
+      { "from": "extra", "to": "Maps/Starcraft Mass Recall" }
+    ]
+  }
+}
+```
+
+`metadata.txt` 也认，键名 `overrides`，一行一条（**只能表达原样覆盖**，
+`key=value` 写不下 `to`）：
+
+```ini
+title=复刻战役
+campaign=custom
+overrides=overrides
+overrides=extra
+```
+
+| 形式 | 含义 |
+| --- | --- |
+| `{"from": "overrides"}` | **原样覆盖**：`overrides/Maps/X` → `<游戏>/Maps/X` |
+| `{"from": "extra", "to": "Maps/…"}` | **前缀映射**：`extra/1. Rebel Yell/Terran01.SC2Map` → `<游戏>/Maps/…/1. Rebel Yell/Terran01.SC2Map` |
+
+`to` 省略即原样覆盖，末尾有没有 `/` 都一样。**不做**通配、排除、条件规则 ——
+真需要筛文件，作者打包时筛一遍就行。
+
+三条规矩：
+
+1. **显式声明优先于 v2 的推断**，而且**不算冲突**（作者写的就是准的）。
+2. 两条**覆盖规则**命中同一条路径 → **拒绝整个包**并说清是哪两条：落点必须唯一。
+3. 同一个 `to` 被多条规则叠 → 按声明顺序铺，后面的赢（同补丁分层语义）。
+
+覆盖文件夹里**什么都行**：地图与模组仍是载荷（照样计入条目数、解压体积、模组识别），
+区别只是落点不再靠猜；其余文件由规则接管。
+
+**v2 的行为一个字节都不改**：不写 `overrides` 的包照旧走全部旧规则；
+写了也只对规则命中的那些路径生效。
+
 ## 2. 补丁包
 
 ### 2.1 什么是补丁
@@ -511,16 +560,13 @@ priority=100
 | --- | --- | --- |
 | `1` | name / author / version / campaign / id / cover / tags | 基础字段 |
 | `2` | 加上 kind / priority / requires | 补丁字段 —— **必须理解**才不会装错 |
-| `3` | 加上 overrides | 覆盖规则（v3 草案已实现） |
+| `3` | 加上 overrides | 覆盖规则，见 §1.9 |
 
 **导出时按"实际用到了哪一档"声明**：没写补丁字段就别报 2 —— 多报会让老启动器
 白白拒绝你的包，少报会让它按老语义解析新字段。两条都糟。
 
 包声明的 `miyin.format` 高于启动器支持时会**明确拒绝**，不会猜着解析。
 
-### 下一版（草案）
+### 当前：v3
 
-`docs/package-format-v3.md` 是 **v3 草案**：给包作者一条声明落点的规则
-（**覆盖文件夹**，`overrides`），解决「不是地图/模组的文件一律看不见」
-（`Interfaces/` 就是这一类）与「散装地图进不了自定义目录」。
-**定稿前本文仍是唯一权威**；v3 落地时草案并入本文，版本号提到 3、`miyin.format` 提到 2。
+`overrides` 已落地（`MIYIN_FORMAT_VERSION = 3`），就是上面 §1.9 那一节。

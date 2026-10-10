@@ -1,7 +1,7 @@
 # 战役包打包指南
 
 给**包作者**看的。格式的权威定义在 [package-format.md](package-format.md) 与
-[package-format-v3.md](package-format-v3.md)，这份讲怎么把它用起来。
+[package-format.md](package-format.md) §1.9，这份讲怎么把它用起来。
 
 ---
 

@@ -64,9 +64,6 @@ pub struct ExportReport {
 }
 
 /// 导出时最多这么多个文件 —— 防手滑把整个游戏目录打进去。
-#[allow(dead_code)]
-pub const MAX_FILES: usize = 20000;
-
 /// 一条要打进包里的东西：包内路径 + 磁盘上的绝对路径。
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExportFile {

@@ -277,12 +277,6 @@ fn banks_root(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String>
         .ok_or_else(|| "找不到「我的文档 / StarCraft II」—— 游戏还没产生过存档？".to_string())
 }
 
-/// 游戏是不是正跑着。启用 / 停用前先问它。
-#[tauri::command(async)]
-fn sc2_running() -> Option<String> {
-    miyin_core::platform::game_running()
-}
-
 /// 启用前先看：这次会往游戏目录里放什么、覆盖什么、删什么。**不写盘。**
 ///
 /// 写盘闸门放开到「安装目录里任意位置」之后，这就是兜底的那一眼 ——
@@ -1829,7 +1823,6 @@ pub fn run() {
             backup_saves,
             restore_saves,
             list_save_backups,
-            sc2_running,
             preview_activation,
             dev_pick_directory,
             dev_read_file,

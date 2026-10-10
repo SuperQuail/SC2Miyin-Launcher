@@ -627,7 +627,6 @@ export interface LauncherApi {
   restoreSaves(name: string): Promise<string>;
 
   /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
-  sc2Running(): Promise<string | null>;
 
   /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
   previewActivation(slot: string, variantId: string): Promise<Preview | null>;
