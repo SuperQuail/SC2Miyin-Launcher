@@ -316,18 +316,13 @@ export function IdeApp() {
   const busyExport = exportProgress !== null;
   // 审查时没有真的在导出，拿一个像样的数字把框画出来（只有 ?guard= 才会走到）
   const shownProgress = exportProgress ?? (leaveGuard ? { done: 123, total: 2331 } : null);
-  // 关窗回调里要读"此刻"的状态，用 ref 免得闭包拿到旧值
-  const busyRef = useRef(busyExport);
-  useEffect(() => {
-    busyRef.current = busyExport;
-  }, [busyExport]);
-
   /**
-   * 打包没完就别走。
+   * 打包没完就别走：一次导出几十秒到几分钟，中途走掉留下的是写了一半的包。
    *
-   * 这不是礼貌问题：一次导出要写几十秒到几分钟，中途离开会留下一个写了一半的包 ——
-   * 拿它去导入只会看到"读不到元数据"。所以三条路都要拦：页面里点返回、
-   * 桌面壳的关闭按钮、以及浏览器级的刷新/关标签。
+   * **故意不用 Tauri 的 `onCloseRequested`** —— 一旦注册过它，这个窗口的关闭
+   * 就交给 JS 决定了（Tauri 不再自己关），而注册是跟着窗口而不是跟着页面的：
+   * 打开过一次开发者页，之后回到启动器点 X 也关不掉窗。踩过。
+   * 现在拦两条路：页面内点 X / 点返回（自己弹框），以及浏览器级的刷新与关标签。
    */
   useEffect(() => {
     if (!busyExport) return;
@@ -338,25 +333,6 @@ export function IdeApp() {
     addEventListener("beforeunload", warn);
     return () => removeEventListener("beforeunload", warn);
   }, [busyExport]);
-
-  useEffect(() => {
-    if (!isDesktop) return;
-    let unlisten: (() => void) | undefined;
-    void (async () => {
-      try {
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        unlisten = await getCurrentWindow().onCloseRequested((event) => {
-          if (busyRef.current) {
-            event.preventDefault();
-            setLeaveGuard("close");
-          }
-        });
-      } catch {
-        // 浏览器演示模式没有这个能力
-      }
-    })();
-    return () => unlisten?.();
-  }, []);
 
   /** 回启动器：打包没完先问一句。 */
   const leaveHome = () => {
