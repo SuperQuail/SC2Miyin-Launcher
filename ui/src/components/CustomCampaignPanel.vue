@@ -255,8 +255,8 @@ async function launchAnyway(): Promise<void> {
       <div class="banner__body">
         <h3 class="banner__title">{{ variant.name }}</h3>
         <p class="banner__sub">
-          <template v-if="active">已装进游戏目录，随时可以停用卸下。</template>
-          <template v-else>还没装进游戏目录 —— 点「启用」装进去，或直接用编辑器打开地图。</template>
+          <template v-if="active">已装进游戏目录，点右边那个绿色的可以停用卸下。</template>
+          <template v-else>还没装进游戏目录 —— 点右边那个把它装进去，或直接用编辑器打开地图。</template>
           <span v-if="maps.length">共 {{ maps.length }} 张地图。</span>
         </p>
       </div>
@@ -264,14 +264,20 @@ async function launchAnyway(): Promise<void> {
         <button v-if="doc" class="btn btn-text banner__btn" type="button" @click="emit('open-doc', doc)">
           查看说明
         </button>
+        <!--
+          **这个按钮显示的是"现在的状态"，不是"点了会发生什么"** ——
+          写成「停用」让人以为点下去就停用，其实那是当前已经启用着的状态。
+          绿=开着、灰=关着；动作写在 title 里。
+        -->
         <button
-          class="btn btn-text banner__btn"
+          class="btn btn-text banner__btn banner__state"
+          :class="active ? 'is-on' : 'is-off'"
           type="button"
           :disabled="busy || loading"
-          :title="active ? '把装进游戏目录的文件撤回' : '装进游戏目录'"
+          :title="active ? '点击停用：把装进游戏目录的文件撤回' : '点击启用：装进游戏目录'"
           @click="toggleActive()"
         >
-          {{ active ? "停用" : "启用" }}
+          {{ active ? "已启用" : "已停用" }}
         </button>
         <button
           class="btn btn-primary banner__btn"
@@ -498,6 +504,19 @@ async function launchAnyway(): Promise<void> {
 
 .banner__btn.btn-text:hover {
   background: rgba(255, 255, 255, 0.26);
+}
+
+/* 状态色：绿=已启用，灰=已停用。底色跟着主题的 --success 走，
+   在深色画布上两种主题都读得清。 */
+.banner__state.is-on {
+  color: #fff;
+  background: color-mix(in srgb, var(--success) 55%, transparent);
+}
+.banner__state.is-on:hover {
+  background: color-mix(in srgb, var(--success) 75%, transparent);
+}
+.banner__state.is-off {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .custom__main,

@@ -52,7 +52,9 @@ export type ViewId = "campaigns" | "custom" | "mods" | "settings";
 const initialView = new URLSearchParams(location.search).get("view");
 
 const currentView = ref<ViewId>(
-  initialView === "settings" || initialView === "campaigns" || initialView === "mods" ? initialView : "campaigns",
+  initialView === "settings" || initialView === "campaigns" || initialView === "mods" || initialView === "custom"
+    ? initialView
+    : "campaigns",
 );
 
 /** 启动器自己的版本（对外写法，如 0.1.0a3）。顶栏与更新面板共用。 */
