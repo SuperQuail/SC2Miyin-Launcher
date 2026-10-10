@@ -63,7 +63,7 @@ mod tests;
 
 pub use activation::{activate, deactivate, preview};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
-pub use store::{VariantChanges, import, remove_variant, update_variant};
+pub use store::{VariantChanges, import, remove_variant, replace_from_package, update_variant};
 
 /// 索引文件的格式版本，便于以后迁移。
 const INDEX_VERSION: u32 = 1;

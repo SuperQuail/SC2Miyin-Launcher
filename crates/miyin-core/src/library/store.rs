@@ -23,6 +23,38 @@ pub fn import(
     slot_slug: &str,
     mode: ImportMode,
 ) -> Result<Variant> {
+    import_with(library, package, slot_slug, mode, None)
+}
+
+/// 用压缩包**替换指定的那一版** —— "更新"走这条路。
+///
+/// 和 [`import`] 只差一点：目标由调用方点明，**不看包里的名字对不对得上**。
+/// 玩家手里的更新包经常被改过标题（"XX 1.2 汉化版"），按名字/id 找根本找不到，
+/// 那样"更新"就变成了"再装一份"。
+///
+/// 沿用被替换那一版的目录名，所以挂在它身上的补丁绑定不受影响。
+pub fn replace_from_package(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    target_id: &str,
+) -> Result<Variant> {
+    import_with(
+        library,
+        package,
+        slot_slug,
+        ImportMode::Overwrite,
+        Some(target_id),
+    )
+}
+
+fn import_with(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+    force_target: Option<&str>,
+) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
     let inspection = package::inspect(package)?;
@@ -54,11 +86,14 @@ pub fn import(
     let mut index = library.index();
     let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();
 
-    // 覆盖更新时沿用已有版本的目录名 —— 这样挂在它身上的补丁绑定不受影响
-    let overwrite_target = if mode == ImportMode::Overwrite {
-        find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned()
-    } else {
-        None
+    // 覆盖更新时沿用已有版本的目录名 —— 这样挂在它身上的补丁绑定不受影响。
+    // 指定了目标就听调用方的（"更新"用），否则按包里的身份去找。
+    let overwrite_target = match force_target {
+        Some(id) => existing.variants.iter().find(|item| item.id == id).cloned(),
+        None if mode == ImportMode::Overwrite => {
+            find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned()
+        }
+        None => None,
     };
 
     let id = match &overwrite_target {
@@ -148,8 +183,11 @@ pub fn import(
         mod_count: inspection.mod_count,
         size_bytes: stats.bytes,
         main_map: inspection.main_map.clone(),
-        // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
-        mounted_mods: None,
+        // **替换时保住用户勾过的那份清单** —— 更新完不该让他重新挑一遍模组。
+        // 没有可继承的（全新导入）才是 None：不写清单 = 还没配过 = 全挂。
+        mounted_mods: overwrite_target
+            .as_ref()
+            .and_then(|old| old.mounted_mods.clone()),
         declared_mods: inspection.declared_mods.clone(),
         doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,

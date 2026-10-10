@@ -91,6 +91,9 @@ const officialSlots = computed(() => slots.value.filter((slot) => slot.slug !== 
  */
 const importer = ref<InstanceType<typeof ImportDialog> | null>(null);
 
+/** 官方战役 = 除「自制战役」以外的槽位（菜单固定四部 + 自制）。 */
+const officialCount = computed(() => slots.value.filter((slot) => slot.slug !== "custom").length);
+
 /** 导入完成后直接进那个战役的菜单页。 */
 function onImported(slot: string): void {
   opened.value = slot;
@@ -139,7 +142,8 @@ function onImported(slot: string): void {
           <dl class="hero__stats">
             <div class="stat">
               <dt>官方战役</dt>
-              <dd>{{ slots.length }}</dd>
+              <!-- 自制战役不算"官方" —— slots 里含它，所以这里要滤掉 -->
+              <dd>{{ officialCount }}</dd>
             </div>
             <div class="stat">
               <dt>已导入版本</dt>

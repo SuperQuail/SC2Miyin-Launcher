@@ -604,6 +604,52 @@ fn import_package(
     .map_err(|error| error.to_string())
 }
 
+/// 用压缩包**更新**某个战役的某一版。
+///
+/// 用户点明的目标就是它 —— **不管包里叫什么名字**（玩家手里的更新包经常被改过标题）。
+///
+/// 顺序是用户定的，也确实是唯一安全的那种：
+///
+/// 1. 这一版正启用着 → **先切回原版**，把游戏目录还原干净
+/// 2. 在**启动器自己的库**里换文件（覆盖，沿用目录名 → 补丁绑定不动）
+/// 3. 原来启用着 → **再应用回去**；原来没启用就不动游戏目录
+///
+/// 中途失败最多停在"已切回原版"，不会留下半新半旧的游戏目录。
+#[tauri::command(async)]
+fn update_variant_from_package(
+    slot: String,
+    variant_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::library::Variant, String> {
+    let installation = require_installation(&state)?;
+
+    let was_active = state
+        .library
+        .index()
+        .slots
+        .get(&slot)
+        .and_then(|item| item.active.clone())
+        .as_deref()
+        == Some(variant_id.as_str());
+
+    if was_active {
+        library::activate(&state.library, &installation, &slot, None)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let variant =
+        library::replace_from_package(&state.library, Path::new(&path), &slot, &variant_id)
+            .map_err(|error| error.to_string())?;
+
+    if was_active {
+        library::activate(&state.library, &installation, &slot, Some(&variant.id))
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(variant)
+}
+
 /// 启用某个版本；variantId 传 null 表示切回**原版战役**。
 #[tauri::command(async)]
 fn activate_variant(
@@ -1904,6 +1950,7 @@ pub fn run() {
             prepare_import,
             import_package,
             activate_variant,
+            update_variant_from_package,
             variant_maps,
             variant_mods,
             set_mounted_mods,
