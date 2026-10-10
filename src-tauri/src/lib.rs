@@ -604,52 +604,43 @@ fn import_package(
     .map_err(|error| error.to_string())
 }
 
-/// 用压缩包**更新**某个战役的某一版。
+/// 用压缩包**更新**某个战役（**删旧的、装新的**，并把该联动的东西带过去）。
 ///
-/// 用户点明的目标就是它 —— **不管包里叫什么名字**（玩家手里的更新包经常被改过标题）。
+/// 一个包就是一个版本 —— 所以没有「更新哪一版」：更新的对象是**战役**。
+/// 替换的是这个战役**当前启用的那一版**；没有启用的就替换最新导入的那一版；
+/// 一版都没有，就是新装。
 ///
-/// 顺序是用户定的，也确实是唯一安全的那种：
-///
-/// 1. 这一版正启用着 → **先切回原版**，把游戏目录还原干净
-/// 2. 在**启动器自己的库**里换文件（覆盖，沿用目录名 → 补丁绑定不动）
-/// 3. 原来启用着 → **再应用回去**；原来没启用就不动游戏目录
-///
-/// 中途失败最多停在"已切回原版"，不会留下半新半旧的游戏目录。
+/// 副带的好处：这样**不依赖包自己能不能认出身份** —— 没有元数据、元数据坏了，
+/// 照样能把这一部战役换掉（每个战役页的「更新」就是这个用法）。
 #[tauri::command(async)]
 fn update_variant_from_package(
     slot: String,
-    variant_id: String,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<miyin_core::library::Variant, String> {
     let installation = require_installation(&state)?;
 
-    let was_active = state
-        .library
-        .index()
-        .slots
-        .get(&slot)
-        .and_then(|item| item.active.clone())
-        .as_deref()
-        == Some(variant_id.as_str());
+    // 换谁：当前启用的那一版优先，其次最新导入的那一版
+    let index = state.library.index();
+    let existing = index.slots.get(&slot).cloned().unwrap_or_default();
+    let target = existing
+        .active
+        .clone()
+        .or_else(|| existing.variants.first().map(|item| item.id.clone()));
 
-    if was_active {
-        library::activate(&state.library, &installation, &slot, None)
-            .map_err(|error| error.to_string())?;
+    match target {
+        Some(id) => {
+            library::replace_variant(&state.library, &installation, &slot, &id, Path::new(&path))
+        }
+        None => library::import(
+            &state.library,
+            Path::new(&path),
+            &slot,
+            miyin_core::library::ImportMode::Rename,
+        ),
     }
-
-    let variant =
-        library::replace_from_package(&state.library, Path::new(&path), &slot, &variant_id)
-            .map_err(|error| error.to_string())?;
-
-    if was_active {
-        library::activate(&state.library, &installation, &slot, Some(&variant.id))
-            .map_err(|error| error.to_string())?;
-    }
-
-    Ok(variant)
+    .map_err(|error| error.to_string())
 }
-
 /// 启用某个版本；variantId 传 null 表示切回**原版战役**。
 #[tauri::command(async)]
 fn activate_variant(

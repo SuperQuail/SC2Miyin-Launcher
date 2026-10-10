@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use crate::campaign::package;
 use crate::library::{
     ImportMode, Library, MapEntry, VariantChanges, VersionRelation, activate, compare_versions,
-    compose, conflict_for, import, patch, remove_variant, resolve_main_map, update_variant,
+    compose, conflict_for, import, patch, remove_variant, replace_variant, resolve_main_map,
+    update_variant,
 };
 use crate::sc2::{DiscoverySource, Installation};
 
@@ -77,6 +78,14 @@ fn package(fixture: &Fixture, name: &str, title: &str, maps: &[&str]) -> PathBuf
         .collect();
 
     build_zip(fixture.work.path(), name, &borrowed)
+}
+
+/// 游戏目录里（Maps 底下）有没有这个文件名的东西。
+fn game_has(fixture: &Fixture, name: &str) -> bool {
+    walkdir::WalkDir::new(fixture.installation.root.join("Maps"))
+        .into_iter()
+        .filter_map(Result::ok)
+        .any(|entry| entry.file_name().to_string_lossy() == name)
 }
 
 fn slot(fixture: &Fixture, slug: &str) -> crate::library::SlotView {
@@ -2384,4 +2393,70 @@ fn anything_inside_the_game_folder_can_be_written() {
         format!("{error}").contains("只能写星际争霸安装目录里面的文件"),
         "{error}"
     );
+}
+
+/// 更新 = **删旧的装新的**，但该跟着走的东西一样不能丢。
+///
+/// 会丢的是**记在版本身上**的那几样（模组挂载清单、主地图）；
+/// 不会丢的是**按槽位**挂的（存档档案、补丁绑定）—— 它们天然跟着走。
+#[test]
+fn replace_variant_keeps_what_the_user_set_up() {
+    let fixture = fixture();
+    let old = import(
+        &fixture.library,
+        &package(&fixture, "old.zip", "重制版", &["01.SC2Map"]),
+        "wol",
+        ImportMode::Rename,
+    )
+    .expect("先装旧的");
+
+    // 用户精挑过模组：只挂一个（这份清单存在**版本**身上）
+    let mut index = fixture.library.index();
+    if let Some(entry) = index
+        .slots
+        .get_mut("wol")
+        .and_then(|item| item.variants.iter_mut().find(|item| item.id == old.id))
+    {
+        entry.mounted_mods = Some(vec!["只挂这一个.SC2Mod".to_string()]);
+    }
+    fixture.library.save_index(&index).expect("存索引");
+
+    activate(
+        &fixture.library,
+        &fixture.installation,
+        "wol",
+        Some(&old.id),
+    )
+    .expect("启用");
+
+    // 换一版新的：地图名字都不一样，能看出铺的是哪一份
+    let new = replace_variant(
+        &fixture.library,
+        &fixture.installation,
+        "wol",
+        &old.id,
+        &package(&fixture, "new.zip", "重制版", &["02.SC2Map"]),
+    )
+    .expect("更新");
+
+    let after = slot(&fixture, "wol");
+    assert_eq!(after.variants.len(), 1, "旧的被换掉了，不是并排多出一份");
+    assert_eq!(after.variants[0].id, new.id);
+    // 目录名是由内容名生成的：旧的那版删掉之后这个名字空出来了，于是**沿用同一个 id**。
+    // 这是好事 —— id 稳定，任何按 id 记着的东西都不会悬空。
+    // （换了标题的更新包会拿到新 id，那时靠上面那段"读回新 id 再贴回去"接上。）
+    assert_eq!(new.id, old.id, "同名替换沿用同一个 id");
+    assert_eq!(
+        after.active.as_deref(),
+        Some(new.id.as_str()),
+        "原来是应用着的 → 装完要应用回去"
+    );
+    assert_eq!(
+        new.mounted_mods,
+        Some(vec!["只挂这一个.SC2Mod".to_string()]),
+        "模组清单要跟着走，不能重置成全挂"
+    );
+
+    assert!(game_has(&fixture, "02.SC2Map"), "新地图要铺进游戏目录");
+    assert!(!game_has(&fixture, "01.SC2Map"), "旧地图要撤掉");
 }

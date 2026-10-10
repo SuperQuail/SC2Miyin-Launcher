@@ -252,6 +252,80 @@ pub fn remove_variant(
     Ok(())
 }
 
+/// 换掉一个版本：**删旧的、装新的**，再把该跟着走的东西带过去。
+///
+/// 这就是「更新」的本质 —— 我们没有 diff，原地改文件做不到，
+/// 能做的只有「旧的清掉、新的装进来」，同时保证**别的记录不断**。
+///
+/// 要**带过去**的三样（都记在版本自己身上，删了版本就没了）：
+///
+/// - 是不是**正启用着** —— 带完再应用回去
+/// - **模组挂载清单** —— 用户精挑过的那份
+/// - **主地图** —— 用户手选的，包里不一定有
+///
+/// **不用带的**：存档档案与补丁绑定都是**按槽位**挂的
+/// （`saves::assign`、`LibraryIndex.bindings`），换版本天然跟着走；
+/// 激活清单由 `remove_variant` 开头那次 `activate(slot, None)` 清干净。
+///
+/// 失败最多停在「旧的已删、新的没装」—— 所以调用方是**更新**这种用户主动的动作，
+/// 不是后台悄悄跑的活。
+pub fn replace_variant(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    old_id: &str,
+    package: &Path,
+) -> Result<Variant> {
+    require_slot(slot_slug)?;
+
+    let index = library.index();
+    let slot = index.slots.get(slot_slug).cloned().unwrap_or_default();
+    let old = slot
+        .variants
+        .iter()
+        .find(|item| item.id == old_id)
+        .cloned()
+        .ok_or_else(|| Error::CampaignNotFound(old_id.to_string()))?;
+
+    let was_active = slot.active.as_deref() == Some(old_id);
+    let keep_mods = old.mounted_mods.clone();
+    let keep_main = old.main_map.clone();
+
+    // 旧的先走：会先切回原版（把游戏目录擦干净）、删目录、摘索引
+    remove_variant(library, installation, slot_slug, old_id)?;
+
+    // 新的进来 —— 用 Rename，id 由内容重新生成
+    let mut variant = import(library, package, slot_slug, ImportMode::Rename)?;
+
+    // 把记下的那几样贴回新版本身上（新包自己声明了的就不覆盖）
+    let mut index = library.index();
+    let mut updated = None;
+    if let Some(entry) = index
+        .slots
+        .get_mut(slot_slug)
+        .and_then(|item| item.variants.iter_mut().find(|item| item.id == variant.id))
+    {
+        if entry.mounted_mods.is_none() {
+            entry.mounted_mods = keep_mods;
+        }
+        if entry.main_map.is_none() {
+            entry.main_map = keep_main;
+        }
+        updated = Some(entry.clone());
+    }
+    if let Some(entry) = updated {
+        variant = entry;
+        library.save_index(&index)?;
+    }
+
+    // 原来是应用着的，装完再应用回去
+    if was_active {
+        super::activate(library, installation, slot_slug, Some(&variant.id))?;
+    }
+
+    Ok(variant)
+}
+
 /// 允许用户修改的元数据字段；`None` 表示这一项不动。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
