@@ -231,8 +231,17 @@ fn build_script(staged: &Staged, current_exe: &Path) -> Result<String> {
 
     lines.extend([
         format!("start \"\" \"{}\"", current_exe.display()),
+        "goto done".to_string(),
+        String::new(),
         ":failed".to_string(),
-        "rem 清理：更新包与脚本自己".to_string(),
+        "rem 30 秒都没换成（杀毒软件 / 文件被占着）：把老版本拉起来".to_string(),
+        "rem 用户是点了「重启并安装」进来的，不能让他对着一个消失了的启动器".to_string(),
+        format!("start \"\" \"{}\"", current_exe.display()),
+        "del \"%~f0\"".to_string(),
+        "goto :eof".to_string(),
+        String::new(),
+        ":done".to_string(),
+        "rem 换好了：清理更新包与脚本自己".to_string(),
         format!("rmdir /s /q \"{}\" >nul 2>&1", staged.root.display()),
         "del \"%~f0\"".to_string(),
         String::new(),
@@ -278,6 +287,16 @@ mod tests {
         assert!(script.contains(r"C:\Game\Launcher\miyin-launcher.exe"));
         // 说明文档一起换
         assert!(script.contains("使用说明.txt"));
+        // 换失败时也要把老版本拉起来（否则用户只看到启动器消失）+ 保留更新包等重试
+        let failed = script
+            .split(":failed")
+            .nth(1)
+            .expect("要有失败分支")
+            .split(":done")
+            .next()
+            .expect("失败分支到 :done 结束");
+        assert!(failed.contains("start \"\""), "失败分支必须重启老版本");
+        assert!(!failed.contains("rmdir"), "失败时别删更新包，留着下次重试");
         // 收尾清理
         assert!(script.contains("del \"%~f0\""));
     }

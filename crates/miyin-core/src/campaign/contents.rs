@@ -180,7 +180,9 @@ impl Contents {
             Backend::Zip(archive) => {
                 use std::io::Read as _;
                 let mut file = archive.by_index(index).ok()?;
-                let mut buffer = Vec::with_capacity(file.size() as usize);
+                // 别按条目头里写的大小预分配：那是压缩包里的一句话，坏包可以随便写，
+                // 一个几百字节的包声明 5 GB 就能让进程在分配时直接死掉。
+                let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer).ok()?;
                 Some(buffer)
             }
