@@ -303,9 +303,15 @@ export function IdeApp() {
   /** 导出进度：写完几个 / 一共几个。null 表示没在导出。 */
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
   /** 打包没完就想走 —— 问一句。null 表示没在问。 */
-  const [leaveGuard, setLeaveGuard] = useState<null | "home" | "close">(null);
+  const [leaveGuard, setLeaveGuard] = useState<null | "home" | "close">(() => {
+    // 审查用：`?guard=home|close` 直接把拦截框调出来看（和 ?theme= 同一类，不影响正常流程）
+    const wanted = new URLSearchParams(location.search).get("guard");
+    return wanted === "home" || wanted === "close" ? wanted : null;
+  });
 
   const busyExport = exportProgress !== null;
+  // 审查时没有真的在导出，拿一个像样的数字把框画出来（只有 ?guard= 才会走到）
+  const shownProgress = exportProgress ?? (leaveGuard ? { done: 123, total: 2331 } : null);
   // 关窗回调里要读"此刻"的状态，用 ref 免得闭包拿到旧值
   const busyRef = useRef(busyExport);
   useEffect(() => {
@@ -1084,8 +1090,8 @@ export function IdeApp() {
           <div className="guard__card" onClick={(event) => event.stopPropagation()}>
             <h3 className="guard__title">还在打包</h3>
             <p className="guard__text">
-              正写到 {exportProgress?.done ?? 0} / {exportProgress?.total ?? 0} ——
-              现在离开会留下一个**不完整**的包，拿去导入只会读不到元数据。
+              正写到 {shownProgress?.done ?? 0} / {shownProgress?.total ?? 0} ——
+              现在离开会留下一个<strong>不完整</strong>的包：拿它导入只会读不到元数据。
             </p>
             <div className="guard__actions">
               <button className="btn btn-tonal" type="button" onClick={() => setLeaveGuard(null)}>

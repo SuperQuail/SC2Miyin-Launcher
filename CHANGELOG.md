@@ -4,12 +4,17 @@
 
 版本号内外两种写法（见 AGENTS.md §15.1）：
 
-- 仓库里的 `Cargo.toml` / `package.json` / `tauri.conf.json` 写 `0.1.0-alpha.6`（Cargo 只接受 semver）
-- 界面、tag、发行说明统一写 `0.1.0a6`
+- 仓库里的 `Cargo.toml` / `package.json` / `tauri.conf.json` 写 `0.1.0-alpha.7`（Cargo 只接受 semver）
+- 界面、tag、发行说明统一写 `0.1.0a7`
 
 详细的发行说明在 [`docs/release-notes/`](docs/release-notes/)。
 
 ---
+
+## v0.1.0a7 —— 打包没完别走
+
+- 导出进行中离开开发者页（返回 / 关窗口 / 刷新）会先问一句 —— 中途走掉留下的是写了一半的包
+- 流程约定：未经明确说明不发布 PR；代理不代替维护者 merge
 
 ## v0.1.0a6 —— 开发者页与写盘放开
 
