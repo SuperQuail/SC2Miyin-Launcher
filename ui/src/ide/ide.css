@@ -1058,3 +1058,36 @@ body {
   background: var(--accent);
   transition: width 0.15s linear;
 }
+
+/* ---------- 打包没完就想走 ---------- */
+.guard {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.guard__card {
+  width: 380px;
+  padding: 18px 20px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-3);
+}
+.guard__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.guard__text {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.guard__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // 窗口按钮走启动器那套命令（bridge 是框架无关的纯 TS，两边共用 —— AGENTS.md §18）
 import { api as launcher } from "../api/bridge";
@@ -302,6 +302,60 @@ export function IdeApp() {
   );
   /** 导出进度：写完几个 / 一共几个。null 表示没在导出。 */
   const [exportProgress, setExportProgress] = useState<ExportProgress | null>(null);
+  /** 打包没完就想走 —— 问一句。null 表示没在问。 */
+  const [leaveGuard, setLeaveGuard] = useState<null | "home" | "close">(null);
+
+  const busyExport = exportProgress !== null;
+  // 关窗回调里要读"此刻"的状态，用 ref 免得闭包拿到旧值
+  const busyRef = useRef(busyExport);
+  useEffect(() => {
+    busyRef.current = busyExport;
+  }, [busyExport]);
+
+  /**
+   * 打包没完就别走。
+   *
+   * 这不是礼貌问题：一次导出要写几十秒到几分钟，中途离开会留下一个写了一半的包 ——
+   * 拿它去导入只会看到"读不到元数据"。所以三条路都要拦：页面里点返回、
+   * 桌面壳的关闭按钮、以及浏览器级的刷新/关标签。
+   */
+  useEffect(() => {
+    if (!busyExport) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    addEventListener("beforeunload", warn);
+    return () => removeEventListener("beforeunload", warn);
+  }, [busyExport]);
+
+  useEffect(() => {
+    if (!isDesktop) return;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        unlisten = await getCurrentWindow().onCloseRequested((event) => {
+          if (busyRef.current) {
+            event.preventDefault();
+            setLeaveGuard("close");
+          }
+        });
+      } catch {
+        // 浏览器演示模式没有这个能力
+      }
+    })();
+    return () => unlisten?.();
+  }, []);
+
+  /** 回启动器：打包没完先问一句。 */
+  const leaveHome = () => {
+    if (busyExport) {
+      setLeaveGuard("home");
+      return;
+    }
+    location.href = "/index.html";
+  };
 
   // 点别处 / 按 Esc 关掉菜单
   useEffect(() => {
@@ -687,7 +741,7 @@ export function IdeApp() {
   return (
     <div className="ide">
       <div className="tb" data-tauri-drag-region onMouseDown={startWindowDrag}>
-        <Button onClick={() => (location.href = "/index.html")}>← 返回启动器</Button>
+        <Button onClick={leaveHome}>← 返回启动器</Button>
         <span className="tsep" />
         <label className="pkgnamectl" title="这个包的名字 —— 提交历史和导出都用它">
           <span>包名</span>
@@ -731,7 +785,7 @@ export function IdeApp() {
             className="winctl__btn winctl__btn--close"
             type="button"
             title="关闭"
-            onClick={() => void launcher.windowClose()}
+            onClick={() => (busyExport ? setLeaveGuard("close") : void launcher.windowClose())}
           >
             <svg viewBox="0 0 12 12" aria-hidden="true">
               <path d="M3 3l6 6" />
@@ -1024,6 +1078,33 @@ export function IdeApp() {
           )}
         </div>
       </div>
+
+      {leaveGuard && (
+        <div className="guard" onClick={() => setLeaveGuard(null)}>
+          <div className="guard__card" onClick={(event) => event.stopPropagation()}>
+            <h3 className="guard__title">还在打包</h3>
+            <p className="guard__text">
+              正写到 {exportProgress?.done ?? 0} / {exportProgress?.total ?? 0} ——
+              现在离开会留下一个**不完整**的包，拿去导入只会读不到元数据。
+            </p>
+            <div className="guard__actions">
+              <button className="btn btn-tonal" type="button" onClick={() => setLeaveGuard(null)}>
+                继续等
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => {
+                  if (leaveGuard === "home") location.href = "/index.html";
+                  else void launcher.windowClose();
+                }}
+              >
+                仍然离开
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {menu?.commit && (
         <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
