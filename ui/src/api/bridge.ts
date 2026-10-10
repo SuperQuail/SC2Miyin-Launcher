@@ -15,6 +15,7 @@ import type {
   DocInfo,
   EditorLaunch,
   GameLaunch,
+  UpdateResult,
   GameModEntry,
   LibraryMod,
   ModComparison,
@@ -120,7 +121,7 @@ const desktop: LauncherApi = {
   launchGameWithMap: (slot, variantId, map) =>
     invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
   updateVariantFromPackage: (slot, variantId, path) =>
-    invoke<Variant>("update_variant_from_package", { slot, variantId, path }),
+    invoke<UpdateResult>("update_variant_from_package", { slot, variantId, path }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
@@ -740,7 +741,8 @@ const demo: LauncherApi = {
         if (at >= 0) target.variants[at] = created;
         else target.variants.unshift(created);
         void path;
-        return created;
+        // 演示里假装新包带了两个新模组，好让"要不要一起启用"那块也看得见
+        return { variant: created, addedMods: ["SCMR_Alarak.SC2Mod", "SCMR_Tychus.SC2Mod"] };
       })(),
     ),
   launchGameWithMap: async (_slot, _variantId, map) => ({

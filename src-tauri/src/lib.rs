@@ -618,7 +618,7 @@ fn update_variant_from_package(
     variant_id: Option<String>,
     path: String,
     state: State<'_, AppState>,
-) -> Result<miyin_core::library::Variant, String> {
+) -> Result<miyin_core::library::Replaced, String> {
     let installation = require_installation(&state)?;
 
     // 换哪一个**已安装的包**：
@@ -641,7 +641,11 @@ fn update_variant_from_package(
             Path::new(&path),
             &slot,
             miyin_core::library::ImportMode::Rename,
-        ),
+        )
+        .map(|variant| miyin_core::library::Replaced {
+            variant,
+            added_mods: Vec::new(),
+        }),
     }
     .map_err(|error| error.to_string())
 }

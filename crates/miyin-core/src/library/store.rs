@@ -277,6 +277,15 @@ pub fn find_target_for_package(
     Ok(find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned())
 }
 
+/// 换版本的结果。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Replaced {
+    pub variant: Variant,
+    /// 新包里**多出来**的模组（挂载键）。已经按默认挂上了，界面拿它问一句要不要留。
+    pub added_mods: Vec<String>,
+}
+
 /// 换掉一个版本：**删旧的、装新的**，再把该跟着走的东西带过去。
 ///
 /// 这就是「更新」的本质 —— 我们没有 diff，原地改文件做不到，
@@ -300,7 +309,7 @@ pub fn replace_variant(
     slot_slug: &str,
     old_id: &str,
     package: &Path,
-) -> Result<Variant> {
+) -> Result<Replaced> {
     require_slot(slot_slug)?;
 
     let index = library.index();
@@ -322,6 +331,26 @@ pub fn replace_variant(
     // 新的进来 —— 用 Rename，id 由内容重新生成
     let mut variant = import(library, package, slot_slug, ImportMode::Rename)?;
 
+    // 挂载清单**只是一份记录**：谁在名单里、谁就能铺；名单里有但包里没有的，铺的时候自然被忽略
+    // （落盘只按包里的载荷走）。所以名单可以放心地"老 ∪ 新"。
+    let old_keys = match &keep_mods {
+        Some(list) => list.clone(),
+        // 老记录没配过 = 全挂：那就拿旧包实际带的那些当"老名单"
+        None => super::effective_mounted_mods(&old),
+    };
+    let new_keys = super::effective_mounted_mods(&variant);
+    let added_mods: Vec<String> = new_keys
+        .iter()
+        .filter(|key| !old_keys.contains(key))
+        .cloned()
+        .collect();
+    let mut merged = old_keys.clone();
+    for key in &added_mods {
+        if !merged.contains(key) {
+            merged.push(key.clone());
+        }
+    }
+
     // 把记下的那几样贴回新版本身上（新包自己声明了的就不覆盖）
     let mut index = library.index();
     let mut updated = None;
@@ -330,9 +359,7 @@ pub fn replace_variant(
         .get_mut(slot_slug)
         .and_then(|item| item.variants.iter_mut().find(|item| item.id == variant.id))
     {
-        if entry.mounted_mods.is_none() {
-            entry.mounted_mods = keep_mods;
-        }
+        entry.mounted_mods = Some(merged.clone());
         if entry.main_map.is_none() {
             entry.main_map = keep_main;
         }
@@ -352,7 +379,11 @@ pub fn replace_variant(
         super::activate(library, installation, slot_slug, Some(&variant.id))?;
     }
 
-    Ok(variant)
+    variant.mounted_mods = Some(merged);
+    Ok(Replaced {
+        variant,
+        added_mods,
+    })
 }
 
 /// 允许用户修改的元数据字段；`None` 表示这一项不动。

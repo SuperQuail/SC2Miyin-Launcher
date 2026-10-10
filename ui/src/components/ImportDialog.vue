@@ -52,6 +52,16 @@ const importing = ref(false);
 const overrideOpen = ref(false);
 
 /**
+ * 更新完的追问：新包里**多出来的模组**。
+ *
+ * 后端**默认已经把它们挂上了**（"默认勾选"），这里只是问一句要不要留 ——
+ * 取消勾选就把它们从名单里摘掉。
+ */
+const addedMods = ref<string[]>([]);
+const keepAdded = ref(true);
+const addedTarget = ref<{ slot: string; variantId: string } | null>(null);
+
+/**
  * 要不要把包里的模组一起挂上（默认要）。
  *
  * 自制战役的地图里写死了 `Mods\\xxx.SC2Mod` 依赖，一个都不挂的话
@@ -265,14 +275,22 @@ async function doImport(): Promise<void> {
   try {
     // 更新：删旧的装新的，该跟着走的记录由后端带过去
     if (isUpdate.value) {
-      const updated = await api.updateVariantFromPackage(
+      const result = await api.updateVariantFromPackage(
         current.slot,
         props.variantId || null,
         current.preview.path,
       );
       pending.value = null;
       await refresh();
-      notify("success", "已更新「" + updated.name + "」");
+      notify("success", "已更新「" + result.variant.name + "」");
+
+      // 新包带了新模组：默认已经挂上，问一句要不要留
+      if (result.addedMods.length > 0) {
+        addedMods.value = result.addedMods;
+        keepAdded.value = true;
+        addedTarget.value = { slot: current.slot, variantId: result.variant.id };
+        return;
+      }
       emit("imported", current.slot);
       return;
     }
@@ -299,6 +317,31 @@ async function doImport(): Promise<void> {
   } finally {
     importing.value = false;
   }
+}
+
+/** 新模组那问的"确定"。 */
+function confirmAddedMods(): void {
+  const target = addedTarget.value;
+  const drop = !keepAdded.value;
+  const list = addedMods.value;
+  addedMods.value = [];
+  addedTarget.value = null;
+
+  if (!target || !drop) return;
+  // 取消勾选 = 把这几个从挂载名单里摘掉（其余的保持原样）
+  void (async () => {
+    try {
+      const rows = await api.variantMods(target.slot, target.variantId);
+      const keep = rows
+        .filter((row) => row.mounted && !list.includes(row.path))
+        .map((row) => row.path);
+      await api.setMountedMods(target.slot, target.variantId, keep);
+      await refresh();
+      notify("success", "已取消这几个新模组的挂载");
+    } catch (error) {
+      notify("error", errorText(error));
+    }
+  })();
 }
 
 /** 取消这次导入。 */
@@ -452,6 +495,27 @@ defineExpose({ prepare, startImport, busy: importing, open: computed(() => pendi
       </button>
     </div>
   </section>
+
+  <!-- 更新完：新包里多出来的模组 -->
+  <div v-if="addedMods.length" class="sheet" @click.self="confirmAddedMods">
+    <div class="sheet__card">
+      <h3 class="sheet__title">新包里多了 {{ addedMods.length }} 个模组</h3>
+      <p class="sheet__text">
+        已经按默认<strong>一起启用</strong>了。不想要的取消勾选即可 ——
+        取消只影响这几个，其余保持原样。
+      </p>
+      <ul class="mini">
+        <li v-for="item in addedMods" :key="item">{{ item }}</li>
+      </ul>
+      <label class="check">
+        <input v-model="keepAdded" type="checkbox" />
+        <span>一起启用这几个新模组</span>
+      </label>
+      <div class="sheet__actions">
+        <button class="btn btn-primary" type="button" @click="confirmAddedMods">知道了</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 强改归属的二次确认 -->
   <div v-if="overrideOpen" class="sheet" @click.self="overrideOpen = false">

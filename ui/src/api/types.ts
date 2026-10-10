@@ -408,6 +408,12 @@ export interface GameLaunch {
   guidance: string;
 }
 
+/** 换版本的结果：换成谁了，以及新包里多出来的模组（已按默认挂上）。 */
+export interface UpdateResult {
+  variant: Variant;
+  addedMods: string[];
+}
+
 export interface EditorLaunch {
   editor: string;
   map: string;
@@ -746,7 +752,7 @@ export interface LauncherApi {
     slot: string,
     variantId: string | null,
     path: string,
-  ): Promise<Variant>;
+  ): Promise<UpdateResult>;
   /** 直接启动星际争霸并进这张地图（不经过编辑器）。 */
   launchGameWithMap(slot: string, variantId: string, map: string): Promise<GameLaunch>;
   /** 版本自带的说明文档；没有就是 null。 */

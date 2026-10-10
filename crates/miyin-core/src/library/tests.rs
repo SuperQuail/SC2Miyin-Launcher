@@ -2430,7 +2430,7 @@ fn replace_variant_keeps_what_the_user_set_up() {
     .expect("启用");
 
     // 换一版新的：地图名字都不一样，能看出铺的是哪一份
-    let new = replace_variant(
+    let replaced = replace_variant(
         &fixture.library,
         &fixture.installation,
         "wol",
@@ -2438,6 +2438,7 @@ fn replace_variant_keeps_what_the_user_set_up() {
         &package(&fixture, "new.zip", "重制版", &["02.SC2Map"]),
     )
     .expect("更新");
+    let new = replaced.variant;
 
     let after = slot(&fixture, "wol");
     assert_eq!(after.variants.len(), 1, "旧的被换掉了，不是并排多出一份");
@@ -2455,6 +2456,14 @@ fn replace_variant_keeps_what_the_user_set_up() {
         new.mounted_mods,
         Some(vec!["只挂这一个.SC2Mod".to_string()]),
         "模组清单要跟着走，不能重置成全挂"
+    );
+
+    // 挂载名单**只是一份记录**：里面有个包里根本没有的模组，照样啥事没有
+    // （铺盘只按包里的载荷走）—— 这就是"有就启动、没有就不管"。
+    assert_eq!(
+        new.mounted_mods,
+        Some(vec!["只挂这一个.SC2Mod".to_string()]),
+        "名单里有、包里没有的，照留不误"
     );
 
     assert!(game_has(&fixture, "02.SC2Map"), "新地图要铺进游戏目录");
@@ -2491,7 +2500,7 @@ fn replace_variant_repoints_campaign_mods() {
     )
     .expect("记一条模组记录");
 
-    let new = replace_variant(
+    let replaced = replace_variant(
         &fixture.library,
         &fixture.installation,
         "wol",
@@ -2499,6 +2508,7 @@ fn replace_variant_repoints_campaign_mods() {
         &package(&fixture, "new.zip", "重制版", &["02.SC2Map"]),
     )
     .expect("更新");
+    let new = replaced.variant;
 
     let rows = crate::library::mods::list(&root);
     assert_eq!(rows.len(), 1, "记录还在");

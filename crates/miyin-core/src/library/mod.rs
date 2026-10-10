@@ -64,8 +64,8 @@ mod tests;
 pub use activation::{activate, deactivate, preview};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
 pub use store::{
-    VariantChanges, find_target_for_package, import, remove_variant, replace_from_package,
-    replace_variant, update_variant,
+    Replaced, VariantChanges, find_target_for_package, import, remove_variant,
+    replace_from_package, replace_variant, update_variant,
 };
 
 /// 索引文件的格式版本，便于以后迁移。
