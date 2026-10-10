@@ -548,17 +548,6 @@ async function requestActivation(slot: string, variantId: string | null): Promis
   if (variantId === null) return await activate(slot, null);
   busy.value = true;
   try {
-    // 游戏跑着的时候换文件，Windows 上会删不掉 / 覆盖失败，留下记了一半的清单
-    const running = await api.sc2Running();
-    if (running) {
-      notify("error", "星际争霸 II 正在运行（" + running + "），先退出游戏再切换。");
-      return false;
-    }
-  } finally {
-    busy.value = false;
-  }
-  busy.value = true;
-  try {
     const preview = await api.previewActivation(slot, variantId);
     if (!preview) return await activate(slot, variantId);
     const touched =

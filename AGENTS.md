@@ -457,8 +457,9 @@ StarCraft II/
       本地目录 `HSCL` 暂不改名，避免破坏现有工作流。
 - [x] **CI**：`.github/workflows/ci.yml`（核心测试双平台 / 前端构建 / 桌面端整工作区）。
 - [x] **启用 / 停用战役（激活）**：已实现，按清单精确回滚（见 §14.11）。
-- [x] **游戏运行时探测**：`platform::game_running()`（走 tasklist 认 `SC2.exe` / `SC2_x64.exe`）；
-      启用 / 停用前先问它，跑着就拒绝切换。
+- [x] **游戏运行时探测**：`platform::game_running()`（走 tasklist 认 `SC2.exe` / `SC2_x64.exe`）。
+      **不再拦启用 / 停用** —— 有些模组就是得在游戏跑着的时候装才生效，
+      拦着等于让用户没法用；代价是文件被占用时会失败，那就如实报错。
 - [x] **从游戏目录反向导入**：`campaign::collect` 扫 `Maps/CustomCampaigns/*`，
       设置页列出还没进库的，一键收编；导入复用 `library::import`，**不删原目录**。
 - [x] **包格式规范**：已写成 `docs/package-format.md`（兼容 CCM 与枢纽标准 + 弥音扩展）。
