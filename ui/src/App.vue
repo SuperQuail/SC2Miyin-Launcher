@@ -62,6 +62,24 @@ const tabs: { id: ViewId; label: string }[] = [
  * 预览件不入库（.gitignore 里有），所以用 glob 而不是 import：别人克隆下来
  * 没有那个目录，匹配到空，一切照旧；生产构建里这段也是死的。
  */
+/**
+ * 资源网站。
+ *
+ * 显示给人看的是中文域名；**真正打开的是 punycode 那份** ——
+ * 非 ASCII 域名交给系统「打开链接」时，各家实现对编码的处理并不一致，
+ * punycode 是 ASCII，谁都不会弄错。
+ */
+const SITE_NAME = "www.叽叽咕咕.fun";
+const SITE_URL = "https://www.xn--xpra07ba.fun";
+
+/** 「资源网站」的确认框开着没有。 */
+const askSite = ref(false);
+
+function openSite(): void {
+  askSite.value = false;
+  void api.openUrl(SITE_URL);
+}
+
 const previewName = import.meta.env.DEV
   ? new URLSearchParams(location.search).get("preview")
   : null;
@@ -326,6 +344,16 @@ onUnmounted(() => {
         >
           {{ tab.label }}
         </button>
+        <!-- 资源网站：**不是视图**，点了也不切页 —— 先问一句，确认了才交给系统浏览器。
+             所以它和开发者页一样是独立按钮，不进 tabs 列表。 -->
+        <button
+          class="tab tab--site"
+          type="button"
+          title="资源网站（用系统默认浏览器打开）"
+          @click="askSite = true"
+        >
+          资源网站
+        </button>
         <!-- 开发者页是独立入口（整页跳过去），不是这个 SPA 里的一个视图，
              所以单独一个按钮，样式上也区别于主标签 -->
         <button
@@ -470,6 +498,19 @@ onUnmounted(() => {
     <UpdateNotice v-if="!previewView" />
 
     <!-- 更新下载完成后提示重启 -->
+    <!-- 资源网站：先问一句，别默默跳走 -->
+    <div v-if="askSite" class="sheet" @click.self="askSite = false">
+      <div class="sheet__card">
+        <h3 class="sheet__title">用浏览器打开资源网站？</h3>
+        <p class="sheet__text">
+          会离开启动器，用系统默认浏览器打开 <strong>{{ SITE_NAME }}</strong>。
+        </p>
+        <div class="sheet__actions">
+          <button class="btn btn-text" type="button" @click="askSite = false">取消</button>
+          <button class="btn btn-primary" type="button" @click="openSite">打开网站</button>
+        </div>
+      </div>
+    </div>
     <div v-if="showRestartPrompt && !previewView" class="sheet">
       <div class="sheet__card">
         <div class="sheet__badge">
@@ -675,6 +716,22 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+
+/* 资源网站：和开发者页一样是"跳出去"的入口，所以也单独一颗；
+   但它是外部链接，用实线框 + 淡底色，跟"实验"那颗虚线区分开。 */
+.tab--site {
+  margin-left: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+}
+.tab--site::after {
+  content: "↗";
+  font-size: 10px;
+  opacity: 0.7;
+}
+.tab--site:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .tab--dev {
