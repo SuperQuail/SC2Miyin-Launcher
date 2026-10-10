@@ -3,7 +3,7 @@
  * 自制战役页。
  *
  * 与「战役」页是**并列的顶层选项**，不是它的一个分组 —— 因为两者根本不是一类：
- * 原版战役是游戏自己驱动的，自制战役得靠编辑器打开、还要单独挂模组。
+ * 原版战役是游戏自己驱动的，自制战役要单独挂模组、直接启动游戏进图。
  * 混在一页里会让人以为「自制战役也就是某个战役的改版」。
  */
 import { computed, onMounted, ref } from "vue";
@@ -181,7 +181,7 @@ function openTools(event: MouseEvent): void {
         <h2 class="hero__title">自制战役</h2>
         <p class="hero__text">
           <strong>不装进游戏目录</strong> —— 地图留在启动器里，
-          用游戏编辑器打开来玩。
+          直接启动游戏就能玩。
         </p>
       </div>
 

@@ -400,6 +400,14 @@ export interface MainMapChoice {
 }
 
 /** 编辑器启动的结果。 */
+/** 直接启动游戏的结果。 */
+export interface GameLaunch {
+  /** 要打开哪张地图（库内相对路径）。 */
+  map: string;
+  /** 界面照着念的一句话。 */
+  guidance: string;
+}
+
 export interface EditorLaunch {
   editor: string;
   map: string;
@@ -733,6 +741,8 @@ export interface LauncherApi {
   mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
   /** 铺模组并用编辑器打开某张地图。 */
   openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 直接启动星际争霸并进这张地图（不经过编辑器）。 */
+  launchGameWithMap(slot: string, variantId: string, map: string): Promise<GameLaunch>;
   /** 版本自带的说明文档；没有就是 null。 */
   variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
   /** 读出说明文档的字节，交给 PDF 渲染器。 */

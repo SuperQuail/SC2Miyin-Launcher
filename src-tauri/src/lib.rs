@@ -723,6 +723,45 @@ struct EditorLaunch {
 ///
 /// 之后**不代劳进游戏**：编辑器起来后要用户自己按 Ctrl+F9（测试文档），
 /// 所以我们把这句话原样返回给界面去念。
+/// 进游戏 / 进编辑器之前都得先做的两件事，抽出来共用：
+///
+/// 1. 带模组却一个都没挂 —— 拦住（地图里写死了 Mods 依赖，挂不上就是一堆丢失资源）
+/// 2. 把挂载的模组铺进游戏目录，并定位到**装好的那一份**地图
+///
+/// 第 2 条里「装好的那一份」很关键：库里那份只是留底，复刻战役的启动器地图写的是
+/// 相对 Maps/ 的路径，只有装好的那份才在正确位置上。实测从库里打开会报「无法打开地图」。
+fn prepared_map(
+    state: &State<'_, AppState>,
+    slot: &str,
+    variant_id: &str,
+    map: &str,
+) -> Result<(miyin_core::sc2::Installation, PathBuf), String> {
+    let installation = require_installation(state)?;
+
+    let mods = state.library.variant_mods(slot, variant_id);
+    if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
+        return Err(
+            "这个战役带了模组，但你一个都没挂载 —— 这样打开地图会报错。先在「挂载模组」里勾上再试"
+                .to_string(),
+        );
+    }
+
+    library::activate(&state.library, &installation, slot, Some(variant_id))
+        .map_err(|error| error.to_string())?;
+
+    let library_path = state
+        .library
+        .map_path(slot, variant_id, map)
+        .map_err(|error| error.to_string())?;
+
+    let path = miyin_core::library::Manifest::load(state.library.root())
+        .target_of(&installation, &library_path)
+        .filter(|candidate| candidate.exists())
+        .unwrap_or(library_path);
+
+    Ok((installation, path))
+}
+
 #[tauri::command(async)]
 fn open_map_in_editor(
     slot: String,
@@ -735,35 +774,7 @@ fn open_map_in_editor(
         .editor
         .clone()
         .ok_or_else(|| "没找到游戏编辑器 —— 到「设置」里重新指定游戏目录试试".to_string())?;
-
-    // 带了模组却一个都没挂：先拦住，别让用户白白等编辑器起来再报错
-    let mods = state.library.variant_mods(&slot, &variant_id);
-    if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
-        return Err(
-            "这个战役带了模组，但你一个都没挂载 —— 这样打开地图会报错。先在「挂载模组」里勾上再试"
-                .to_string(),
-        );
-    }
-
-    // 先把挂载的模组铺进 <游戏>/Mods/
-    library::activate(&state.library, &installation, &slot, Some(&variant_id))
-        .map_err(|error| error.to_string())?;
-
-    let library_path = state
-        .library
-        .map_path(&slot, &variant_id, &map)
-        .map_err(|error| error.to_string())?;
-
-    // **打开游戏目录里那一份**，不是库里那一份。
-    //
-    // 库里那份只是留底（切回原版时能还原）。游戏和编辑器要读的是装好的那份 ——
-    // 而且复刻战役的启动器地图里写的是 GameSetNextMap("Starcraft Mass Recall/…")，
-    // 这种路径**相对 Maps/**，只有装好的那份才处在正确的位置上。
-    // 实测从库里打开会报「无法打开地图」。
-    let path = miyin_core::library::Manifest::load(state.library.root())
-        .target_of(&installation, &library_path)
-        .filter(|candidate| candidate.exists())
-        .unwrap_or(library_path);
+    let (_, path) = prepared_map(&state, &slot, &variant_id, &map)?;
 
     std::process::Command::new(&editor)
         .arg(&path)
@@ -774,6 +785,43 @@ fn open_map_in_editor(
         editor: editor.display().to_string(),
         map,
         guidance: "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
+    })
+}
+
+/// 启动游戏的结果。
+#[derive(Debug, Clone, serde::Serialize)]
+struct GameLaunch {
+    /// 要打开哪张地图（库内相对路径）。
+    map: String,
+    /// 界面照着念的一句话。
+    guidance: String,
+}
+
+/// **直接启动星际争霸并进这张地图**（不经过编辑器）。
+///
+/// 走版本切换器（Support64/SC2Switcher_x64.exe）—— 它按 .build.info 挑出当前构建的
+/// 客户端，把地图路径传下去，游戏直接加载这张图。SCMR 自带的那个 .cmd 就是这么写的。
+///
+/// 编辑器那条路（open_map_in_editor）留着给作者改地图用，玩家侧不再需要它。
+#[tauri::command(async)]
+fn launch_game_with_map(
+    slot: String,
+    variant_id: String,
+    map: String,
+    state: State<'_, AppState>,
+) -> Result<GameLaunch, String> {
+    let (installation, path) = prepared_map(&state, &slot, &variant_id, &map)?;
+
+    // 工作目录必须是游戏根 —— 切换器靠它找 .build.info 与 Versions/
+    std::process::Command::new(installation.preferred_launcher())
+        .current_dir(&installation.root)
+        .arg(&path)
+        .spawn()
+        .map_err(|error| format!("启动游戏失败：{error}"))?;
+
+    Ok(GameLaunch {
+        map,
+        guidance: "已经交给星际争霸，正在加载这张地图。".to_string(),
     })
 }
 
@@ -1862,6 +1910,7 @@ pub fn run() {
             set_main_map,
             main_map_choice,
             open_map_in_editor,
+            launch_game_with_map,
             variant_doc,
             list_library_mods,
             list_standalone_mods,

@@ -157,7 +157,7 @@ async function toggleMod(entry: ModEntry): Promise<void> {
 }
 
 /**
- * 地图行上的右键菜单：不用先点「设为主地图」再点「打开」那么绕。
+ * 地图行上的右键菜单：不用先点「设为主地图」再点「启动」那么绕。
  */
 function showMapMenu(event: MouseEvent, map: MapEntry): void {
   menu.show(
@@ -200,7 +200,7 @@ async function markAsMain(map: MapEntry): Promise<void> {
   }
 }
 
-/** 启动：没挂模组先警告，否则用编辑器打开主地图。 */
+/** 启动：没挂模组先警告，然后**直接启动星际争霸**进这张图（不经过编辑器）。 */
 async function launch(map?: string): Promise<void> {
   const target = map ?? mainMap.value;
   if (!target) {
@@ -208,7 +208,7 @@ async function launch(map?: string): Promise<void> {
     return;
   }
 
-  // 带了模组却一个都没挂：地图的依赖找不到，打开就是一堆丢失的资源
+  // 带了模组却一个都没挂：地图的依赖找不到，进游戏就是一堆丢失的资源
   if (hasMods.value && mountedCount.value === 0) {
     showMountWarning.value = true;
     return;
@@ -216,7 +216,7 @@ async function launch(map?: string): Promise<void> {
 
   busy.value = true;
   try {
-    const result = await api.openMapInEditor(props.slot, props.variant.id, target);
+    const result = await api.launchGameWithMap(props.slot, props.variant.id, target);
     await refresh();
     notify("success", result.guidance);
   } catch (error) {
@@ -234,7 +234,7 @@ async function launchAnyway(): Promise<void> {
 
   busy.value = true;
   try {
-    const result = await api.openMapInEditor(props.slot, props.variant.id, target);
+    const result = await api.launchGameWithMap(props.slot, props.variant.id, target);
     notify("success", result.guidance);
   } catch (error) {
     notify("error", errorText(error));
@@ -256,7 +256,7 @@ async function launchAnyway(): Promise<void> {
         <h3 class="banner__title">{{ variant.name }}</h3>
         <p class="banner__sub">
           <template v-if="active">已装进游戏目录，点右边那个绿色的可以停用卸下。</template>
-          <template v-else>还没装进游戏目录 —— 点右边那个把它装进去，或直接用编辑器打开地图。</template>
+          <template v-else>还没装进游戏目录 —— 点右边那个把它装进去，就能直接启动游戏。</template>
           <span v-if="maps.length">共 {{ maps.length }} 张地图。</span>
         </p>
       </div>
@@ -382,7 +382,7 @@ async function launchAnyway(): Promise<void> {
                 :disabled="busy"
                 @click="launch(map.path)"
               >
-                用编辑器打开
+                启动这张
               </button>
             </div>
           </li>

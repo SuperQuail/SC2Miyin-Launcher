@@ -14,6 +14,7 @@ import type {
   NetworkSettings,
   DocInfo,
   EditorLaunch,
+  GameLaunch,
   GameModEntry,
   LibraryMod,
   ModComparison,
@@ -116,6 +117,8 @@ const desktop: LauncherApi = {
     invoke<MainMapChoice>("main_map_choice", { slot, variantId }),
   openMapInEditor: (slot, variantId, map) =>
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
+  launchGameWithMap: (slot, variantId, map) =>
+    invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
@@ -717,6 +720,10 @@ const demo: LauncherApi = {
   setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
   setMainMap: (_slot, _variantId, _map) => delay({} as never),
   mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  launchGameWithMap: async (_slot, _variantId, map) => ({
+    map,
+    guidance: "（演示模式）已经交给星际争霸，正在加载这张地图。",
+  }),
   openMapInEditor: (_slot, _variantId, map) =>
     delay({
       editor: "D:\\Game\\BLZ\\StarCraft II\\Support64\\SC2Editor_x64.exe",
