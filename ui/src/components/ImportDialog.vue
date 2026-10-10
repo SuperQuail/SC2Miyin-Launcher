@@ -30,8 +30,10 @@ const props = withDefaults(
     mode?: "import" | "update";
     /** 更新模式下点明的目标战役 —— 有它就是"强制更新"，不看包认得出谁。 */
     slot?: string;
+    /** 更新模式下点明的**那一版已安装的包**；空串表示让后端按包的身份去找。 */
+    variantId?: string;
   }>(),
-  { entry: "campaign", mode: "import", slot: "" },
+  { entry: "campaign", mode: "import", slot: "", variantId: "" },
 );
 
 const emit = defineEmits<{ imported: [string] }>();
@@ -263,7 +265,11 @@ async function doImport(): Promise<void> {
   try {
     // 更新：删旧的装新的，该跟着走的记录由后端带过去
     if (isUpdate.value) {
-      const updated = await api.updateVariantFromPackage(current.slot, current.preview.path);
+      const updated = await api.updateVariantFromPackage(
+        current.slot,
+        props.variantId || null,
+        current.preview.path,
+      );
       pending.value = null;
       await refresh();
       notify("success", "已更新「" + updated.name + "」");

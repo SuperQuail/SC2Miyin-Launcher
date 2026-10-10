@@ -15,14 +15,15 @@ const props = defineProps<{ slot: SlotView }>();
 const emit = defineEmits<{ back: [] }>();
 
 /**
- * 强制更新用的对话框。
+ * 更新**这一版已安装的包**。
  *
- * **目标就是这一部战役** —— 不看包能不能认出自己（没有元数据、元数据坏了都能用）。
- * 更新 = 删掉旧的装新的，该跟着走的记录（存档档案、补丁绑定、模组清单）由后端带过去。
+ * 目标是操作条上选中的那一版 —— 不看包能不能认出自己
+ * （没有元数据、元数据坏了都能用，这正是"强制更新"的意义）。
  */
 const updater = ref<InstanceType<typeof ImportDialog> | null>(null);
 
 function startUpdate(): void {
+  if (!selected.value) return;
   void updater.value?.startImport();
 }
 
@@ -416,26 +417,14 @@ async function doExport(mergePatches: boolean): Promise<void> {
             : "选择要游玩的版本 —— 原版战役，或导入的玩家版本" }}
         </p>
       </div>
-      <div class="banner__actions">
-        <!-- 强制更新：包里没元数据、或者元数据坏了时，就靠它把这一部换掉 -->
-        <button
-          class="btn btn-text banner__btn"
-          type="button"
-          :disabled="updater?.busy"
-          title="用压缩包把这一部战役换掉（删旧的、装新的）"
-          @click="startUpdate"
-        >
-          更新…
-        </button>
-        <button
-          v-if="!isCustom"
-          class="btn btn-primary banner__play"
-          type="button"
-          @click="launch"
-        >
-          开始游戏
-        </button>
-      </div>
+      <button
+        v-if="!isCustom"
+        class="btn btn-primary banner__play"
+        type="button"
+        @click="launch"
+      >
+        开始游戏
+      </button>
     </header>
 
     <!-- 版本卡片：原版永远排第一 -->
@@ -570,6 +559,15 @@ async function doExport(mergePatches: boolean): Promise<void> {
       <button
         class="btn btn-outline"
         type="button"
+        :disabled="exporting || busy || selected === null"
+        title="用压缩包把这一版换掉（删旧的、装新的；包里没有元数据也能用）"
+        @click="startUpdate"
+      >
+        更新这一版…
+      </button>
+      <button
+        class="btn btn-outline"
+        type="button"
         :disabled="exporting || selected === null"
         @click="doExport(false)"
       >
@@ -600,6 +598,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
       entry="campaign"
       mode="update"
       :slot="slot.slug"
+      :variant-id="selected ?? ''"
       @imported="onUpdated"
     />
 

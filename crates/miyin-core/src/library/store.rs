@@ -252,6 +252,31 @@ pub fn remove_variant(
     Ok(())
 }
 
+/// 按**包自己的身份**在库里找它该替换的那一版（主页面「更新战役包…」用）。
+///
+/// 认不出来返回 None —— 那就是库里还没有这一版，装成新的。
+pub fn find_target_for_package(
+    library: &Library,
+    slot_slug: &str,
+    package: &Path,
+) -> Result<Option<Variant>> {
+    require_slot(slot_slug)?;
+    let inspection = package::inspect(package)?;
+    let display_name = inspection
+        .name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            package
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    let index = library.index();
+    let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();
+    Ok(find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned())
+}
+
 /// 换掉一个版本：**删旧的、装新的**，再把该跟着走的东西带过去。
 ///
 /// 这就是「更新」的本质 —— 我们没有 diff，原地改文件做不到，
@@ -317,6 +342,10 @@ pub fn replace_variant(
         variant = entry;
         library.save_index(&index)?;
     }
+
+    // **跟着这一版来的模组记录要跟着改指**：它们只存元数据，内容就在版本目录里，
+    // 记录不跟着改就会指向一个已经没了的目录（列表里还在，铺下去却没东西）。
+    super::mods::repoint_campaign(library.root(), slot_slug, old_id, &variant.id)?;
 
     // 原来是应用着的，装完再应用回去
     if was_active {

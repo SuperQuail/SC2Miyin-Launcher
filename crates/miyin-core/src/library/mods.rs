@@ -1044,6 +1044,33 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 换战役版本时，把「跟着这个版本来的」模组记录改指到新版本上。
+///
+/// 这类记录**只存元数据，内容就在战役版本目录里** —— 版本一换，内容跟着走，
+/// 记录不跟着改就会指向一个已经不存在的目录：列表里还在，铺下去却没有东西。
+/// 返回改了几条。
+pub fn repoint_campaign(data: &Path, slot: &str, from: &str, to: &str) -> Result<usize> {
+    let mut rows = list(data);
+    let mut moved = 0;
+    for row in rows.iter_mut() {
+        if let ModSource::Campaign {
+            slot: row_slot,
+            variant,
+            ..
+        } = &mut row.source
+            && row_slot == slot
+            && variant == from
+        {
+            *variant = to.to_string();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        save(data, &rows)?;
+    }
+    Ok(moved)
+}
+
 /// 找一条「跟着某个战役版本来的」模组记录。
 pub fn find_campaign(data: &Path, slot: &str, variant: &str, path: &str) -> Option<StandaloneMod> {
     list(data).into_iter().find(|item| {

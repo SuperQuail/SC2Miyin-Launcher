@@ -119,8 +119,8 @@ const desktop: LauncherApi = {
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
   launchGameWithMap: (slot, variantId, map) =>
     invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
-  updateVariantFromPackage: (slot, path) =>
-    invoke<Variant>("update_variant_from_package", { slot, path }),
+  updateVariantFromPackage: (slot, variantId, path) =>
+    invoke<Variant>("update_variant_from_package", { slot, variantId, path }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
@@ -722,7 +722,7 @@ const demo: LauncherApi = {
   setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
   setMainMap: (_slot, _variantId, _map) => delay({} as never),
   mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
-  updateVariantFromPackage: (slot, path) =>
+  updateVariantFromPackage: (slot, variantId, path) =>
     delay(
       (() => {
         counter += 1;
@@ -735,8 +735,9 @@ const demo: LauncherApi = {
           512_000_000,
         );
         const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
-        // 演示里"更新"= 换掉当前那一版（没有就装上）
-        if (target.variants.length > 0) target.variants[0] = created;
+        // 演示里"更新"= 换掉指定的那一版（没指定就换当前那一版）
+        const at = variantId ? target.variants.findIndex((item) => item.id === variantId) : 0;
+        if (at >= 0) target.variants[at] = created;
         else target.variants.unshift(created);
         void path;
         return created;

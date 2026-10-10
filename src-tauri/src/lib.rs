@@ -615,18 +615,22 @@ fn import_package(
 #[tauri::command(async)]
 fn update_variant_from_package(
     slot: String,
+    variant_id: Option<String>,
     path: String,
     state: State<'_, AppState>,
 ) -> Result<miyin_core::library::Variant, String> {
     let installation = require_installation(&state)?;
 
-    // 换谁：当前启用的那一版优先，其次最新导入的那一版
-    let index = state.library.index();
-    let existing = index.slots.get(&slot).cloned().unwrap_or_default();
-    let target = existing
-        .active
-        .clone()
-        .or_else(|| existing.variants.first().map(|item| item.id.clone()));
+    // 换哪一个**已安装的包**：
+    // - 点明了（在那一版的卡片上点「更新」）→ 就是它
+    // - 没点明（主页面「更新战役包…」）→ 按包自己的身份去库里找；
+    //   找不到说明库里还没有这一版，那就装成新的
+    let target = match variant_id {
+        Some(id) => Some(id),
+        None => library::find_target_for_package(&state.library, &slot, Path::new(&path))
+            .map_err(|error| error.to_string())?
+            .map(|variant| variant.id),
+    };
 
     match target {
         Some(id) => {

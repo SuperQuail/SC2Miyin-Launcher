@@ -2460,3 +2460,52 @@ fn replace_variant_keeps_what_the_user_set_up() {
     assert!(game_has(&fixture, "02.SC2Map"), "新地图要铺进游戏目录");
     assert!(!game_has(&fixture, "01.SC2Map"), "旧地图要撤掉");
 }
+
+/// 跟着战役版本来的模组记录，**换版本时要跟着改指**。
+///
+/// 这类记录只存元数据，内容就在那个版本的目录里 —— 记录不跟着改，
+/// 就会指向一个已经没了的目录：模组列表里还在，铺下去却没东西。
+#[test]
+fn replace_variant_repoints_campaign_mods() {
+    let fixture = fixture();
+    let old = import(
+        &fixture.library,
+        &package(&fixture, "old.zip", "重制版", &["01.SC2Map"]),
+        "wol",
+        ImportMode::Rename,
+    )
+    .expect("先装旧的");
+
+    // 战役包带来的那个模组，被"记住"成了一条模组记录
+    let root = fixture.library.root().to_path_buf();
+    crate::library::mods::remember_campaign(
+        &root,
+        "wol",
+        &old.id,
+        "附带的模组",
+        "附带的模组",
+        "附带的模组",
+        Some("1.0"),
+        crate::library::mods::ModKind::Folder,
+        1,
+    )
+    .expect("记一条模组记录");
+
+    let new = replace_variant(
+        &fixture.library,
+        &fixture.installation,
+        "wol",
+        &old.id,
+        &package(&fixture, "new.zip", "重制版", &["02.SC2Map"]),
+    )
+    .expect("更新");
+
+    let rows = crate::library::mods::list(&root);
+    assert_eq!(rows.len(), 1, "记录还在");
+    match &rows[0].source {
+        crate::library::mods::ModSource::Campaign { variant, .. } => {
+            assert_eq!(variant, &new.id, "要改指到新版本上，不能还指着删掉的那一版");
+        }
+        other => panic!("本来该是 Campaign 源，实得 {other:?}"),
+    }
+}
