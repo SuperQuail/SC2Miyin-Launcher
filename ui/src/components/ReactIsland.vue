@@ -2,37 +2,55 @@
 /**
  * **迁移过渡件**：把一个 React 视图挂进 Vue 外壳。
  *
- * 外壳还是 Vue，逐个视图整块换成 React —— 不在同一个文件里混写两套框架。
- * 迁完之后外壳也换成 React，这个文件连同 `react/island.tsx` 一起删掉。
+ * 两个通道：
+ * - `props`：外壳把数据递进去；**变了就 update**（React 自己 diff，不重建整棵树）
+ * - `emit`：React 侧要说话就 emit（外壳在这边接成自己的事件）
  *
- * `mount` 由 React 侧提供：`(host, emit) => 卸载函数`；
- * React 视图要跟外壳说话就用 `emit`（外壳在这边接成自己的事件）。
+ * React 视图**不知道外壳是谁** —— 迁完之后外壳也换 React，这个文件就删。
  */
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+
+interface Handle {
+  update: (props: Record<string, unknown>) => void;
+  teardown: () => void;
+}
 
 const props = defineProps<{
-  mount: (host: HTMLElement, emit: (event: string, payload?: unknown) => void) => () => void;
+  mount: (
+    host: HTMLElement,
+    emit: (event: string, payload?: unknown) => void,
+    props: Record<string, unknown>,
+  ) => Handle;
+  /** 递给 React 视图的数据。变了会自动 update。 */
+  viewProps?: Record<string, unknown>;
 }>();
 
 const emit = defineEmits<{
-  close: [];
-  notify: [payload: { kind: "success" | "error"; text: string }];
+  [key: string]: [payload?: unknown];
 }>();
 
 const host = ref<HTMLElement | null>(null);
-let teardown: (() => void) | null = null;
+let handle: Handle | null = null;
 
 onMounted(() => {
   if (!host.value) return;
-  teardown = props.mount(host.value, (event, payload) => {
-    if (event === "close") emit("close");
-    if (event === "notify") emit("notify", payload as { kind: "success" | "error"; text: string });
-  });
+  handle = props.mount(
+    host.value,
+    (event, payload) => emit(event, payload),
+    props.viewProps ?? {},
+  );
 });
 
+// 外壳的数据变了 → 递进去（React 侧自己 diff）
+watch(
+  () => props.viewProps,
+  (next) => handle?.update(next ?? {}),
+  { deep: true },
+);
+
 onBeforeUnmount(() => {
-  teardown?.();
-  teardown = null;
+  handle?.teardown();
+  handle = null;
 });
 </script>
 

@@ -1,5 +1,5 @@
 import { CheatsView } from "./CheatsView";
-import { mountReact } from "../../island";
+import { mountIsland } from "../../island";
 
 /**
  * 给 Vue 外壳用的入口：`host` 是挂载点，`emit` 把事件（close / notify）交回外壳。
@@ -9,8 +9,9 @@ import { mountReact } from "../../island";
 export function mountCheats(
   host: HTMLElement,
   emit: (event: string, payload?: unknown) => void,
-): () => void {
-  return mountReact(host, () => (
+  props: Record<string, unknown>,
+) {
+  return mountIsland(host, emit, props, () => (
     <CheatsView
       onClose={() => emit("close")}
       notify={(kind, text) => emit("notify", { kind, text })}

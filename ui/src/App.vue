@@ -10,7 +10,7 @@ import { useLauncher } from "./composables/useLauncher";
 import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
 import { contextMenuHandledRecently, useContextMenu } from "./composables/useContextMenu";
-import UpdateNotice from "./components/UpdateNotice.vue";
+import { mountUpdateNotice } from "./react/views/update/UpdateNotice";
 import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
 import ModsView from "./views/ModsView.vue";
@@ -39,7 +39,20 @@ const {
   themeMode,
   cycleTheme,
   notify,
+  updateNoticeVisible,
+  updateNoticeMuted,
+  dismissUpdateNotice,
+  muteThisVersion,
+  downloadFromNotice,
+  updateDownloading,
+  updateCheck,
 } = useLauncher();
+
+/** React 岛回来说"提示一句" —— 统一在这里转给外壳的通知。 */
+function onIslandNotify(payload: unknown): void {
+  const item = payload as { kind: "success" | "error"; text: string };
+  notify(item.kind, item.text);
+}
 
 /** 开发者页是独立入口（AGENTS.md §18），整页跳过去；从那边有「← 返回启动器」。 */
 const openDevPage = () => {
@@ -482,14 +495,30 @@ onUnmounted(() => {
       v-if="cheatsOpen"
       :mount="mountCheats"
       @close="cheatsOpen = false"
-      @notify="(payload: { kind: 'success' | 'error'; text: string }) => notify(payload.kind, payload.text)"
+      @notify="onIslandNotify"
     />
 
     <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
     <ContextMenu />
 
     <!-- 启动时的更新公告（渲染 Release 正文的 Markdown）；出方案时别挡住内容区 -->
-    <UpdateNotice v-if="!previewView" />
+    <!-- 更新公告已迁到 React：外壳把数据递进去，React 侧只 emit 事件回来 -->
+    <ReactIsland
+      v-if="!previewView"
+      :mount="mountUpdateNotice"
+      :view-props="{
+        visible: updateNoticeVisible,
+        downloading: updateDownloading,
+        muted: updateNoticeMuted,
+        release: updateCheck?.latest ?? null,
+      }"
+      @dismiss="dismissUpdateNotice"
+      @mute="muteThisVersion"
+      @mute-on="updateNoticeMuted = true"
+      @mute-off="updateNoticeMuted = false"
+      @download="downloadFromNotice"
+      @notify="onIslandNotify"
+    />
 
     <!-- 更新下载完成后提示重启 -->
     <!-- 外部站点：先问一句，别默默跳走（弹窗归 useSiteLinks 管，这里只管画） -->
@@ -709,6 +738,9 @@ onUnmounted(() => {
 }
 
 .tab {
+  /* 顶栏变窄时别把标签挤成两行 —— 加了「资源网站」之后 1280 宽就会挤 */
+  flex: none;
+  white-space: nowrap;
   height: 30px;
   padding: 0 16px;
   border-radius: var(--radius-pill);
