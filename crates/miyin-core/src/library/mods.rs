@@ -678,9 +678,10 @@ fn stage(data: &Path, source: &Path) -> Result<Staged> {
         //   sync 时 read_dir 直接失败。）
         if content.is_file() {
             std::fs::create_dir_all(&slot)?;
-            std::fs::rename(&content, slot.join(&folder))?;
+            // 来源可能不在启动器那个盘上（临时目录 / 用户自己选的路径）
+            crate::platform::move_path(&content, &slot.join(&folder))?;
         } else {
-            std::fs::rename(&content, &slot)?;
+            crate::platform::move_path(&content, &slot)?;
         }
 
         let display = folder
@@ -952,7 +953,8 @@ fn import_one(
 
     let id = unique_dir_name(root, &display)?;
     let target = safety::ensure_within(root, &root.join(&id))?;
-    std::fs::rename(&item.content, &target)?;
+    // 暂存区在 %TEMP%（可能另一个盘），库目录在启动器那边 —— 跨卷
+    crate::platform::move_path(&item.content, &target)?;
 
     let (parts, size_bytes) = scan_dir(&target);
     let record = StandaloneMod {

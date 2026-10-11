@@ -447,7 +447,8 @@ impl Manifest {
                     let _ = std::fs::remove_dir_all(&backup);
                     let _ = std::fs::remove_file(&backup);
                 }
-                std::fs::rename(&target, &backup)?;
+                // 游戏目录与启动器 data 目录常常**不在一个盘** —— rename 跨卷会直接失败
+                crate::platform::move_path(&target, &backup)?;
                 Some(relative)
             } else {
                 None
@@ -571,7 +572,8 @@ fn restore_backup(data: &Path, target: &Path, relative: Option<&str>) -> Result<
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::rename(&backup, target)?;
+    // 同上：从 data/backup 还原回游戏目录是跨卷的
+    crate::platform::move_path(&backup, target)?;
     Ok(())
 }
 
