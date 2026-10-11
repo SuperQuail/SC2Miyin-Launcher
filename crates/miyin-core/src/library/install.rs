@@ -447,7 +447,7 @@ impl Manifest {
                     let _ = std::fs::remove_dir_all(&backup);
                     let _ = std::fs::remove_file(&backup);
                 }
-                std::fs::rename(&target, &backup)?;
+                crate::platform::move_path(&target, &backup)?;
                 Some(relative)
             } else {
                 None
@@ -571,7 +571,7 @@ fn restore_backup(data: &Path, target: &Path, relative: Option<&str>) -> Result<
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::rename(&backup, target)?;
+    crate::platform::move_path(&backup, target)?;
     Ok(())
 }
 
