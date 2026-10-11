@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { api } from "../../../api/bridge";
 import { mountIsland } from "../../island";
 import { renderMarkdown } from "../../../api/markdown";
-import { Button } from "../../ui";
+import { Button, Sheet } from "../../ui";
 import "./update-notice.css";
 
 /** 发现的新版本（来自 GitHub Release）。字段与 `updateCheck.latest` 对齐。 */
@@ -57,12 +57,19 @@ export function UpdateNotice({ visible, downloading, muted, release, emit }: Upd
   if (!visible || !release) return null;
 
   return (
-    <div
-      className="sheet"
-      onClick={(event) => event.target === event.currentTarget && emit("dismiss")}
+    <Sheet
+      className="notice"
+      onClose={() => emit("dismiss")}
+      actions={
+        <>
+          <Button onClick={() => emit(muted ? "mute" : "dismiss")}>以后再说</Button>
+          <Button variant="primary" disabled={downloading} onClick={() => emit("download")}>
+            下载并安装
+          </Button>
+        </>
+      }
     >
-      <div className="sheet__card notice">
-        <header className="notice__head">
+      <header className="notice__head">
           <div className="sheet__badge">
             <svg className="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3v10" />
@@ -77,10 +84,10 @@ export function UpdateNotice({ visible, downloading, muted, release, emit }: Upd
               <span>{release.published_at.slice(0, 10)}</span>
             </p>
           </div>
-        </header>
+      </header>
 
-        {/* 公告正文：GitHub Release 的 Markdown，已渲染并净化 */}
-        <div className="notice__body">
+      {/* 公告正文：GitHub Release 的 Markdown，已渲染并净化 */}
+      <div className="notice__body">
           {body ? (
             <div className="markdown" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: body }} />
           ) : (
@@ -88,7 +95,7 @@ export function UpdateNotice({ visible, downloading, muted, release, emit }: Upd
           )}
         </div>
 
-        <label className="notice__mute">
+      <label className="notice__mute">
           <input
             type="checkbox"
             checked={muted}
@@ -99,14 +106,7 @@ export function UpdateNotice({ visible, downloading, muted, release, emit }: Upd
           <span>不再提示 {release.version}</span>
         </label>
 
-        <div className="sheet__actions">
-          <Button onClick={() => emit(muted ? "mute" : "dismiss")}>以后再说</Button>
-          <Button variant="primary" disabled={downloading} onClick={() => emit("download")}>
-            下载并安装
-          </Button>
-        </div>
-      </div>
-    </div>
+    </Sheet>
   );
 }
 

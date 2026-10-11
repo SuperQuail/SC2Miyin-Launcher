@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CHEATS, CHEAT_SCOPES, matchCheats, type Cheat, type CheatScope } from "../../../api/cheats";
+import { copyText } from "../../lib/clipboard";
 import { Button } from "../../ui";
 import "./cheats.css";
 
@@ -38,7 +39,7 @@ export function CheatsView({ notify, onClose }: CheatsHandlers) {
   }, [onClose]);
 
   async function copy(cheat: Cheat): Promise<void> {
-    const ok = await writeClipboard(cheat.code);
+    const ok = await copyText(cheat.code);
     if (!ok) {
       notify("error", "复制失败，请手动选中");
       return;
@@ -119,28 +120,4 @@ export function CheatsView({ notify, onClose }: CheatsHandlers) {
       </section>
     </div>
   );
-}
-
-/** 写剪贴板；两条路都试一遍。 */
-async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // 退回老办法：造一个看不见的输入框，选中后复制
-    try {
-      const holder = document.createElement("textarea");
-      holder.value = text;
-      holder.setAttribute("readonly", "");
-      holder.style.position = "fixed";
-      holder.style.opacity = "0";
-      document.body.appendChild(holder);
-      holder.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(holder);
-      return ok;
-    } catch {
-      return false;
-    }
-  }
 }

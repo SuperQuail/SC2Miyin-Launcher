@@ -6,6 +6,7 @@
 import { computed, ref } from "vue";
 
 import { api, isDesktop } from "../api/bridge";
+import { errorText } from "../api/errors";
 import type {
   Installation,
   SlotView,
@@ -276,12 +277,8 @@ export function notify(kind: ToastKind, message: string): void {
   }, 4200);
 }
 
-/** 把任意异常转成可展示的文本。 */
-export function errorText(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
+/** 把任意异常转成可展示的文本。实现搬去了框架无关的 `api/errors.ts`（React 侧也要用）。 */
+export { errorText };
 
 /** 首次进入时探测游戏并载入战役库。 */
 async function bootstrap(): Promise<void> {
