@@ -10,6 +10,7 @@ import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
 import DocViewer from "../components/DocViewer.vue";
 import ImportDialog from "../components/ImportDialog.vue";
 import { useContextMenu } from "../composables/useContextMenu";
+import { Button, Field, Sheet } from "../ui";
 
 const props = defineProps<{ slot: SlotView }>();
 const emit = defineEmits<{ back: [] }>();
@@ -603,66 +604,60 @@ async function doExport(mergePatches: boolean): Promise<void> {
     />
 
     <!-- 编辑补丁 -->
-    <div v-if="editingPatch" class="sheet">
-      <div class="sheet__card">
-        <h3 class="sheet__title">编辑补丁「{{ editingPatch.name }}」</h3>
+    <Sheet
+      v-if="editingPatch"
+      :title="'编辑补丁「' + editingPatch.name + '」'"
+      @close="editingPatch = null"
+    >
         <p class="sheet__note">
           同样只改启动器记录的元数据，不动包内容，也不影响它已经挂在哪些战役上。
         </p>
 
-        <label class="field">
-          <span class="field__label">补丁名</span>
-          <input v-model="patchForm.name" class="field__input" type="text" />
-        </label>
-        <label class="field">
-          <span class="field__label">作者</span>
-          <input v-model="patchForm.author" class="field__input" type="text" placeholder="未知作者" />
-        </label>
-        <label class="field">
-          <span class="field__label">注册 ID</span>
-          <input v-model="patchForm.registrationId" class="field__input" type="text" />
-        </label>
-        <label class="field">
-          <span class="field__label">默认优先级</span>
-          <input v-model.number="patchForm.priority" class="field__input" type="number" />
-        </label>
-        <label class="field">
-          <span class="field__label">描述</span>
-          <textarea v-model="patchForm.description" class="field__input" rows="3"></textarea>
-        </label>
+        <Field label="补丁名">
+        <input v-model="patchForm.name" type="text" />
+      </Field>
+        <Field label="作者">
+        <input v-model="patchForm.author" type="text" placeholder="未知作者" />
+      </Field>
+        <Field label="注册 ID">
+        <input v-model="patchForm.registrationId" type="text" />
+      </Field>
+        <Field label="默认优先级">
+        <input v-model.number="patchForm.priority" type="number" />
+      </Field>
+        <Field label="描述">
+        <textarea v-model="patchForm.description" rows="3"></textarea>
+      </Field>
 
-        <div class="sheet__actions">
-          <button class="btn btn-text" type="button" @click="editingPatch = null">取消</button>
-          <button class="btn btn-primary" type="button" @click="savePatchEdit">保存</button>
-        </div>
-      </div>
-    </div>
+      <template #actions>
+        <Button @click="editingPatch = null">取消</Button>
+        <Button variant="primary" @click="savePatchEdit">保存</Button>
+      </template>
+    </Sheet>
 
     <!-- 编辑元数据 -->
-    <div v-if="editing" class="sheet">
-      <div class="sheet__card">
-        <h3 class="sheet__title">编辑「{{ editing.name }}」</h3>
+    <Sheet
+      v-if="editing"
+      :title="'编辑「' + editing.name + '」'"
+      @close="editing = null"
+    >
         <p class="sheet__note">
           只改启动器记录的元数据，不动包里的原始文件 —— 随时可以改回来。
           改名字不会改版本目录，挂在它上面的补丁不受影响。
         </p>
 
-        <label class="field">
-          <span class="field__label">战役名</span>
-          <input v-model="form.name" class="field__input" type="text" />
-        </label>
-        <label class="field">
-          <span class="field__label">作者</span>
-          <input v-model="form.author" class="field__input" type="text" placeholder="未知作者" />
-        </label>
-        <label class="field">
-          <span class="field__label">注册 ID</span>
-          <input v-model="form.registrationId" class="field__input" type="text" placeholder="例如 HTXL.golden-lotv" />
-        </label>
-        <label class="field">
-          <span class="field__label">描述</span>
-          <textarea v-model="form.description" class="field__input" rows="3"></textarea>
-        </label>
+        <Field label="战役名">
+        <input v-model="form.name" type="text" />
+      </Field>
+        <Field label="作者">
+        <input v-model="form.author" type="text" placeholder="未知作者" />
+      </Field>
+        <Field label="注册 ID">
+        <input v-model="form.registrationId" type="text" placeholder="例如 HTXL.golden-lotv" />
+      </Field>
+        <Field label="描述">
+        <textarea v-model="form.description" rows="3"></textarea>
+      </Field>
 
         <!-- 依赖模组：包作者在这里说清「地图需要哪几个模组」 -->
         <div v-if="editMods.length" class="field">
@@ -688,12 +683,11 @@ async function doExport(mergePatches: boolean): Promise<void> {
           </ul>
         </div>
 
-        <div class="sheet__actions">
-          <button class="btn btn-text" type="button" @click="editing = null">取消</button>
-          <button class="btn btn-primary" type="button" @click="saveEdit">保存</button>
-        </div>
-      </div>
-    </div>
+      <template #actions>
+        <Button @click="editing = null">取消</Button>
+        <Button variant="primary" @click="saveEdit">保存</Button>
+      </template>
+    </Sheet>
     <DocViewer
       v-if="openedDoc && inspectedVariant"
       :slot="slot.slug"
@@ -704,9 +698,11 @@ async function doExport(mergePatches: boolean): Promise<void> {
 
     <!-- 删版本：先确认 -->
     <!-- 铺盘前的预演：会动哪些文件，先给人看一眼 -->
-    <div v-if="pendingActivation" class="sheet" @click.self="cancelActivation()">
-      <div class="sheet__card">
-        <h3 class="sheet__title">启用「{{ pendingActivation.variantId }}」会改动这些</h3>
+    <Sheet
+      v-if="pendingActivation"
+      :title="'启用「' + pendingActivation.variantId + '」会改动这些'"
+      @close="cancelActivation()"
+    >
         <ul class="plist">
           <li v-if="pendingActivation.preview.add.length" class="pitem">
             <span class="pitem__name">新增</span><span class="tag">{{ pendingActivation.preview.add.length }} 项</span>
@@ -731,28 +727,28 @@ async function doExport(mergePatches: boolean): Promise<void> {
             {{ item.target }}
           </p>
         </details>
-        <div class="sheet__actions">
-          <button class="btn btn-text" type="button" @click="cancelActivation()">取消</button>
-          <button class="btn btn-primary" type="button" :disabled="busy" @click="confirmActivation()">
-            继续，写进游戏目录
-          </button>
-        </div>
-      </div>
-    </div>
+      <template #actions>
+        <Button @click="cancelActivation()">取消</Button>
+        <Button variant="primary" :disabled="busy" @click="confirmActivation()">
+          继续，写进游戏目录
+        </Button>
+      </template>
+    </Sheet>
 
-    <div v-if="confirming" class="sheet" @click.self="confirming = null">
-      <div class="sheet__card">
-        <h3 class="sheet__title">删除「{{ confirming.name }}」？</h3>
+    <Sheet
+      v-if="confirming"
+      :title="'删除「' + confirming.name + '」？'"
+      @close="confirming = null"
+    >
         <p class="sheet__text">
           会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
           <strong>删了就得重新导入。</strong>
         </p>
-        <div class="sheet__actions">
-          <button class="btn btn-text" type="button" @click="confirming = null">取消</button>
-          <button class="btn btn-primary" type="button" @click="confirmDrop()">删除</button>
-        </div>
-      </div>
-    </div>
+      <template #actions>
+        <Button @click="confirming = null">取消</Button>
+        <Button variant="primary" @click="confirmDrop()">删除</Button>
+      </template>
+    </Sheet>
   </div>
 </template>
 
@@ -1011,7 +1007,8 @@ async function doExport(mergePatches: boolean): Promise<void> {
 }
 
 /* ---------- 编辑对话框 ---------- */
-
+/* 表单本身已收进 ui/Field.vue（样式跟着控件走）。
+   这里只剩"依赖模组"那一块还在用 .field / .field__label —— 它不是简单的标签+输入。 */
 .field {
   display: block;
   margin-bottom: 10px;
@@ -1023,17 +1020,6 @@ async function doExport(mergePatches: boolean): Promise<void> {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--on-surface-variant);
-}
-
-.field__input {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--outline);
-  background: var(--surface-2);
-  font-family: inherit;
-  font-size: 13px;
-  resize: vertical;
 }
 
 .tag {
