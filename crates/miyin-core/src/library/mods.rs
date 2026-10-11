@@ -678,9 +678,9 @@ fn stage(data: &Path, source: &Path) -> Result<Staged> {
         //   sync 时 read_dir 直接失败。）
         if content.is_file() {
             std::fs::create_dir_all(&slot)?;
-            std::fs::rename(&content, slot.join(&folder))?;
+            crate::platform::move_path(&content, &slot.join(&folder))?;
         } else {
-            std::fs::rename(&content, &slot)?;
+            crate::platform::move_path(&content, &slot)?;
         }
 
         let display = folder
@@ -952,7 +952,7 @@ fn import_one(
 
     let id = unique_dir_name(root, &display)?;
     let target = safety::ensure_within(root, &root.join(&id))?;
-    std::fs::rename(&item.content, &target)?;
+    crate::platform::move_path(&item.content, &target)?;
 
     let (parts, size_bytes) = scan_dir(&target);
     let record = StandaloneMod {
