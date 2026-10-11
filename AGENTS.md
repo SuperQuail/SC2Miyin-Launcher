@@ -139,6 +139,10 @@ pnpm -C ui install
 pnpm -C ui dev                      # 浏览器演示模式：无需桌面壳，自带示例数据
 pnpm -C ui build                    # vue-tsc 类型检查 + 打包到 ui/dist
 
+# 门禁：任何一份原始代码超过 500 行就告警（不拦路）
+python scripts/check-file-size.py
+python scripts/check-file-size.py 300   # 换个线看看离得远不远
+
 # 桌面版
 #
 # ⚠️ release 构建**必须**带 --features custom-protocol**，否则不会把 ui/dist 内嵌进二进制，
@@ -800,7 +804,21 @@ unless defined with `#[tauri::command(async)]`*。）
 
 ---
 
-## 18. 双前端：用户侧 Vue，开发者侧 React
+## 18. 前端：目标态全 React（用户侧 Vue 属待迁遗产）
+
+> [!IMPORTANT]
+> **本项目的既定方向：逐步迁移，最终弃用 Vue，全用 React。**
+>
+> - **新写的界面优先 React。** 例外只有一种：改动本身就是"给某个现有 Vue 组件做个小修"
+>   —— 为了它先重写一遍不值。
+> - **迁移是整块替换**：一个视图 / 一个面板**整体**换成 React 挂载点，
+>   **不做**"同一个文件里混写两套框架"。
+> - **框架无关的东西放中间层**（`ui/src/api/*`、`ui/src/composables/*` 里那些不 import
+>   `vue` 的），迁移时原样搬走，不用重写。
+> - 迁移顺序、注意事项、以及"别把 Vue 的坏习惯带过去"见
+>   [`docs/frontend-migration.md`](docs/frontend-migration.md)。
+>
+> 下面这些边界仍然有效 —— **两个入口在迁移完成前都活着**，谁也别踩谁。
 
 **两个入口，不是两套框架混在一页。**
 
