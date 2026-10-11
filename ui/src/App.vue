@@ -13,7 +13,7 @@ import { contextMenuHandledRecently, useContextMenu } from "./composables/useCon
 import { mountUpdateNotice } from "./react/views/update/UpdateNotice";
 import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
-import ModsView from "./views/ModsView.vue";
+import { mountMods } from "./react/views/mods/mount";
 import ReactIsland from "./components/ReactIsland.vue";
 import { mountCheats } from "./react/views/cheats/mount";
 import SettingsView from "./views/SettingsView.vue";
@@ -46,12 +46,31 @@ const {
   downloadFromNotice,
   updateDownloading,
   updateCheck,
+  reveal,
 } = useLauncher();
 
 /** React 岛回来说"提示一句" —— 统一在这里转给外壳的通知。 */
 function onIslandNotify(payload: unknown): void {
   const item = payload as { kind: "success" | "error"; text: string };
   notify(item.kind, item.text);
+}
+
+/** React 岛要外壳打开一个目录。 */
+function onIslandReveal(payload: unknown): void {
+  void reveal(String(payload));
+}
+
+/**
+ * React 岛要在某处弹右键菜单 —— 菜单本体在外壳里（全局只有一个），
+ * 岛只告诉我们"在哪儿弹、有哪些项、选中了怎么回调"。
+ */
+function onIslandMenu(payload: unknown): void {
+  const item = payload as {
+    event: MouseEvent;
+    items: { id: string; label: string; danger?: boolean; disabled?: boolean }[];
+    onPick: (id: string) => void;
+  };
+  menu.show(item.event, item.items, item.onPick);
 }
 
 /** 开发者页是独立入口（AGENTS.md §18），整页跳过去；从那边有「← 返回启动器」。 */
@@ -479,7 +498,17 @@ onUnmounted(() => {
           key="custom"
           @open-cheats="cheatsOpen = true"
         />
-        <ModsView v-else-if="currentView === 'mods'" key="mods" />
+        <!-- 模组页已迁到 React -->
+      <ReactIsland
+        v-else-if="currentView === 'mods'"
+        key="mods"
+        :mount="mountMods"
+        :view-props="{ installation }"
+        @notify="onIslandNotify"
+        @reveal="onIslandReveal"
+        @bootstrap="bootstrap"
+        @menu="onIslandMenu"
+      />
         <SettingsView v-else key="settings" />
       </Transition>
     </main>
