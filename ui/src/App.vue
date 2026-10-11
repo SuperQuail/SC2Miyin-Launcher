@@ -14,7 +14,8 @@ import UpdateNotice from "./components/UpdateNotice.vue";
 import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
 import ModsView from "./views/ModsView.vue";
-import CheatsView from "./views/CheatsView.vue";
+import ReactIsland from "./components/ReactIsland.vue";
+import { mountCheats } from "./react/views/cheats/mount";
 import SettingsView from "./views/SettingsView.vue";
 
 const { sitePending, siteResolved, siteProbing, requestSite, confirmSite, cancelSite } =
@@ -37,6 +38,7 @@ const {
   theme,
   themeMode,
   cycleTheme,
+  notify,
 } = useLauncher();
 
 /** 开发者页是独立入口（AGENTS.md §18），整页跳过去；从那边有「← 返回启动器」。 */
@@ -474,8 +476,14 @@ onUnmounted(() => {
         {{ toast.message }}
       </div>
     </Transition>
-    <!-- 作弊码：战役页 / 自制战役页的「小工具」里弹出来 -->
-    <CheatsView v-if="cheatsOpen" @close="cheatsOpen = false" />
+    <!-- 作弊码：战役页 / 自制战役页的「小工具」里弹出来。
+         **已迁到 React** —— 外壳只管挂载，React 视图通过 emit 回来说话。 -->
+    <ReactIsland
+      v-if="cheatsOpen"
+      :mount="mountCheats"
+      @close="cheatsOpen = false"
+      @notify="(payload: { kind: 'success' | 'error'; text: string }) => notify(payload.kind, payload.text)"
+    />
 
     <!-- 全局右键菜单：任何地方调 useContextMenu().show() 就能弹 -->
     <ContextMenu />
