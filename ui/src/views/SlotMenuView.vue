@@ -607,6 +607,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
     <Sheet
       v-if="editingPatch"
       :title="'编辑补丁「' + editingPatch.name + '」'"
+      :dismiss-on-backdrop="false"
       @close="editingPatch = null"
     >
         <p class="sheet__note">
@@ -639,6 +640,7 @@ async function doExport(mergePatches: boolean): Promise<void> {
     <Sheet
       v-if="editing"
       :title="'编辑「' + editing.name + '」'"
+      :dismiss-on-backdrop="false"
       @close="editing = null"
     >
         <p class="sheet__note">
