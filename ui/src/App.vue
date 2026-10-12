@@ -16,7 +16,7 @@ import CustomView from "./views/CustomView.vue";
 import { mountMods } from "./react/views/mods/mount";
 import ReactIsland from "./components/ReactIsland.vue";
 import { mountCheats } from "./react/views/cheats/mount";
-import SettingsView from "./views/SettingsView.vue";
+import { mountSettings } from "./react/views/settings/mount";
 
 const { sitePending, siteResolved, siteProbing, requestSite, confirmSite, cancelSite } =
   useSiteLinks();
@@ -47,12 +47,69 @@ const {
   updateDownloading,
   updateCheck,
   reveal,
+  libraryRoot,
+  installedCampaigns,
+  saves,
+  saveBackups,
+  saveIsolation,
+  slots,
+  busy,
+  updateProgress,
+  updateLogs,
+  updateChecking,
+  chooseGameDirectory,
+  collectCampaign,
+  toggleSaveIsolation,
+  saveCurrentSaves,
+  switchSaveProfile,
+  assignSaveProfile,
+  backupSaves,
+  restoreSaves,
+  refreshSaves,
+  refreshInstalled,
+  checkUpdateNow,
+  downloadUpdateNow,
 } = useLauncher();
 
 /** React 岛回来说"提示一句" —— 统一在这里转给外壳的通知。 */
 function onIslandNotify(payload: unknown): void {
   const item = payload as { kind: "success" | "error"; text: string };
   notify(item.kind, item.text);
+}
+
+/** 设置页（React 岛）要的动作 —— 统一在这里转成外壳的实现。 */
+function onIslandSaveIsolation(payload: unknown): void {
+  void toggleSaveIsolation(Boolean(payload));
+}
+function onIslandCollect(payload: unknown): void {
+  void collectCampaign(String(payload));
+}
+function onIslandSwitchProfile(payload: unknown): void {
+  void switchSaveProfile(String(payload));
+}
+function onIslandAssignProfile(payload: unknown): void {
+  const item = payload as { name: string; slot: string | null };
+  void assignSaveProfile(item.name, item.slot);
+}
+/** 备份一份存档 —— 外壳的实现要一个"标签"，这里给默认的那个。 */
+function onIslandBackupSaves(): void {
+  void backupSaves("手动");
+}
+function onIslandRestore(payload: unknown): void {
+  void restoreSaves(String(payload));
+}
+function onIslandRefresh(): void {
+  void refreshSaves();
+  void refreshInstalled();
+}
+function onIslandCheckUpdate(): void {
+  void checkUpdateNow(false);
+}
+function onIslandDownloadUpdate(): void {
+  void downloadUpdateNow();
+}
+function onIslandApplyUpdate(): void {
+  void applyUpdateNow();
 }
 
 /** React 岛要外壳打开一个目录。 */
@@ -509,7 +566,47 @@ onUnmounted(() => {
         @bootstrap="bootstrap"
         @menu="onIslandMenu"
       />
-        <SettingsView v-else key="settings" />
+        <!-- 设置页已迁到 React（连它里面的「可选工具」「更新」两个面板一起） -->
+      <ReactIsland
+        v-else
+        key="settings"
+        :mount="mountSettings"
+        :view-props="{
+          installation,
+          libraryRoot,
+          isDesktop,
+          installedCampaigns,
+          saves,
+          saveBackups,
+          saveIsolation,
+          slots,
+          busy,
+          launcherVersion,
+          update: {
+            check: updateCheck,
+            staged: updateStaged,
+            progress: updateProgress,
+            logs: updateLogs,
+            checking: updateChecking,
+            downloading: updateDownloading,
+          },
+        }"
+        @notify="onIslandNotify"
+        @choose-game-dir="chooseGameDirectory"
+        @reveal="onIslandReveal"
+        @collect="onIslandCollect"
+        @toggle-isolation="onIslandSaveIsolation"
+        @save-current="saveCurrentSaves"
+        @switch-profile="onIslandSwitchProfile"
+        @assign-profile="onIslandAssignProfile"
+        @backup-saves="onIslandBackupSaves"
+        @restore-saves="onIslandRestore"
+        @refresh="onIslandRefresh"
+        @check-update="onIslandCheckUpdate"
+        @download-update="onIslandDownloadUpdate"
+        @apply-update="onIslandApplyUpdate"
+        @open-dev="openDevPage"
+      />
       </Transition>
     </main>
 
