@@ -162,17 +162,12 @@ export function UserSidePage() {
 
       <Card
         title="待迁移（还没控件化的）"
-        note="这些还是 Vue，也没有独立的控件形态 —— 迁完一个就从这张表里划掉一个。新写的界面不许再往这一类里加东西。"
+        note="这一栏只出不进：新写的界面要么用已有控件，要么先在房间里做出新控件。"
       >
-        <ul className="room__todo">
-          <li>
-            <code>App.vue</code> 1109 行 · 外壳（顶栏、页签、弹窗宿主）—— 它还牵着 697 行的
-            <code>useLauncher</code>，是最后一块
-          </li>
-          <li>
-            <code>ContextMenu.vue</code> · 右键菜单宿主（跟外壳一起走）
-          </li>
-        </ul>
+        <p className="room__card-note">
+          没有了 —— 用户侧的外壳（<code>App.vue</code>）、全局状态（<code>useLauncher</code>）
+          与右键菜单宿主（<code>ContextMenu.vue</code>）都已经换成 React，Vue 依赖已删。
+        </p>
       </Card>
 
       {sheet && (

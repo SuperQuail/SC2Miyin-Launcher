@@ -1,9 +1,9 @@
 /**
  * 战役流程（战役列表 → 某个战役的菜单 → 导入/更新/补丁）要跟外壳说的话。
  *
- * React 侧**不许 import 那个 697 行的 `useLauncher`**（见 docs/frontend-modernization.md）：
- * 数据由外壳通过 `ReactIsland` 的 view-props 递进来，动作 emit 回去。
- * 右键菜单的本体在外壳里，这边只说「在哪儿弹、有哪些项」。
+ * 视图**不直接 import 全局状态**（原来那个 697 行的 `useLauncher` 已经拆成
+ * `react/state/` 下的一组领域 hook）：数据由外壳组装成 `CampaignsHost` 递进来，
+ * 动作直接调。右键菜单的本体在外壳里，这边只说「在哪儿弹、有哪些项」。
  */
 import type { MouseEvent as ReactMouseEvent } from "react";
 

@@ -1,12 +1,10 @@
 import { fileURLToPath } from "node:url";
 
-import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vitest/config";
 
 // 前端单元测试。跑的是组件**接线**这类东西 ——
 // 「emit 了但父组件没接」这种 bug 编译和类型都看不出来。
 export default defineConfig({
-  plugins: [vue()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

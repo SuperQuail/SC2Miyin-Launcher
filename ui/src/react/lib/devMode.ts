@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
  * 存哪：`localStorage`。它是个"开关"而不是业务数据 —— 不进 `data/`，
  * 换台机器/重装启动器就该重新打开一次，这样也不会把作者模式误带给普通用户。
  *
- * 读的一侧（App.vue）在切换视图时直接读 localStorage，所以这里不必广播事件；
+ * 读的一侧（react/state/useNavigation.ts）在启动时直接读 localStorage，所以这里不必广播事件；
  * 只有本 hook 的宿主需要重渲染。
  */
 const KEY = "miyin.devMode";

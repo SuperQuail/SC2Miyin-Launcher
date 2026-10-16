@@ -1,9 +1,8 @@
 /**
  * 自制战役页要跟外壳说的话。
  *
- * 和战役流程（campaigns/host.ts）一个路数：React 侧不许 import 那个 697 行的
- * `useLauncher`（见 docs/frontend-modernization.md），数据由外壳通过 `ReactIsland`
- * 的 view-props 递进来，动作 emit 回去。
+ * 和战役流程（campaigns/host.ts）一个路数：视图不直接碰全局状态，数据由外壳
+ * 组装成 `CustomHost` 递进来，动作直接调。
  */
 import type { MouseEvent as ReactMouseEvent } from "react";
 
