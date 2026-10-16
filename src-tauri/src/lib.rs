@@ -46,6 +46,8 @@ struct AppState {
     network_path: PathBuf,
     /// 已经下载好、等着换上去的更新。
     staged: Mutex<Option<Staged>>,
+    /// 导出想中途停手时置 true（见 dev_cancel_export）。
+    dev_cancel: std::sync::atomic::AtomicBool,
 }
 
 /// 下载进度事件（发给前端画进度条）。
@@ -84,6 +86,7 @@ impl AppState {
             network: Mutex::new(network),
             network_path,
             staged: Mutex::new(None),
+            dev_cancel: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -1878,6 +1881,10 @@ pub fn run() {
             update_variant,
             delete_variant,
             launch_game,
+            dev_cancel_export,
+            launch_game_with_map,
+            resolve_site_url,
+            update_variant_from_package,
             reveal_path,
             pick_package,
             pick_game_directory,
@@ -1886,4 +1893,122 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("弥音启动器启动失败");
+}
+
+// ---------- 以下来自 React 重构那条分支（dev 侧没有）----------
+
+#[tauri::command(async)]
+fn dev_cancel_export(state: State<'_, AppState>) {
+    state
+        .dev_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[tauri::command(async)]
+fn launch_game_with_map(
+    slot: String,
+    variant_id: String,
+    map: String,
+    state: State<'_, AppState>,
+) -> Result<GameLaunch, String> {
+    let (installation, path) = prepared_map(&state, &slot, &variant_id, &map)?;
+
+    // 工作目录必须是游戏根 —— 切换器靠它找 .build.info 与 Versions/
+    std::process::Command::new(installation.preferred_launcher())
+        .current_dir(&installation.root)
+        .arg(&path)
+        .spawn()
+        .map_err(|error| format!("启动游戏失败：{error}"))?;
+
+    Ok(GameLaunch {
+        map,
+        guidance: "已经交给星际争霸，正在加载这张地图。".to_string(),
+    })
+}
+
+#[tauri::command(async)]
+fn resolve_site_url(https: String, http: String) -> String {
+    if miyin_core::net::https_usable(&https) {
+        https
+    } else {
+        http
+    }
+}
+
+#[tauri::command(async)]
+fn update_variant_from_package(
+    slot: String,
+    variant_id: Option<String>,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::library::Replaced, String> {
+    let installation = require_installation(&state)?;
+
+    // 换哪一个**已安装的包**：
+    // - 点明了（在那一版的卡片上点「更新」）→ 就是它
+    // - 没点明（主页面「更新战役包…」）→ 按包自己的身份去库里找；
+    //   找不到说明库里还没有这一版，那就装成新的
+    let target = match variant_id {
+        Some(id) => Some(id),
+        None => library::find_target_for_package(&state.library, &slot, Path::new(&path))
+            .map_err(|error| error.to_string())?
+            .map(|variant| variant.id),
+    };
+
+    match target {
+        Some(id) => {
+            library::replace_variant(&state.library, &installation, &slot, &id, Path::new(&path))
+        }
+        None => library::import(
+            &state.library,
+            Path::new(&path),
+            &slot,
+            miyin_core::library::ImportMode::Rename,
+        )
+        .map(|variant| miyin_core::library::Replaced {
+            variant,
+            added_mods: Vec::new(),
+        }),
+    }
+    .map_err(|error| error.to_string())
+}
+
+fn prepared_map(
+    state: &State<'_, AppState>,
+    slot: &str,
+    variant_id: &str,
+    map: &str,
+) -> Result<(miyin_core::sc2::Installation, PathBuf), String> {
+    let installation = require_installation(state)?;
+
+    let mods = state.library.variant_mods(slot, variant_id);
+    if !mods.is_empty() && !mods.iter().any(|item| item.mounted) {
+        return Err(
+            "这个战役带了模组，但你一个都没挂载 —— 这样打开地图会报错。先在「挂载模组」里勾上再试"
+                .to_string(),
+        );
+    }
+
+    library::activate(&state.library, &installation, slot, Some(variant_id))
+        .map_err(|error| error.to_string())?;
+
+    let library_path = state
+        .library
+        .map_path(slot, variant_id, map)
+        .map_err(|error| error.to_string())?;
+
+    let path = miyin_core::library::Manifest::load(state.library.root())
+        .target_of(&installation, &library_path)
+        .filter(|candidate| candidate.exists())
+        .unwrap_or(library_path);
+
+    Ok((installation, path))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct GameLaunch {
+    /// 要打开哪张地图（库内相对路径）。
+    map: String,
+    /// 界面照着念的一句话。
+    guidance: String,
 }

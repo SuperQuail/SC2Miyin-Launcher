@@ -91,7 +91,13 @@ CI 在 `dev` / `main` / `release` 三个分支上跑，见 [.github/workflows/ci
 | `release` | 发版分支，只接受从 `main` 合并的提交 |
 | `feat/*` `fix/*` | 特性与修复，合回 `dev` |
 
-打 tag 触发发行：`git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1`
+打 tag 触发发行（**tag 用紧凑写法**，且文件名要与 tag 完全对应）：
+
+```bash
+git tag -a v0.1.0a7 origin/release -m "0.1.0a7" && git push origin v0.1.0a7
+```
+
+CI 会拿 `docs/release-notes/v0.1.0a7.md` 当 Release 正文 —— 名字对不上就没有正文。
 
 ## 项目结构
 

@@ -1,0 +1,457 @@
+/**
+ * 外壳样式（顶栏 / 页签 / 窗口按钮 / 提示 / 遮罩 / 右键菜单）。
+ *
+ * 原来散在 App.vue 与 ContextMenu.vue 的 <style scoped> 里；进了 React 就没有
+ * scoped 这回事了，统一放这里。类名都是外壳独有的，不会和视图打架。
+ * 颜色仍然只从 tokens.css 的令牌拿。
+ */
+
+.app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---------- 背景 ---------- */
+
+.app-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 30%;
+  opacity: 0.34;
+  filter: saturate(1.1);
+}
+
+/* ---------- 顶栏（同时是标题栏） ---------- */
+
+.topbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  height: var(--header-height);
+  /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
+  padding: 0 6px 0 18px;
+  background: var(--topbar);
+  color: #fff;
+  box-shadow: 0 2px 16px rgba(8, 18, 40, 0.42);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 176px;
+}
+
+.brand__avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(8, 5, 22, 0.35);
+}
+
+/* 立绘自带白底，与白色头像框无缝衔接 */
+.brand__avatar img {
+  width: 118%;
+  height: 118%;
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+.brand__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand__name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.brand__sub {
+  font-size: 9.5px;
+  opacity: 0.72;
+  letter-spacing: 0.6px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.tab {
+  /* 顶栏变窄时别把标签挤成两行 —— 加了「资源网站」之后 1280 宽就会挤 */
+  flex: none;
+  white-space: nowrap;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: var(--radius-pill);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.tab--active {
+  background: #fff;
+  color: #2b57c4;
+}
+
+/* 资源网站：和开发者页一样是"跳出去"的入口，所以也单独一颗；
+   但它是外部链接，用实线框 + 淡底色，跟"实验"那颗虚线区分开。 */
+.tab--site {
+  margin-left: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+}
+.tab--site::after {
+  content: "↗";
+  font-size: 10px;
+  opacity: 0.7;
+}
+.tab--site:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tab--dev {
+  margin-left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+}
+.tab--dev:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.tab__badge {
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+}
+
+.topbar__right {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag {
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11.5px;
+  letter-spacing: 0.4px;
+}
+
+.tag--app {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tag--demo {
+  background: rgba(255, 214, 120, 0.24);
+  color: #ffe6a8;
+}
+
+.themectl {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+}
+.themectl:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+.themectl svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px 4px 9px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: #fff;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  /* 轻轻呼吸一下，把注意力引过来 */
+  animation: update-pulse 2.4s ease-in-out infinite;
+}
+
+.update-badge:hover {
+  background: var(--accent-soft);
+}
+
+.update-badge__icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes update-pulse {
+  0%,
+  100% {
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+}
+
+/* ---------- 自绘的窗口按钮 ---------- */
+/*
+ * 窗口按钮。
+ *
+ * 不加负外边距 —— 试过一次想让它贴到窗口边缘，结果整组被顶出可视区，
+ * 界面上直接看不见，而系统边框已经关掉了，那就等于没法关窗口。
+ */
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 6px;
+  /* 顶栏原本的右内边距对按钮来说太宽，收一点 */
+  margin-right: -14px;
+}
+
+.winctl__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.winctl__btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* 关闭按钮悬停要变红 —— 这是所有桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
+}
+
+/* ---------- 内容区 ---------- */
+
+.content {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 26px 40px;
+}
+
+/* 切页：旧的走了新的淡入上移（mode="out-in" 的进场那一半）。 */
+.view {
+  animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* ---------- 拖拽导入 ---------- */
+
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 18, 32, 0.55);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.dropzone__card {
+  padding: 26px 34px;
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--accent);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  text-align: center;
+}
+
+.dropzone__title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.dropzone__text {
+  margin-top: 8px;
+  max-width: 420px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+/* ---------- 提示 ---------- */
+
+.toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+  max-width: 420px;
+  padding: 13px 18px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-3);
+  border-left: 4px solid var(--accent);
+  font-size: 13.5px;
+  animation: toast-in 0.18s var(--ease);
+}
+
+.toast--warning {
+  background: color-mix(in srgb, var(--warning, #b26a00) 92%, transparent);
+  color: #fff;
+}
+
+.toast--success {
+  border-left-color: var(--success);
+}
+
+.toast--error {
+  border-left-color: var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* ---------- 右键菜单 ---------- */
+
+.ctx {
+  position: fixed;
+  z-index: 90;
+  min-width: 168px;
+  padding: 5px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  /* 从鼠标位置长出来，别硬邦邦地出现 */
+  animation: ctx-in 0.12s ease-out;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-2px);
+  }
+}
+
+.ctx__item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.ctx__item:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.ctx__item:disabled {
+  color: var(--on-surface-variant);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ctx__item--danger {
+  color: var(--danger, #c62828);
+}
+
+.ctx__item--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #c62828) 12%, transparent);
+}
+
+.ctx__sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: color-mix(in srgb, var(--outline) 55%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .update-badge,
+  .view,
+  .toast,
+  .ctx {
+    animation: none;
+  }
+}

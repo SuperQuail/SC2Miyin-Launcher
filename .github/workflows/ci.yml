@@ -59,6 +59,9 @@ jobs:
         run: pnpm -C ui install --frozen-lockfile
       - name: 类型检查 + 打包
         run: pnpm -C ui build
+      # 行数只是信号不是判据：**告警不拦路**（脚本永远 exit 0）
+      - name: 文件行数门禁（告警）
+        run: python3 scripts/check-file-size.py
 
   # 桌面端：整工作区的 clippy / 测试 / release 构建，只在 Windows 跑
   # （Tauri 在 Linux 上要装 webkit2gtk，而星际争霸 II 本来也只有 Windows 客户端）
