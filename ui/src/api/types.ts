@@ -400,6 +400,20 @@ export interface MainMapChoice {
 }
 
 /** 编辑器启动的结果。 */
+/** 直接启动游戏的结果。 */
+export interface GameLaunch {
+  /** 要打开哪张地图（库内相对路径）。 */
+  map: string;
+  /** 界面照着念的一句话。 */
+  guidance: string;
+}
+
+/** 换版本的结果：换成谁了，以及新包里多出来的模组（已按默认挂上）。 */
+export interface UpdateResult {
+  variant: Variant;
+  addedMods: string[];
+}
+
 export interface EditorLaunch {
   editor: string;
   map: string;
@@ -627,7 +641,6 @@ export interface LauncherApi {
   restoreSaves(name: string): Promise<string>;
 
   /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
-  sc2Running(): Promise<string | null>;
 
   /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
   previewActivation(slot: string, variantId: string): Promise<Preview | null>;
@@ -734,6 +747,16 @@ export interface LauncherApi {
   mainMapChoice(slot: string, variantId: string): Promise<MainMapChoice>;
   /** 铺模组并用编辑器打开某张地图。 */
   openMapInEditor(slot: string, variantId: string, map: string): Promise<EditorLaunch>;
+  /** 探一下站点支不支持 HTTPS：支持返回 https 那份，不支持返回 http 那份。 */
+  resolveSiteUrl(https: string, http: string): Promise<string>;
+  /** 用压缩包更新某个战役（删旧的装新的；该跟着走的记录会带过去）。 */
+  updateVariantFromPackage(
+    slot: string,
+    variantId: string | null,
+    path: string,
+  ): Promise<UpdateResult>;
+  /** 直接启动星际争霸并进这张地图（不经过编辑器）。 */
+  launchGameWithMap(slot: string, variantId: string, map: string): Promise<GameLaunch>;
   /** 版本自带的说明文档；没有就是 null。 */
   variantDoc(slot: string, variantId: string): Promise<DocInfo | null>;
   /** 读出说明文档的字节，交给 PDF 渲染器。 */

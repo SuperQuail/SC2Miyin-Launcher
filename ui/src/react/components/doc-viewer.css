@@ -1,0 +1,108 @@
+/* 从 DocViewer.vue 的 <style scoped> 原样搬过来。 */
+
+.doc {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 18, 32, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.doc__card {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 94vw);
+  height: min(90vh, 900px);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+
+.doc__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 50%, transparent);
+}
+
+.doc__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc__tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.doc__size,
+.doc__zoom,
+.doc__page {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.doc__page,
+.doc__zoom {
+  min-width: 52px;
+  text-align: center;
+}
+
+.doc__body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  background: var(--surface-3);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.doc__hint {
+  margin: 24px 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.doc__canvas {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2);
+  background: #fff;
+}
+
+.doc__canvas--hidden {
+  display: none;
+}
+
+.doc__foot {
+  padding: 7px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 50%, transparent);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.btn--tiny {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+kbd {
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 11px;
+}

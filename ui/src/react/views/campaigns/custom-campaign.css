@@ -1,0 +1,304 @@
+/* 由 scripts/scope-vue-styles.mjs 从 src/components/CustomCampaignPanel.vue 抽出，请勿手改 */
+.campaigns-custom .custom {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+}
+.campaigns-custom .banner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-height: 132px;
+  margin: -16px -18px 4px;
+  padding: 18px;
+  overflow: hidden;
+  background-color: #1b2436;
+  
+  background-image:
+    radial-gradient(
+      460px 240px at 84% 12%,
+      color-mix(in srgb, var(--accent) 42%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      360px 200px at 12% 96%,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(118deg, #2b3a5c 0%, #1d2740 58%, #131a2b 100%);
+  background-size: cover;
+  background-position: center 30%;
+}
+.campaigns-custom .banner__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 16, 28, 0.25) 0%,
+    rgba(10, 16, 28, 0.72) 100%
+  );
+}
+.campaigns-custom .banner__body, .campaigns-custom .banner__actions {
+  position: relative;
+  z-index: 1;
+}
+.campaigns-custom .banner__title {
+  margin: 0 0 3px;
+  font-size: 17px;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+.campaigns-custom .banner__sub {
+  margin: 0;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.campaigns-custom .banner__actions {
+  display: flex;
+  gap: 8px;
+}
+.campaigns-custom .banner__btn.btn-text {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+.campaigns-custom .banner__btn.btn-text:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.campaigns-custom .banner__state.is-on {
+  color: #fff;
+  background: color-mix(in srgb, var(--success) 55%, transparent);
+}
+.campaigns-custom .banner__state.is-on:hover {
+  background: color-mix(in srgb, var(--success) 75%, transparent);
+}
+.campaigns-custom .banner__state.is-off {
+  color: rgba(255, 255, 255, 0.72);
+}
+.campaigns-custom .custom__main, .campaigns-custom .custom__warn {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.campaigns-custom .custom__main {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.campaigns-custom .custom__warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.campaigns-custom .custom__auto {
+  opacity: 0.75;
+}
+.campaigns-custom code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.campaigns-custom .mount {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.campaigns-custom .mount__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.campaigns-custom .mount__title {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.campaigns-custom .mount__count {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .mount__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .mount__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.campaigns-custom .mod {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.campaigns-custom .mod__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  cursor: pointer;
+}
+.campaigns-custom .mod__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.campaigns-custom .mod__path {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .maplist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.campaigns-custom .maplist__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.campaigns-custom .maplist__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  flex: none;
+}
+.campaigns-custom .maplist__search {
+  flex: 1;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+.campaigns-custom .maplist__count {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .maplist__empty {
+  margin: 6px 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .group {
+  display: flex;
+  flex-direction: column;
+}
+.campaigns-custom .group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: inherit;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.campaigns-custom .group__head:hover {
+  background: var(--accent-soft);
+}
+.campaigns-custom .group__arrow {
+  width: 12px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .group__name {
+  flex: 1;
+}
+.campaigns-custom .group__count {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .group__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 3px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.campaigns-custom .map {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+.campaigns-custom .map:hover {
+  background: var(--surface-2);
+}
+.campaigns-custom .map--main {
+  background: var(--accent-soft);
+}
+.campaigns-custom .map__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.campaigns-custom .map__name {
+  font-size: 12.5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.campaigns-custom .map__badge {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.campaigns-custom .map__size {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.campaigns-custom .map__actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.campaigns-custom .map:hover .map__actions, .campaigns-custom .map--main .map__actions {
+  opacity: 1;
+}
+.campaigns-custom .btn--tiny {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+.campaigns-custom .sheet__badge--warn {
+  background: var(--warning-soft);
+}
+.campaigns-custom .sheet__badge--warn .sheet__icon {
+  stroke: var(--warning);
+}
+.campaigns-custom .sheet__text code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}

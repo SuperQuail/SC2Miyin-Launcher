@@ -1,0 +1,207 @@
+/* 从 CheatsView.vue 的 <style scoped> 原样搬过来（React 没有 scoped，
+   所以改成由组件自己 import —— 样式跟着组件走，页面不再各写一份）。 */
+
+/* 覆盖层：作弊码是小工具，从战役页 / 自制战役页弹出来，不占标签位 */
+.cheats {
+  width: min(880px, 94vw);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  box-shadow: var(--shadow-2);
+}
+
+.cheats__close {
+  margin-left: auto;
+}
+
+.cheats__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cheats__title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.cheats__hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+kbd {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.cheats__bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cheats__search {
+  width: 100%;
+  padding: 9px 13px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.cheats__search:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+
+.cheats__scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+}
+
+.chip--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.chip__count {
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+.cheats__empty {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.cheats__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cheat {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "main copy"
+    "meta copy";
+  align-items: center;
+  gap: 2px 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.cheat:hover {
+  background: var(--accent-soft);
+  transform: translateX(2px);
+}
+
+.cheat__main {
+  grid-area: main;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cheat__code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  user-select: all;
+}
+
+.cheat__effect {
+  font-size: 13px;
+}
+
+.cheat__meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.cheat__scope {
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  font-weight: 600;
+}
+
+.cheat__copy {
+  grid-area: copy;
+  padding: 5px 14px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+
+.cheat__copy:hover {
+  transform: scale(1.06);
+}
+
+.cheat__copy:active {
+  transform: scale(0.94);
+}
+
+.cheat__copy--done {
+  background: var(--success, #2e7d32);
+}
+
+.cheats__foot {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  text-align: right;
+}

@@ -14,7 +14,7 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
@@ -22,9 +22,9 @@
     "resolveJsonModule": true
   },
   "include": [
+    "src/**/*.tsx",
     "src/**/*.ts",
     "src/**/*.d.ts",
-    "src/**/*.vue",
     "vite.config.ts"
   ]
 }
