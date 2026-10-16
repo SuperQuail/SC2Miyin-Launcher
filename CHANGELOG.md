@@ -4,12 +4,18 @@
 
 版本号内外两种写法（见 AGENTS.md §15.1）：
 
-- 仓库里的 `Cargo.toml` / `package.json` / `tauri.conf.json` 写 `0.1.0-alpha.7`（Cargo 只接受 semver）
-- 界面、tag、发行说明统一写 `0.1.0a7`
+- 仓库里的 `Cargo.toml` / `package.json` / `tauri.conf.json` 写 `0.1.0-alpha.8`（Cargo 只接受 semver）
+- 界面、tag、发行说明统一写 `0.1.0a8`
 
 详细的发行说明在 [`docs/release-notes/`](docs/release-notes/)。
 
 ---
+
+## v0.1.0a8 —— 项目 React 重构
+
+- 用户侧从 Vue 迁到 React 18，**Vue 依赖已从工程移除**（`ui/src` 下不再有 `.vue`）
+- 开发者页全面改用 Ring UI，并新增 `#gallery` 控件展台；开发者房间分页（用户侧 / 开发者工具侧）
+- 文档收了一遍：三份前端文档并成 `docs/frontend.md`，AGENTS 删掉重复与过期部分
 
 ## v0.1.0a7 —— 打包没完别走
 
