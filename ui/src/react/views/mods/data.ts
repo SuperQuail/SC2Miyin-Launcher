@@ -55,7 +55,9 @@ export function filterMods(mods: LibraryMod[], keyword: string): LibraryMod[] {
     (mod) =>
       mod.name.toLowerCase().includes(needle) ||
       mod.variant_name.toLowerCase().includes(needle) ||
-      mod.slot_name.toLowerCase().includes(needle),
+      mod.slot_name.toLowerCase().includes(needle) ||
+      // 独立模组的分组标题显示的是 modid（见 groupMods），所以它也得搜得到
+      (mod.modid ?? "").toLowerCase().includes(needle),
   );
 }
 

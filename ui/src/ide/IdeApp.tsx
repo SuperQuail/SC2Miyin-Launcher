@@ -361,6 +361,9 @@ export function IdeApp() {
    * preventDefault 了）—— 这里只兜住**没被任何人处理**的右键：
    * 原生浏览器菜单一律不露（AGENTS §18.2）。
    */
+  // 收成常量：JSX 回调里 TS 收不回 menu?.node 的窄化（原来靠 ! 硬断，现在不用了）
+  const menuNode = menu?.node;
+
   const [bareMenu, setBareMenu] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
@@ -830,7 +833,7 @@ export function IdeApp() {
                 <span className="ptitle">游戏目录</span>
                 <span className="psub">勾 {picked.length} 项 · {formatBytes(pickedBytes) || "0 B"}</span>
                 <span className="ptools">
-                  <Button small onClick={() => void refresh(extras)}>刷新</Button>
+                  <Button onClick={() => void refresh(extras)}>刷新</Button>
                 </span>
               </header>
               <div className="pbody pbody--flat">
@@ -1016,7 +1019,7 @@ export function IdeApp() {
                   onChange={(event) => setMessage(event.target.value)}
                   placeholder="这次改了什么"
                 />
-                <Button small disabled={!pkg.trim() || picked.length === 0 || !message.trim()} onClick={() => void submit()}>
+                <Button disabled={!pkg.trim() || picked.length === 0 || !message.trim()} onClick={() => void submit()}>
                   提交
                 </Button>
               </span>
@@ -1175,26 +1178,26 @@ export function IdeApp() {
         </div>
       )}
 
-      {menu?.node && (
+      {menuNode && (
         <div className="ctx" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
-          {!isDirOf(menu.node!) && menu.node.entry && (
-            <button className="ctx__item" type="button" onClick={() => { void open(menu.node!.entry!); setMenu(null); }}>
+          {!isDirOf(menuNode) && menuNode.entry && (
+            <button className="ctx__item" type="button" onClick={() => { void open(menuNode.entry!); setMenu(null); }}>
               打开
             </button>
           )}
-          <button className="ctx__item" type="button" onClick={() => { toggleNode(menu.node!); setMenu(null); }}>
-            {isPicked(menu.node!) ? "取消勾选（含子目录）" : "勾选（含子目录）"}
+          <button className="ctx__item" type="button" onClick={() => { toggleNode(menuNode); setMenu(null); }}>
+            {isPicked(menuNode) ? "取消勾选（含子目录）" : "勾选（含子目录）"}
           </button>
-          {isDirOf(menu.node!) && (
-            <button className="ctx__item" type="button" onClick={() => { toggleExpand(menu.node!.path); setMenu(null); }}>
-              {expanded.includes(menu.node!.path) ? "收起" : "展开"}
+          {isDirOf(menuNode) && (
+            <button className="ctx__item" type="button" onClick={() => { toggleExpand(menuNode.path); setMenu(null); }}>
+              {expanded.includes(menuNode.path) ? "收起" : "展开"}
             </button>
           )}
           <button
             className="ctx__item"
             type="button"
             onClick={() => {
-              void navigator.clipboard?.writeText(menu.node.entry?.abs || menu.node!.path);
+              void navigator.clipboard?.writeText(menuNode.entry?.abs || menuNode.path);
               setStatus("路径已复制");
               setMenu(null);
             }}
@@ -1205,19 +1208,19 @@ export function IdeApp() {
             className="ctx__item"
             type="button"
             onClick={() => {
-              if (menu.node.entry?.abs) void launcher.revealPath(menu.node.entry.abs).catch(() => {});
+              if (menuNode.entry?.abs) void launcher.revealPath(menuNode.entry.abs).catch(() => {});
               setMenu(null);
             }}
           >
             在资源管理器里打开
           </button>
-          {/几\.(png|jpg|jpeg|webp|gif)$/i.test(menu.node!.path) && menu.node.entry?.abs && (
-            <button className="ctx__item" type="button" onClick={() => { setCoverPath(menu.node!.entry!.abs); setMenu(null); }}>
+          {/几\.(png|jpg|jpeg|webp|gif)$/i.test(menuNode.path) && menuNode.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setCoverPath(menuNode.entry!.abs); setMenu(null); }}>
               设为封面图
             </button>
           )}
-          {/\.pdf$/i.test(menu.node!.path) && menu.node.entry?.abs && (
-            <button className="ctx__item" type="button" onClick={() => { setDocPath(menu.node!.entry!.abs); setMenu(null); }}>
+          {/\.pdf$/i.test(menuNode.path) && menuNode.entry?.abs && (
+            <button className="ctx__item" type="button" onClick={() => { setDocPath(menuNode.entry!.abs); setMenu(null); }}>
               设为说明书
             </button>
           )}

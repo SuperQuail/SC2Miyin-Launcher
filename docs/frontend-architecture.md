@@ -188,6 +188,29 @@ packages/tokens/src/
 展示过，才能拿到生产界面用。房间只放控件与通用组件；没控件化的东西一律列在房间的
 「待迁移」清单里，**不许再往里加新的**。规矩的正文见 AGENTS §18.1。
 
+### 5.2 截图用的调试开关
+
+本地起 dev server 截图时有几个 query 开关（都只影响演示模式，生产路径不变）：
+
+| 开关 | 作用 |
+| --- | --- |
+| `?theme=dark` | 固定深色主题 |
+| `?view=settings` 等 | 直接进某个视图 |
+| `#slot=wol` / `#room` | 直接进某个战役 / 开发者房间 |
+| `?noupdate=1` | 跳过启动时自动检查更新 —— 不跳过的话演示模式 6 秒后会自动下载，公告与「重启安装」弹窗会把内容区挡死，截不到东西 |
+
+### 5.3 两个踩过的构建坑
+
+1. **UI 的 tsconfig 里，include 必须含 src 下的 .tsx，并且 jsx 必须是 react-jsx。**
+   .tsx 不在 include 里时，**没有任何人 import 的 .tsx 不在 program 里** ——
+   测试文件会静默逃过 pnpm build 的类型门禁。但只把它加进 include 会更糟：
+   vue-tsc 那份配置写着 jsx: preserve，vite/esbuild 会照着它**跳过 JSX 转换**，
+   于是 .tsx 直接报 invalid JS syntax。两者要一起改。
+
+2. **Vue 的 style scoped 搬到 React 会变成全局 CSS，同名选择器会打架。**
+   多个来源合并时按「首个定义优先」，并且**用括号配对解析**，不要用扁平正则 ——
+   正则会切开 @keyframes，构建报 Invalid empty selector。
+
 ## 6. 门禁：全部可脚本化，全部**告警不拦**
 
 | 线 | 查什么 | 工具 | 白名单 |

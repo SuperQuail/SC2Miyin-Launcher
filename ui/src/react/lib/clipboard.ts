@@ -20,9 +20,12 @@ export async function copyText(text: string): Promise<boolean> {
       holder.style.opacity = "0";
       document.body.appendChild(holder);
       holder.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(holder);
-      return ok;
+      try {
+        return document.execCommand("copy");
+      } finally {
+        // 放在 finally 里：execCommand 自己抛异常时也不能把它留在 DOM 里
+        holder.remove();
+      }
     } catch {
       return false;
     }
