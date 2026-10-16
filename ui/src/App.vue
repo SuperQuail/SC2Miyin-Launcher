@@ -12,8 +12,8 @@ import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
 import { contextMenuHandledRecently, useContextMenu } from "./composables/useContextMenu";
 import { mountUpdateNotice } from "./react/views/update/UpdateNotice";
-import CustomView from "./views/CustomView.vue";
 import { mountCampaigns } from "./react/views/campaigns/mount";
+import { mountCustom } from "./react/views/custom/mount";
 import { mountMods } from "./react/views/mods/mount";
 import ReactIsland from "./components/ReactIsland.vue";
 import { mountCheats } from "./react/views/cheats/mount";
@@ -607,11 +607,18 @@ onUnmounted(() => {
         @open-settings="currentView = 'settings'"
         @open-cheats="cheatsOpen = true"
       />
-        <CustomView
-          v-else-if="currentView === 'custom'"
-          key="custom"
-          @open-cheats="cheatsOpen = true"
-        />
+        <!-- 自制战役页已整块迁到 React（列表 + 导入对话框 + 地图/模组面板 + 说明书） -->
+      <ReactIsland
+        v-else-if="currentView === 'custom'"
+        key="custom"
+        :mount="mountCustom"
+        :view-props="{ slots, libraryRoot, loading }"
+        @notify="onIslandNotify"
+        @bootstrap="bootstrap"
+        @refresh="refresh"
+        @menu="onIslandMenu"
+        @open-cheats="cheatsOpen = true"
+      />
         <!-- 模组页已迁到 React -->
       <ReactIsland
         v-else-if="currentView === 'mods'"

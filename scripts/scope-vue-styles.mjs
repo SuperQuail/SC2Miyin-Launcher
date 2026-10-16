@@ -50,6 +50,11 @@ const JOBS = [
     root: ".campaigns-custom",
   },
   {
+    from: "src/views/CustomView.vue",
+    to: "src/react/views/custom/custom.css",
+    root: ".custom-page",
+  },
+  {
     // 控件自己的样式必须跟着控件走：Vue 那份 <style scoped> 原来是 Field.vue 私有的，
     // base.css 里没有 —— 不搬过来的话 React 的 Field 渲染出来光秃秃的。
     from: "src/ui/Field.vue",
