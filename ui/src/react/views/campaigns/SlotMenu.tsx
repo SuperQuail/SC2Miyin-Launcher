@@ -339,7 +339,8 @@ export function SlotMenu({
     }
   }
 
-  const art = slotArt(slot.slug);
+  // 自制战役**不铺底图**：它没有官方美术，槽位兜底出来的通用背景只是噪音（卡片自己带封面）
+const art = slot.slug === "custom" ? null : slotArt(slot.slug);
 
   return (
     <div className="campaigns-menu">
@@ -348,7 +349,8 @@ export function SlotMenu({
           ← 返回战役列表
         </button>
 
-        {/* 头条：用该战役的官方美术做背景 */}
+        {/* 头条：官方战役用该资料片的 key art 做底；**自制战役不要底图** ——
+            它没有官方美术，铺一张通用背景图只是噪音，卡片自己带封面就够了。 */}
         <header className="banner" style={art ? { backgroundImage: "url(" + art + ")" } : undefined}>
           <div className="banner__scrim" />
           <div className="banner__body">
@@ -359,11 +361,9 @@ export function SlotMenu({
                 : "选择要游玩的版本 —— 原版战役，或导入的玩家版本"}
             </p>
           </div>
-          {!isCustom && (
-            <button className="btn btn-primary banner__play" type="button" onClick={() => host.launch()}>
-              开始游戏
-            </button>
-          )}
+          <button className="btn btn-primary banner__play" type="button" onClick={() => host.launch()}>
+            开始游戏
+          </button>
         </header>
 
         {/* 版本卡片：原版永远排第一 */}
