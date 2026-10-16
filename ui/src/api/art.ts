@@ -34,14 +34,23 @@ export function campaignTypeKey(type: CampaignType): string {
   return typeof type === "string" ? type : "other";
 }
 
-/** 该资料片对应的官方美术；没有对应素材时返回 null。 */
+/**
+ * 没有对应素材时的兜底。
+ *
+ * 自制战役（custom）没有官方美术 —— 而它的卡片与横幅原来会因此**整块空着**，
+ * 只剩 CSS 里那块深色底。兜底到背景图，至少让人看出这是"一个战役"，
+ * 而不是"图没加载出来"。
+ */
+const FALLBACK = BACKDROP;
+
+/** 该资料片对应的官方美术；没有对应素材时兜底到背景图。 */
 export function campaignArt(type: CampaignType): string | null {
-  return ART[campaignTypeKey(type)] ?? null;
+  return ART[campaignTypeKey(type)] ?? FALLBACK;
 }
 
-/** 按槽位标识取官方美术。 */
+/** 按槽位标识取官方美术；没有对应素材时兜底到背景图。 */
 export function slotArt(slug: string): string | null {
-  return ART[slug] ?? null;
+  return ART[slug] ?? FALLBACK;
 }
 
 /** 资料片中文名。 */
