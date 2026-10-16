@@ -190,42 +190,28 @@ body {
   width: 140px;
 }
 
-/* ---------- 文档标签页 ---------- */
-/* 这一套不换 —— Ring UI 的 Tabs 是「切换面板」的组件，在自定义容器里排不出多个标签（AGENTS §18）。 */
-.tabsbar {
-  display: flex;
-  align-items: stretch;
-  height: 30px;
+/* ---------- 文档标签页（Ring UI Tabs，见 parts/DocTabs.tsx） ---------- */
+.doctabs {
+  padding-left: 4px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  padding-left: 4px;
 }
-.doc {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  border: none;
-  border-right: 1px solid var(--line);
-  border-top: 2px solid transparent;
-  background: transparent;
-  color: var(--on-surface-variant);
+/* Ring UI 的标签条默认给下面的面板留了 16px 边距；这里只有标签，不留 */
+.doctabs .ring-tabs-titles {
+  margin-bottom: 0;
+  box-shadow: none;
+}
+.doctabs .ring-tabs-title {
+  line-height: 30px;
   font-size: 12.5px;
-  cursor: pointer;
 }
-.doc:hover {
-  background: var(--surface-3);
+.doctab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.doc--on {
-  background: var(--surface-1);
-  color: var(--on-surface);
-  border-top-color: var(--accent);
-}
-.docx {
-  margin-left: 2px;
-  font-size: 13px;
-  opacity: 0.55;
+.doctab__close {
+  height: 18px;
 }
 
 /* ---------- 文本 / 二进制 / 图片 ---------- */
@@ -667,4 +653,9 @@ body {
 }
 .gbar {
   width: 160px;
+}
+/* 展台里演示标签溢出：故意收窄，让 5 个标签折成「更多」 */
+.gdoctabs {
+  width: 420px;
+  max-width: 100%;
 }

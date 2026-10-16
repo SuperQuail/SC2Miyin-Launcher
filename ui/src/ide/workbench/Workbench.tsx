@@ -227,6 +227,30 @@ export function Workbench() {
     );
   }, []);
 
+  /**
+   * 关一个文档标签。
+   *
+   * 关掉的若是**当前选中**的那个，必须把选中与预览一起挪到相邻的一个 ——
+   * 否则选中会停在一个已经关掉的条目上（Ring UI 的标签条会退化成高亮第一个，
+   * 而预览还停在被关掉的那份内容上）。一个都不剩时才清空。
+   */
+  const close = useCallback(
+    (entry: DevEntry) => {
+      setOpened((prev) => prev.filter((item) => item.abs !== entry.abs));
+      if (active !== entry.abs) return;
+
+      const index = opened.findIndex((item) => item.abs === entry.abs);
+      const neighbour = opened[index + 1] ?? opened[index - 1] ?? null;
+      if (neighbour) {
+        void open(neighbour);
+      } else {
+        setActive(null);
+        setPreview(null);
+      }
+    },
+    [active, opened, open],
+  );
+
   const addDirectory = useCallback(async () => {
     const dir = await pickDirectory();
     if (!dir) return;
@@ -440,7 +464,7 @@ export function Workbench() {
               exportProgress={exportProgress}
               extras={extras}
               onOpen={(entry) => void open(entry)}
-              onClose={(entry) => setOpened((prev) => prev.filter((item) => item.abs !== entry.abs))}
+              onClose={close}
             />
 
             <MetaPane

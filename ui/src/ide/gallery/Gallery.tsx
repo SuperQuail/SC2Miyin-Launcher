@@ -7,6 +7,7 @@ import Link from "@jetbrains/ring-ui-built/components/link/link";
 import Loader from "@jetbrains/ring-ui-built/components/loader/loader";
 import ProgressBar from "@jetbrains/ring-ui-built/components/progress-bar/progress-bar";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
+import { Tab, Tabs } from "@jetbrains/ring-ui-built/components/tabs/tabs";
 import Tag from "@jetbrains/ring-ui-built/components/tag/tag";
 import Toggle from "@jetbrains/ring-ui-built/components/toggle/toggle";
 import Tooltip from "@jetbrains/ring-ui-built/components/tooltip/tooltip";
@@ -20,6 +21,9 @@ const CHOICES = [
   { key: "hots", label: "虫群之心改版" },
   { key: "lotv", label: "虚空之遗改版" },
 ];
+
+/** 展台里那排文档标签的初始内容（够多才看得出溢出折叠）。 */
+const DEMO_DOCS = ["Base.SC2Data", "说明.txt", "UnitData.xml", "README.md", "ComponentList.SC2Components"];
 
 function Card({ title, note, children }: { title: string; note: string; children: ReactNode }) {
   return (
@@ -53,6 +57,8 @@ export function Gallery() {
   const [choice, setChoice] = useState("hots");
   const [on, setOn] = useState(true);
   const [checked, setChecked] = useState(true);
+  const [docs, setDocs] = useState(DEMO_DOCS);
+  const [doc, setDoc] = useState(DEMO_DOCS[0]);
 
   return (
     <div className="gallery">
@@ -199,6 +205,40 @@ export function Gallery() {
           <Tag>空</Tag>
           <Tag tagType={Tag.Type.WARNING}>外部</Tag>
           <Tag tagType={Tag.Type.MAIN}>最新</Tag>
+        </Row>
+      </Card>
+
+      <Card
+        title="Tabs"
+        note="文档标签页 —— 开发者页中间那排（workbench/parts/DocTabs.tsx）：每个标签带关闭 ✕，放不下的自动折成「更多」。"
+      >
+        <Row label="带关闭 + 溢出">
+          <div className="gdoctabs">
+            <Tabs autoCollapse selected={doc} onSelect={setDoc}>
+              {docs.map((name) => (
+                <Tab
+                  key={name}
+                  id={name}
+                  title={
+                    <span className="doctab">
+                      {name}
+                      <Button
+                        className="doctab__close"
+                        icon={closeIcon}
+                        title="关闭"
+                        onClick={(event) => {
+                          // 关闭不是切换：别让点击冒泡到标签本身
+                          event.stopPropagation();
+                          setDocs((prev) => prev.filter((item) => item !== name));
+                        }}
+                      />
+                    </span>
+                  }
+                />
+              ))}
+            </Tabs>
+          </div>
+          <Button onClick={() => setDocs(DEMO_DOCS)}>重置标签</Button>
         </Row>
       </Card>
     </div>
