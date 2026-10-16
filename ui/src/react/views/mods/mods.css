@@ -1,0 +1,464 @@
+/* 从 ModsView.vue 的 <style scoped> 原样搬过来（React 没有 scoped）。
+   后续把 .field* 那几段删掉（已经归 ui/Field 控件）。 */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 24px 28px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+
+.hero__body {
+  max-width: 620px;
+}
+
+.hero__eyebrow {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.hero__title {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.hero__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+
+.hero__actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar__search {
+  flex: 1;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  backdrop-filter: blur(10px);
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.bar__count {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.hint {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px);
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.group,
+.game {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+
+.group__head,
+.game__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.group__campaign {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.group__variant {
+  margin-left: 8px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.group__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.game__title {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.game__count,
+.mod__size {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.game__hint,
+.game__empty {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.mods {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mod {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+
+/* 来源标记：三种来源一眼分得开 */
+.origin {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.origin--official_campaign {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.origin--custom_campaign {
+  background: color-mix(in srgb, #7c4dff 18%, transparent);
+  color: #6b3fe0;
+}
+
+.origin--standalone {
+  background: color-mix(in srgb, #00897b 18%, transparent);
+  color: #00796b;
+}
+
+.badge {
+  flex: none;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--on-surface-variant);
+  font-size: 10.5px;
+}
+
+.mount {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, #00897b 12%, transparent);
+  color: #00796b;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+}
+
+.badge--ver {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.badge--req {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.group__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mod__info {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mod__actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+/* 对比结果 */
+.sheet__card--wide {
+  width: min(920px, 92vw);
+}
+
+.diff {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.diff__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.diff__tag {
+  flex: none;
+  width: 62px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.diff__row--changed .diff__tag {
+  color: var(--warning, #b26a00);
+}
+
+.diff__row--added .diff__tag {
+  color: #00796b;
+}
+
+.diff__row--removed .diff__tag {
+  color: var(--danger, #c62828);
+}
+
+.diff__path {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic {
+  margin: 8px 0;
+}
+
+.semantic__head {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.semantic__body {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: #101725;
+  color: #cfe3ff;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.mod__base {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  color: inherit;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/* 询问对话框里的已有版本列表 */
+.existing {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.existing__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.existing__name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.existing__ver {
+  font-size: 11.5px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--on-surface-variant);
+}
+
+/* 编辑框 */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 14px 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+
+.field__input {
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12.5px;
+  resize: vertical;
+}
+
+.btn--danger {
+  color: var(--danger, #c62828);
+}
+
+.mod__pick {
+  flex: none;
+  cursor: pointer;
+}
+
+.mod__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  min-width: 150px;
+}
+
+.mod__path {
+  flex: 1;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mod--ro {
+  background: transparent;
+}
+
+/* 开关 */
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 3px 10px 3px 4px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  background: var(--surface-1);
+  color: var(--on-surface-variant);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.switch__knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--outline);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.switch--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.switch--on .switch__knob {
+  background: #fff;
+  transform: translateX(2px);
+}
+
+.btn--tiny {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}

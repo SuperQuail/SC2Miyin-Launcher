@@ -1528,6 +1528,31 @@ fn same_bytes(left: &Path, right: &Path) -> bool {
     }
 }
 
+// ---------- 来自 React 重构那条分支：换版本时把补丁的绑定改指过去 ----------
+
+/// 换版本时，把指向旧版本的补丁绑定改指到新版本（不这么做补丁会跟着丢）。
+pub(crate) fn repoint_campaign(data: &Path, slot: &str, from: &str, to: &str) -> Result<usize> {
+    let mut rows = list(data);
+    let mut moved = 0;
+    for row in rows.iter_mut() {
+        if let ModSource::Campaign {
+            slot: row_slot,
+            variant,
+            ..
+        } = &mut row.source
+            && row_slot == slot
+            && variant == from
+        {
+            *variant = to.to_string();
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        save(data, &rows)?;
+    }
+    Ok(moved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

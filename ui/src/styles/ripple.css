@@ -1,7 +1,7 @@
 
 /* ---------- 点击波纹 ----------
  *
- * 由 App.vue 的全局 mousedown 监听插入 <span class="ripple">，
+ * 由用户侧外壳（react/app/useShellEffects.ts）的全局 mousedown 监听插入 <span class="ripple">，
  * 位置和尺寸由 JS 按落点算；宿主元素由 JS 打上 .ripple-host。
  *
  * overflow: hidden —— 波纹要裁在元素圆角里，否则会溢出成方块。

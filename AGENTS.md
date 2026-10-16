@@ -14,7 +14,7 @@
 | 英文名 | MiYin Launcher |
 | 组织 | [SuperQuail](https://github.com/SuperQuail) |
 | 仓库 | https://github.com/SuperQuail/SC2Miyin-Launcher |
-| 当前版本 | **`0.1.0a3`**（对外写法；`Cargo.toml` 里是 `0.1.0-alpha.2`，见 §15.1） |
+| 当前版本 | **看 `Cargo.toml`** —— 单一事实来源，本文不再抄一份（写法见 §15.1） |
 | 许可证 | MIT |
 | 曾用名 | HSCL / Hello StarCraft Launcher（历史名称，仅本地目录仍在用） |
 | 本地目录 | `D:\Code\Rust\HSCL`（目录名暂未随改名调整，避免破坏现有工作流） |
@@ -62,9 +62,10 @@
 | 归档 | `zip`、`flate2`、`tar` | 按 CCM 实际打包格式补充 |
 | HTTP | `reqwest`（rustls 优先） | 下载、更新检查 |
 | 哈希 | `sha2`、`blake3` | 完整性校验 |
-| GUI | **Tauri 2 + Vue 3 + TypeScript + Vite** | 见下方理由 |
+| GUI | **Tauri 2 + React 18 + TypeScript + Vite** | 见下方理由 |
 
-**GUI 选型理由**：参考项目 scnexus 是 Vue 3 + Electron，采用 Tauri 可直接复用其 **Vue 组件组织 / Pinia store 划分 / IPC 契约**经验，同时把 Electron 换成 Rust 后端，安装包体积与内存占用大幅下降。
+**GUI 选型理由**：参考项目 scnexus 是 Vue 3 + Electron，采用 Tauri 可复用其 **组件组织 / store 划分 / IPC 契约**经验，同时把 Electron 换成 Rust 后端，安装包体积与内存占用大幅下降。
+**组件库**：用户侧用自建控件层（`ui/src/react/ui/`），开发者页用 JetBrains 的 Ring UI（见 §18）。
 **备选**：`egui` / `iced`（纯 Rust、无 Web 工具链，适合追求极简依赖；代价是 UI 表现力与生态）。
 
 ### 3.2 依赖原则
@@ -81,41 +82,19 @@
 HSCL/                          # 仓库根（目录名待后续统一为 miyin-launcher）
 ├── AGENTS.md                  # 本文件
 ├── Cargo.toml                 # workspace 根
-├── crates/
-│   └── miyin-core/            # 领域核心：不含任何 GUI 依赖
-│       └── src/
-│           ├── error.rs       # 统一错误类型（错误信息直接面向用户，用中文）
-│           ├── safety.rs      # 路径白名单与规范化校验（所有写操作的闸门）
-│           ├── sc2/           # 安装发现（注册表 / 手动）+ .build.info 解析
-│           ├── campaign/      # 战役包领域（与游戏目录耦合的那部分）
-│           │   ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
-│           │   ├── sanitize.rs    # 目录名安全化（防目录穿越）
-│           │   ├── package.rs     # 包预检：格式识别、zip-slip、体积上限、解压
-│           │   ├── contents.rs    # 任意打包形式的读取（zip / 7z / rar / tar）
-│           │   └── identify.rs    # 没有元数据时按证据链判定归属
-│           └── library/       # **战役库**：多版本共存与切换（见 §14）
-│               ├── mod.rs          # 索引模型、槽位、路径规则
-│               ├── compose.rs      # 分层合成：落点与补丁覆盖
-│               ├── install.rs      # 统一安装引擎（白名单 + 清单记账）
-│               ├── store.rs        # 导入 / 删除 / 编辑版本
-│               ├── mods.rs         # 模组的独立版本管理
-│               ├── activation.rs   # 启用 / 停用（按清单精确回滚）
-│               ├── export.rs       # 导出 CCM 兼容包
-│               ├── naming.rs       # 注册 ID 与版本号校验
-│               └── known.rs        # 已知复刻战役的落点与启动器地图
-├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
-│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
-│   ├── tauri.conf.json
-│   └── icons/                 # 由 scripts/prepare-icons.py 生成
-├── ui/                        # Vue 3 + TypeScript 前端
-│   ├── public/                # 美术资产（见 §13，含 NOTICE.md）
+├── crates/miyin-core/         # 领域核心，不含任何 GUI 依赖
 │   └── src/
-│       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射
-│       ├── components/        # SlotCard（战役卡片）、VariantCard（版本卡片）
-│       ├── composables/       # useLauncher：全局状态与动作
-│       ├── views/             # CampaignsView（战役列表）、SlotMenuView（战役菜单）、SettingsView
-│       └── styles/            # tokens.css（设计令牌）、base.css
-├── scripts/                   # prepare-assets.py / prepare-icons.py
+│       ├── error.rs  safety.rs  # 统一错误 / 路径白名单与写盘闸门（§10.5）
+│       ├── sc2/                 # 安装发现（注册表 / 手动）+ .build.info 解析
+│       ├── campaign/            # 包：metadata / sanitize / package / contents / identify（§14.5-14.8）
+│       ├── library/             # **战役库**：索引 / 合成 / 安装 / 激活 / 导出 / 命名 / 已知战役（§14）
+│       ├── update/              # 自动更新：version / mirror / net / check / apply（§15）
+│       └── saves.rs             # 存档备份与还原（§14.10）
+├── src-tauri/                 # Tauri 2 桌面壳：状态持有 + 命令转发
+│   ├── src/lib.rs             # 全部 #[tauri::command]，一律带 (async)（§16）
+│   └── tauri.conf.json + icons/   # icons 由 scripts/prepare-icons.py 生成
+├── ui/                        # React 18 前端，两个入口 —— 结构与边界见 docs/frontend.md
+├── scripts/                   # prepare-assets.py / prepare-icons.py / check-file-size.py
 ├── docs/                      # 设计文档、格式说明
 └── reference/                 # ⚠️ 只读参考仓库，已 gitignore，禁止提交
 ```
@@ -137,7 +116,11 @@ cargo test --workspace              # 领域逻辑测试都在 miyin-core
 # 前端
 pnpm -C ui install
 pnpm -C ui dev                      # 浏览器演示模式：无需桌面壳，自带示例数据
-pnpm -C ui build                    # vue-tsc 类型检查 + 打包到 ui/dist
+pnpm -C ui build                    # tsc 类型检查 + 两个入口都打包到 ui/dist
+
+# 门禁：任何一份原始代码超过 500 行就告警（不拦路）
+python scripts/check-file-size.py
+python scripts/check-file-size.py 300   # 换个线看看离得远不远
 
 # 桌面版
 #
@@ -156,9 +139,6 @@ cargo run -p miyin-launcher
 python scripts/prepare-assets.py     # 原始素材 -> ui/public/
 python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 ```
-
-> 调试运行（debug）时 Tauri 会去连 `devUrl`（`http://localhost:5183`），
-> 因此需要先在另一个终端执行 `pnpm -C ui dev`；release 构建则使用打包进二进制的前端。
 
 ---
 
@@ -192,6 +172,14 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 | `release` | **发版分支**：tag 从这里打 | **只接受 `main` 的 PR** |
 
 流向固定：`feat/*` → `dev` → `main` → `release` → tag。
+
+> [!IMPORTANT]
+> **除非用户明确说明，不得发布 PR。** 改动先待在分支上（推分支没问题），
+> 开 PR 要等一句明确的话。这条是让「什么时候把一个改动摆上台面」由人决定。
+
+> **代理不许代替维护者 merge。** PR 只能由维护者自己合 —— 代理负责的是：开 PR、
+> 跑门禁、把**真跑过的**验证输出贴进 PR 描述，然后停下等。合不合、什么时候合，由人决定。
+> （这条是用户明确定下的规矩：合并是"接收这份改动"的动作，只有人能做。）
 
 > [!IMPORTANT]
 > **不要直接往 `dev` / `main` / `release` 推。** 三个分支都开了分支保护，
@@ -286,26 +274,15 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 | 许可证 | BSD 3-Clause |
 | Git 状态 | **已加入 `.gitignore`（`/reference/`），永远不会被提交** |
 
-**用途**：仅作为**产品行为与文件格式的参考**，重点参考其：
-
-- SC2 安装发现逻辑（注册表键、路径校验）
-- CCM 自制战役的识别与解压流程（`packages/app-main/src/modules/campaign/ccm-process.ts`）
-- 模块划分（`modules/{profile,campaign,customize,workshop,setting,common}`）
-- IPC 契约与类型定义（`packages/app-shared/src/types/`）
+**用途**：只看**产品行为与文件格式** —— 安装发现（注册表键与校验）、CCM 包识别与解压
+（`modules/campaign/ccm-process.ts`）、模块划分、IPC 契约与类型定义（`packages/app-shared/src/types/`）。
 
 **规矩**：
 
-1. 可以读、可以学，**不要**把它的代码直接粘进 Rust 工程（语言不同，照抄只会带来坏设计）。
-2. 移植其**算法与常量**时，在注释里写明来源文件与行号，便于人类复核。
-3. 若将来确实需要大量复用其**代码**，需评估 BSD-3-Clause 的署名义务并在 `NOTICE` 中声明。
-4. 保持只读：不要在 `reference/scnexus` 里改代码、提交、或安装依赖。
-
-**更新参考仓库**：
-
-```bash
-git -C reference/scnexus pull        # 走系统代理，见 §9
-git -C reference/scnexus log --oneline -20
-```
+1. 可以读、可以学，**不要**把它的代码粘进 Rust 工程（语言不同，照抄只会带来坏设计）。
+2. 移植其**算法与常量**时，注释里写 `文件:行号`。
+3. 大量复用其**代码**前，先评估 BSD-3-Clause 的署名义务并在 `NOTICE` 里声明。
+4. 保持只读。更新：`git -C reference/scnexus pull`（走系统代理，见 §9）。
 
 ---
 
@@ -339,28 +316,12 @@ git -C reference/scnexus log --oneline -20
 
 ### 10.2 安装目录结构
 
-```text
-StarCraft II/
-├── .build.info               # 构建元数据（管道分隔表，含 Version=5.0.16.97579、Branch=cn、CDN 地址）
-├── .product.db / Launcher.db # 暴雪启动器数据库（二进制，勿改）
-├── StarCraft II.exe          # 根启动器
-├── StarCraft II Editor.exe   # 编辑器（32 位）
-├── StarCraft II Editor_x64.exe
-├── Support/                  # 32 位运行时
-├── Support64/
-│   └── SC2Switcher_x64.exe   # 版本切换器（启动器常用入口）
-│   └── SC2Editor_x64.exe
-├── Interfaces/               # 界面 Mod：Pro_2020 / Split_1v1 / Streamlined / WCS_3.0 等 .SC2Interface
-├── SC2Data/                  # 游戏资源：config / data / ecache / indices / s2c
-├── Versions/
-│   └── Base<build>/          # 每个构建号一个目录，如 Base97579
-│       ├── SC2.exe
-│       └── SC2_x64.exe       # 真正的游戏客户端
-├── Maps/                     # ⚠️ 首次使用自制内容时才创建
-│   ├── Campaign/             # 官方战役地图
-│   └── CustomCampaigns/      # CCM 自制战役根目录
-└── Mods/                     # ⚠️ 同上，按需创建
-```
+- `.build.info` 构建元数据（含 `Version=` / `Branch=` / CDN 地址）；`.product.db` / `Launcher.db` 是暴雪启动器的二进制库，**勿改**
+- `StarCraft II.exe`（根启动器）· `StarCraft II Editor[_x64].exe` · `Support64/SC2Switcher_x64.exe`（版本切换器）
+- `Interfaces/` 界面 Mod（`*.SC2Interface`）· `SC2Data/` 游戏资源（config / data / ecache / indices / s2c）
+- `Versions/Base<build>/SC2_x64.exe` —— **真正的游戏客户端**（目录名里的数字即构建号）
+- `Maps/Campaign/`（官方战役）· `Maps/CustomCampaigns/`（CCM 自制）· `Mods/`
+- ⚠️ `Maps` 与 `Mods` **首次使用自制内容时才创建**，不能假设其存在
 
 ### 10.3 关键结论
 
@@ -416,6 +377,8 @@ StarCraft II/
 3. **最小改动**：不顺手重构无关代码，不擅自更改公共 API；需要时先说明再动手。
 4. **引用可追溯**：参考 `reference/scnexus` 得出结论时，标注 `文件:行号`。
 5. **破坏性操作**：删除 / 移动 / 覆盖前，先解析并打印绝对路径确认；不确定时先询问。
+5.1 **不许合并 PR** —— merge 只能由维护者自己做（见 §7.1）。
+5.2 **不许擅自发 PR** —— 除非用户明确说要发，改动就待在分支上；推分支、跑门禁、贴验证都可以。
 6. **不要提交**：`reference/`、构建产物、以及任何游戏版权文件（.SC2Map/.SC2Mod/.SC2Bank 等）——测试用样例请放 `testdata/`（已忽略）。
 7. **语言**：与用户交流、写提交信息与文档用**中文**；标识符、日志级别、crate 名称用**英文**。
 8. **不确定就说不确定**：把推断与事实分开陈述，不要用自信语气掩盖猜测。
@@ -429,11 +392,11 @@ StarCraft II/
 | 决策 | 结论 |
 | --- | --- |
 | 项目名 | 中文「弥音启动器」/ 英文 **MiYin Launcher**（曾用名 HSCL 仅保留在本地目录名） |
-| 技术栈 | **Rust + Tauri 2 + Vue 3 + TypeScript**（见 §3.1） |
+| 技术栈 | **Rust + Tauri 2 + React 18 + TypeScript**（见 §3.1；原本的 Vue 3 已于 2026-10 全部迁完并移除） |
 | 版本管理 | Git，`main` 为稳定分支，提交遵循 Conventional Commits（见 §7） |
 | 参考实现 | `reference/scnexus`（BSD-3-Clause，gitignored，**只读**，见 §8） |
 | 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
-| 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + Vue 3 前端（见 §4） |
+| 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + React 前端（见 §4） |
 | 功能范围 | 首个版本聚焦**战役管理与安装**（扫描 / 预检 / 安装 / 卸载），不含下载站与账号功能 |
 | 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + **蓝色主色** + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
 | 战役数据 | **存放在软件同级的 data 目录**（绿色版），支持同一战役多版本共存与自由切换（见 §14） |
@@ -718,13 +681,12 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 
 终端的内容来自后端的 `Reporter`（见 `miyin-core/src/update/mod.rs`）：
 命令把它接到 Tauri 事件 `update://log` / `update://progress` 上，
-前端在 `useLauncher` 里统一订阅并缓存，顶栏与设置页共用同一份状态。
+前端在 `ui/src/react/state/useUpdate.ts` 里统一订阅并缓存，顶栏与设置页共用同一份状态。
 
 两条容易踩的坑：
 
-1. 对话框的 `.sheet` 系列样式**放在 `ui/src/styles/base.css`（全局）**，
-   不要写进某个组件的 `<style scoped>` —— 否则别的组件用同名类时会完全没有样式
-   （弹窗退化成堆在页面末尾的普通方块），踩过一次。
+1. 对话框的 `.sheet` 系列样式**放全局**（`ui/src/styles/base.css`），不要写在某个组件自己的样式里 ——
+   否则别的组件用同名类时完全没有样式（弹窗退化成堆在页面末尾的普通方块），踩过一次。
 2. `bindUpdateEvents()` **不要加 `isDesktop` 判断** —— 浏览器演示模式的桥接
    同样提供这两个订阅，加了判断演示模式就永远收不到日志。
 3. **Release 正文的 Markdown 必须先净化再插进 DOM**（`ui/src/api/markdown.ts`：
@@ -746,9 +708,8 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 
 ## 16. 命令层：一律 `#[tauri::command(async)]`
 
-**这是踩过的一个大坑**：Tauri 2 里**同步命令跑在主线程**上。
-启动器的命令动不动就是几秒到几分钟 —— 读整个压缩包、拷贝几个 GB 的战役、等用户选文件 ——
-同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
+**踩过的坑**：Tauri 2 里**同步命令跑在主线程**上。启动器的命令动辄几秒到几分钟 —— 读整个压缩包、
+拷贝几个 GB、等用户选文件 —— 同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
 
 所以 `src-tauri/src/lib.rs` 里的命令**全部**写成：
 
@@ -757,63 +718,10 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 fn import_package(...) -> Result<...> { ... }
 ```
 
-`(async)` 让 Tauri 把同步函数体丢到线程池执行，不用改写函数体 —— 一个词的事。
-（Tauri 文档原话：*Commands without the async keyword are executed on the main thread
-unless defined with `#[tauri::command(async)]`*。）
-
-特别长的活（下载更新、检查更新）再加一层 `async fn` +
-`tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
+`(async)` 让 Tauri 把同步函数体丢到线程池 —— 一个词的事，不用改写函数体。
+特别长的活（下载、查更新）再加一层 `async fn` + `tauri::async_runtime::spawn_blocking`。
 
 **自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。
-
-
-
----
-
-## 18. 双前端：用户侧 Vue，开发者侧 React
-
-**两个入口，不是两套框架混在一页。**
-
-```text
-ui/index.html → src/main.ts     → Vue 3      用户侧（战役 / 模组 / 设置）
-ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台）
-```
-
-**为什么**：开发者页要用 JetBrains 官方的 [Ring UI](https://github.com/JetBrains/ring-ui)，
-它是 React 组件库；用户侧已经用 Vue 写完，重写一遍不值。两边各用各的，靠 IPC 说话。
-
-**硬规矩**（越过这条，构建和样式会一起出鬼）：
-
-1. **用户侧只准 import `src/` 下 Vue 的那部分**；反过来也一样。两边**不共享组件**。
-2. 想共享的只能是**框架无关的纯 TS**（现在是 `api/bridge.ts`、`api/types.ts`、`api/markdown.ts`）。
-   共享文件里**不许出现 `vue` 或 `react` 的 import**。
-3. 跨页跳转是**换入口**（整页加载），不是路由跳转 —— 别假装它们在一个 SPA 里。
-4. 别为了"顺手"把某个 Ring UI 组件搬进 Vue 页面。要那个控件就在 IDE 页里用。
-
-**Ring UI 的三个坑**（都踩过）：
-
-| 坑 | 说明 |
-| --- | --- |
-| 用 `@jetbrains/ring-ui-built`，**不是** `@jetbrains/ring-ui` | 后者是源码包，`.js` 里带裸 JSX，rolldown 不转 `node_modules` |
-| 必须手动引 `@jetbrains/ring-ui-built/components/style.css` | 不带样式就等于没装（控件渲染成原生，标签还会叠字） |
-| `icon` 要**组件类型**，不是 `<svg/>` 元素 | 传元素会炸在 `Element type is invalid` |
-
-React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`）。
-
-**构建是两次，顺序不能乱**：
-
-```bash
-pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发者页（vite.ide.config.ts）
-```
-
-- **两个入口必须分开构建**。放同一次构建里，rolldown 会把两边的公共块塞进
-  `index.html` 预加载 —— 用户侧执行到 `createRoot(#ide)` 直接白屏（踩过）。
-- 两次构建都设了 `emptyOutDir: false`，**清空统一在 build 脚本开头做一次**。
-  否则单独跑一次 `vite build` 就会把 `dist/ide.html` 抹掉，
-  表现是「点开发者页闪一下、进不去」—— 因为文件根本不在包里（也踩过）。
-
-**它的 `Tabs` 不要用**：那是"切换面板"的组件，在自定义容器里排不出多个标签，
-而我们要的是"文档标签页"。用 `Button` + 自己的下划线（见 `src/ide/IdeApp.tsx` 的 `.doc`）。
 
 ---
 
@@ -833,3 +741,99 @@ pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发�
 界面丑了只有人看得出来。先渲染再选，比写完再推倒重来便宜得多。
 
 预览产物不入库（`ui/preview.*` 已在 `.gitignore` 里），截图随当次交付给用户。
+
+---
+
+## 18. 前端：全 React（Vue 已于 2026-10 迁完并移除）
+
+> [!IMPORTANT]
+> **用户侧与开发者页现在都是 React 18，Vue 已从依赖里移除**
+> （`ui/package.json` 里没有 `vue` / `vue-tsc` / `@vitejs/plugin-vue` / `@vue/test-utils`，
+> `pnpm-lock.yaml` 已同步；`ui/src` 下**没有 .vue 文件**）。
+>
+> - **不再写 Vue。** 任何新界面都是 React。
+> - **两个入口都是 React**（见下方路径）；迁移期的"整块替换 / 不混写两套框架"那套规矩已成历史。
+> - 控件来源：用户侧用自建控件层 `ui/src/react/ui/`（见 §18.1），开发者页用 Ring UI。
+> - 前端全部说明（结构 / 边界 / 构建坑 / 调试开关 / 历史）见 [`docs/frontend.md`](docs/frontend.md)。
+
+**两个入口仍然分开**（原因不再是框架不同，而是**包体积**：Ring UI 不能进用户侧的包）。
+
+```text
+ui/index.html → src/main.tsx     → React 18   用户侧（战役 / 模组 / 设置 / 开发者房间）
+ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台 + #gallery 控件展台）
+```
+
+**硬规矩**（越过这条，构建和样式会一起出鬼）：
+
+1. **两个入口不共享组件**：用户侧只准 import `ui/src/react/**`、`ui/src/api/**`；
+   开发者页只准 import `ui/src/ide/**` 与 `ui/src/api/**`。
+2. 两边共享的只能是**框架无关的纯 TS**（`ui/src/api/*`：桥接 / 类型 / markdown / 美术映射），
+   那里**不许 import `react`**。
+3. 跨页跳转是**换入口**（整页加载），不是路由跳转 —— 别假装它们在一个 SPA 里。
+4. 别为了"顺手"把某个 Ring UI 组件搬进用户侧。要那个控件就在开发者页里用
+   （开发者房间的第二页是 `iframe` 嵌 `ide.html#gallery`，见 §18.1）。
+
+**Ring UI 的三个坑**（都踩过）：
+
+| 坑 | 说明 |
+| --- | --- |
+| 用 `@jetbrains/ring-ui-built`，**不是** `@jetbrains/ring-ui` | 后者是源码包，`.js` 里带裸 JSX，rolldown 不转 `node_modules` |
+| 必须手动引 `@jetbrains/ring-ui-built/components/style.css` | 不带样式就等于没装（控件渲染成原生，标签还会叠字） |
+| `icon` 要**组件类型**，不是 `<svg/>` 元素 | 传元素会炸在 `Element type is invalid` |
+
+React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`）。
+
+**构建是两次，顺序不能乱**：
+
+```bash
+pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发者页（vite.ide.config.ts）
+```
+
+- **两个入口必须分开构建**（放一起，rolldown 会把公共块塞进 `index.html` 预加载 → 用户侧白屏）。
+- 两次构建都是 `emptyOutDir: false`，**清空只在 build 脚本开头做一次**（否则单跑一次 `vite build` 会把 `ide.html` 抹掉）。
+
+> 这两条与 tsconfig 的 `jsx`、`<style scoped>` 搬过来变全局 —— 现场记录都在 [`docs/frontend.md`](docs/frontend.md)。
+
+**别在开发者页用 Tauri 的 `onCloseRequested`**：那是**按窗口**注册的，不是按页面 ——
+打开过一次开发者页，之后回到启动器点 X 也关不掉窗（Tauri 从此不再自己关，交给已经没了的
+JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`。踩过，整个启动器关不掉。
+
+**它的 `Tabs` 可以用**（2026-10 实测更正）：`children` 就是标签本身，**不要求配面板**；
+配 `autoCollapse`，放不下的标签会折成「更多」。导入路径是
+`@jetbrains/ring-ui-built/components/tabs/tabs`（没有包级 index，具名导出 `Tabs` / `Tab` /
+`CustomItem`）。文档标签页见 `ui/src/ide/workbench/parts/DocTabs.tsx`。
+
+自排容器时注意两点：`.ring-tabs-titles` 默认有 16px 的 `margin-bottom`，要归零；
+`Tabs` 会额外渲染一个装选中面板的空 `div`（不传 children 就是空盒子，无害）。
+
+---
+
+### 18.1 控件必须先上开发者房间
+
+**规矩：一个控件只有在开发者房间（设置页 →「开发者模式」→「进入开发者房间」）里
+展示过，才能拿到生产界面用。**
+
+- 新控件（或现有控件的新变体）先在房间里排一行 —— 每个变体、每个状态（禁用、出错、整行…）
+  各来一份，确认**外观与手感**之后再上生产。
+- 房间里只放**控件与通用组件**，不放业务页面。业务页面的样式应当来自控件本身。
+- 房间的「待迁移」列表是**唯一**允许存在"没控件化的东西"的地方。迁完一个划掉一个。
+- **不许**再往那个列表里加新东西：新界面要么用已有控件，要么先在房间里做出新控件。
+- 为什么：控件是这个项目里唯一"错了没人替你发现"的东西 —— 测试能证明逻辑对，
+  证明不了它长得好不好看、挪到别处是不是还成立。把它摆在一个专门的地方看，
+  比在生产页面里逐个试便宜得多。
+
+> 房间在**用户侧入口**里（`ui/src/react/views/room/`），已按两套视觉语言**分成两页**：
+> 第一页用户侧控件（`react/ui/`），第二页开发者工具侧（`iframe` 嵌 `ide.html#gallery`）。
+
+### 18.2 右键菜单统一化，原生菜单一律不露
+
+**WebView 的原生右键菜单（另存为 / 检查 / 重新加载）与这个应用格格不入，
+而且会把用户导向一个跟它无关的世界。所以整个窗口一律拦掉。**
+
+- 用户侧：`ui/src/react/app/useShellEffects.ts` 在 window 上一律 `preventDefault()`；
+  组件自己的菜单靠 `ui/src/react/lib/contextMenu.ts` 的时间戳优先。
+  **输入框里给剪切/复制/粘贴/全选** —— 这是拦掉的代价，不能连粘贴路径都做不到。
+- 开发者页：空白处右键也要兜住（`ui/src/ide/workbench/` 里的空白菜单），自己的菜单靠
+  `event.defaultPrevented` 判定。
+- 新写右键菜单时：**在自己的 `onContextMenu` 里先 `preventDefault()`**，
+  否则它会和兜底菜单叠在一起。

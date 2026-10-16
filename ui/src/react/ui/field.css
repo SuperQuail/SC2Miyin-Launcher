@@ -1,0 +1,42 @@
+/* 由 scripts/scope-vue-styles.mjs 从 src/ui/Field.vue 抽出，请勿手改 */
+.field {
+  display: block;
+  margin-bottom: 10px;
+}
+.field--wide {
+  grid-column: 1 / -1;
+}
+.field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+.field--bad input,
+.field--bad select,
+.field--bad textarea {
+  border-color: var(--danger);
+}
+.field__error {
+  font-size: 11.5px;
+  font-style: normal;
+  color: var(--danger);
+}
+.field__hint {
+  font-size: 11.5px;
+  font-style: normal;
+  color: var(--on-surface-variant);
+}
