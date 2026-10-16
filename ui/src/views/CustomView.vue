@@ -9,22 +9,30 @@
 import { computed, onMounted, ref } from "vue";
 
 import { api } from "../api/bridge";
-import CustomCampaignPanel from "../components/CustomCampaignPanel.vue";
+import ReactIsland from "../components/ReactIsland.vue";
 import DocViewer from "../components/DocViewer.vue";
-import ImportDialog from "../components/ImportDialog.vue";
 import VariantCard from "../components/VariantCard.vue";
 import { useContextMenu } from "../composables/useContextMenu";
 import { useLauncher } from "../composables/useLauncher";
 import type { DocInfo, Variant } from "../api/types";
 import { errorText } from "../composables/useLauncher";
+import { mountCustomCampaignPanel } from "../react/views/campaigns/mount";
+import { mountImportDialog } from "../react/views/campaigns/mount";
 
 const emit = defineEmits<{ "open-cheats": [] }>();
 
-const { slots, loading, refresh, bootstrap, activate, removeVariant, notify, libraryRoot } =
+const { slots, loading, refresh, bootstrap, activate, removeVariant, notify, libraryRoot, reveal } =
   useLauncher();
 const menu = useContextMenu();
 
-const importer = ref<InstanceType<typeof ImportDialog> | null>(null);
+/** 导入按钮的"该开文件对话框了"信号；每次 +1。 */
+const importNonce = ref(0);
+/** 导入岛的忙碌状态（存在壳里，用来禁用按钮和换文案）。 */
+const importing = ref(false);
+
+function startImport(): void {
+  importNonce.value += 1;
+}
 /** 正在看哪一部自制战役。 */
 const opened = ref<string | null>(null);
 /** 正在读的说明文档。 */
@@ -146,7 +154,7 @@ function showPageMenu(event: MouseEvent): void {
       { id: "reload", label: "重新读取" },
     ],
     (id) => {
-      if (id === "import") void importer.value?.startImport();
+      if (id === "import") startImport();
       if (id === "cheats") emit("open-cheats");
       if (id === "reload") void refresh();
     },
@@ -189,18 +197,34 @@ function openTools(event: MouseEvent): void {
         <button class="btn btn-text" type="button" :disabled="loading" @click="openTools">
           小工具 ▾
         </button>
-        <button
-          class="btn btn-primary"
-          type="button"
-          :disabled="importer?.busy"
-          @click="importer?.startImport()"
-        >
-          {{ importer?.busy ? "核对中…" : "＋ 导入战役包" }}
+        <button class="btn btn-primary" type="button" :disabled="importing" @click="startImport()">
+          {{ importing ? "核对中…" : "＋ 导入战役包" }}
         </button>
       </div>
     </section>
 
-    <ImportDialog ref="importer" entry="custom" @imported="onImported" />
+    <!--
+      导入对话框已迁到 React：这个岛只是"入口 + 通知"的搬运工。
+      按钮和拖拽都通过 importNonce 打开一次文件选择器（可爱的指令式 ref 到此为止）。
+    -->
+    <ReactIsland
+      :mount="mountImportDialog"
+      :view-props="{
+        entry: 'custom',
+        importNonce,
+        slots,
+        refresh,
+        importing,
+      }"
+      @notify="
+        (payload) => {
+          const item = payload as { kind: 'info' | 'success' | 'error'; text: string };
+          notify(item.kind, item.text);
+        }
+      "
+      @busy="importing = $event as boolean"
+      @imported="onImported"
+    />
 
     <section v-if="!variants.length" class="empty">
       <p class="empty__title">还没有自制战役</p>
@@ -238,12 +262,26 @@ function openTools(event: MouseEvent): void {
       </div>
     </div>
 
-    <CustomCampaignPanel
-      v-if="openedVariant && customSlot"
-      :slot="customSlot.slug"
-      :variant="openedVariant"
-      :active="customSlot.active === openedVariant.id"
-      @open-doc="openedDoc = $event"
+    <!-- 地图与模组面板也迁到 React 了：换版本就重建（key 挂 id） -->
+    <ReactIsland
+      v-if="openedVariant && customSlot && libraryRoot"
+      :key="openedVariant.id"
+      :mount="mountCustomCampaignPanel"
+      :view-props="{
+        slot: customSlot.slug,
+        variant: openedVariant,
+        active: customSlot.active === openedVariant.id,
+        libraryRoot,
+      }"
+      @notify="
+        (payload) => {
+          const item = payload as { kind: 'info' | 'success' | 'error'; text: string };
+          notify(item.kind, item.text);
+        }
+      "
+      @reveal="(path) => reveal(String(path))"
+      @refresh="refresh"
+      @open-doc="openedDoc = $event as DocInfo"
     />
 
     <DocViewer

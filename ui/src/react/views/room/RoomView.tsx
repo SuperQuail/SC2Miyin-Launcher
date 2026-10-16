@@ -176,25 +176,13 @@ export function RoomView({ onBack }: { onBack: () => void }) {
       >
         <ul className="room__todo">
           <li>
-            <code>SlotMenuView.vue</code> 1073 行 · 战役菜单页 <em>（组件化中）</em>
-          </li>
-          <li>
             <code>App.vue</code> 1049 行 · 外壳（含顶栏、页签、弹窗宿主）
           </li>
           <li>
-            <code>CustomCampaignPanel.vue</code> 769 行 · 自制战役面板
+            <code>CustomView.vue</code> · 自制战役页（里面的导入对话框与地图面板已经是 React）
           </li>
           <li>
-            <code>ImportDialog.vue</code> 701 行 · 导入对话框
-          </li>
-          <li>
-            <code>CampaignsView.vue</code> 650 行 · 战役列表页
-          </li>
-          <li>
-            <code>CustomView.vue</code> 328 行 · 自制战役页
-          </li>
-          <li>
-            <code>ContextMenu.vue</code> 135 行 · 右键菜单宿主（要换成统一化那份）
+            <code>ContextMenu.vue</code> · 右键菜单宿主（要换成统一化那份）
           </li>
         </ul>
       </Card>

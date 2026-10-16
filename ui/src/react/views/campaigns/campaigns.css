@@ -1,0 +1,360 @@
+/* 由 scripts/scope-vue-styles.mjs 从 src/views/CampaignsView.vue 抽出，请勿手改 */
+.campaigns-page .page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+.campaigns-page .hero {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  overflow: hidden;
+  padding: 24px 28px;
+  
+  background:
+    radial-gradient(
+      360px 280px at 86% 74%,
+      color-mix(in srgb, var(--accent) 22%, transparent),
+      transparent 72%
+    ),
+    color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+.campaigns-page .hero__body {
+  position: relative;
+  z-index: 2;
+  max-width: 520px;
+}
+.campaigns-page .hero__eyebrow {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+.campaigns-page .hero__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--on-surface);
+}
+.campaigns-page .hero__path {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  word-break: break-all;
+}
+.campaigns-page .hero__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.campaigns-page .hero__stats {
+  display: flex;
+  gap: 26px;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 45%, transparent);
+}
+.campaigns-page .stat dt {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .stat dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.campaigns-page .hero__kanban {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  width: 218px;
+  margin: -24px -10px -24px 0;
+  pointer-events: none;
+}
+.campaigns-page .hero__kanban img {
+  display: block;
+  width: 100%;
+  -webkit-mask-image: radial-gradient(circle at 50% 52%, #000 58%, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 52%, #000 58%, transparent 78%);
+}
+.campaigns-page .section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.campaigns-page .section-head__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+}
+.campaigns-page .section-head__count {
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 12.5px;
+}
+.campaigns-page .section-head__actions {
+  display: flex;
+  gap: 8px;
+}
+.campaigns-page .section-head__actions .btn-text {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+.campaigns-page .section-head__actions .btn-text:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.campaigns-page .section-hint {
+  margin: -6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+.campaigns-page .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 18px;
+}
+.campaigns-page .import {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: var(--shadow-2);
+}
+.campaigns-page .import__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.campaigns-page .import__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.campaigns-page .import__meta {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .import__target {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  text-align: right;
+  max-width: 320px;
+}
+.campaigns-page .import__target strong {
+  color: var(--accent);
+}
+.campaigns-page .import__ask {
+  color: var(--warning);
+}
+.campaigns-page .targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.campaigns-page .target {
+  padding: 7px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--outline);
+  background: var(--surface-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+.campaigns-page .target--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.campaigns-page .issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.campaigns-page .issue {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.campaigns-page .issue--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.campaigns-page .issue--broken {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.campaigns-page .tag--patch {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.campaigns-page .import__source {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.campaigns-page .import__evidence {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .import__note {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.campaigns-page .import__field {
+  margin-top: 14px;
+}
+.campaigns-page .import__label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .import__field .targets {
+  margin-top: 8px;
+}
+.campaigns-page .check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.7;
+  cursor: pointer;
+}
+.campaigns-page .check input {
+  margin-top: 3px;
+}
+.campaigns-page .check em {
+  display: block;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .warn {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.campaigns-page .sheet__badge--warn {
+  background: var(--warning-soft);
+}
+.campaigns-page .sheet__badge--warn .sheet__icon {
+  stroke: var(--warning);
+}
+.campaigns-page .group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.campaigns-page .group__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.campaigns-page .group__hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-page .conflict {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.campaigns-page .conflict__text {
+  font-size: 12.5px;
+  color: var(--on-surface);
+  line-height: 1.6;
+}
+.campaigns-page .tag {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  font-weight: 600;
+}
+.campaigns-page .import__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.campaigns-page .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px 32px 46px;
+}
+.campaigns-page .empty__art {
+  width: 176px;
+  height: 176px;
+  object-fit: contain;
+  margin-bottom: -6px;
+  -webkit-mask-image: radial-gradient(circle at 50% 52%, #000 62%, transparent 82%);
+  mask-image: radial-gradient(circle at 50% 52%, #000 62%, transparent 82%);
+}
+.campaigns-page .empty__title {
+  margin: 4px 0 0;
+  font-size: 19px;
+}
+.campaigns-page .empty__text {
+  margin: 0;
+  max-width: 560px;
+  color: var(--on-surface-variant);
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+.campaigns-page .empty__text code {
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-3);
+  font-size: 12.5px;
+}
+.campaigns-page .empty__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}

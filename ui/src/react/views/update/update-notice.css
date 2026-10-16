@@ -65,52 +65,52 @@
   word-wrap: break-word;
 }
 
-.markdown :deep(h1),
-.markdown :deep(h2),
-.markdown :deep(h3),
-.markdown :deep(h4) {
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
   margin: 14px 0 6px;
   font-size: 14.5px;
   font-weight: 700;
   line-height: 1.5;
 }
 
-.markdown :deep(h1:first-child),
-.markdown :deep(h2:first-child),
-.markdown :deep(h3:first-child) {
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child {
   margin-top: 0;
 }
 
-.markdown :deep(p) {
+.markdown p {
   margin: 0 0 9px;
 }
 
-.markdown :deep(ul),
-.markdown :deep(ol) {
+.markdown ul,
+.markdown ol {
   margin: 0 0 9px;
   padding-left: 20px;
 }
 
-.markdown :deep(li) {
+.markdown li {
   margin-bottom: 3px;
 }
 
-.markdown :deep(li > p) {
+.markdown li > p {
   margin-bottom: 3px;
 }
 
-.markdown :deep(a) {
+.markdown a {
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   cursor: pointer;
 }
 
-.markdown :deep(a:hover) {
+.markdown a:hover {
   border-bottom-color: var(--accent);
 }
 
-.markdown :deep(code) {
+.markdown code {
   padding: 1px 5px;
   border-radius: 4px;
   background: var(--surface-3);
@@ -118,7 +118,7 @@
   font-size: 12px;
 }
 
-.markdown :deep(pre) {
+.markdown pre {
   margin: 0 0 10px;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
@@ -126,7 +126,7 @@
   overflow-x: auto;
 }
 
-.markdown :deep(pre code) {
+.markdown pre code {
   padding: 0;
   background: none;
   color: #c8d2e0;
@@ -134,52 +134,52 @@
   line-height: 1.6;
 }
 
-.markdown :deep(blockquote) {
+.markdown blockquote {
   margin: 0 0 10px;
   padding: 2px 0 2px 12px;
   border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--on-surface-variant);
 }
 
-.markdown :deep(hr) {
+.markdown hr {
   margin: 14px 0;
   border: none;
   border-top: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
 }
 
-.markdown :deep(table) {
+.markdown table {
   width: 100%;
   margin: 0 0 10px;
   border-collapse: collapse;
   font-size: 12.5px;
 }
 
-.markdown :deep(th),
-.markdown :deep(td) {
+.markdown th,
+.markdown td {
   padding: 5px 9px;
   border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
   text-align: left;
 }
 
-.markdown :deep(th) {
+.markdown th {
   background: var(--surface-3);
   font-weight: 700;
 }
 
-.markdown :deep(img) {
+.markdown img {
   max-width: 100%;
   border-radius: var(--radius-sm);
 }
 
-.markdown :deep(del) {
+.markdown del {
   color: var(--on-surface-variant);
 }
 
-.markdown :deep(details) {
+.markdown details {
   margin-bottom: 9px;
 }
 
-.markdown :deep(summary) {
+.markdown summary {
   cursor: pointer;
   font-weight: 600;
 }

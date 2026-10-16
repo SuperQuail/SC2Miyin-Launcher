@@ -4,6 +4,7 @@ import type { Component } from "vue";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 import { api } from "./api/bridge";
+import { onShellAsk, ASK_ACTIVATE, ASK_REMOVE_VARIANT } from "./api/ask";
 import { BACKDROP, MIYIN } from "./api/art";
 import { RESOURCE_SITE, useSiteLinks } from "./composables/useSiteLinks";
 import { useLauncher } from "./composables/useLauncher";
@@ -11,8 +12,8 @@ import type { ViewId } from "./composables/useLauncher";
 import ContextMenu from "./components/ContextMenu.vue";
 import { contextMenuHandledRecently, useContextMenu } from "./composables/useContextMenu";
 import { mountUpdateNotice } from "./react/views/update/UpdateNotice";
-import CampaignsView from "./views/CampaignsView.vue";
 import CustomView from "./views/CustomView.vue";
+import { mountCampaigns } from "./react/views/campaigns/mount";
 import { mountMods } from "./react/views/mods/mount";
 import ReactIsland from "./components/ReactIsland.vue";
 import { mountCheats } from "./react/views/cheats/mount";
@@ -70,7 +71,30 @@ const {
   refreshInstalled,
   checkUpdateNow,
   downloadUpdateNow,
+  loading,
+  launch,
+  refresh,
+  requestActivation,
+  confirmActivation,
+  cancelActivation,
+  removeVariant,
+  pendingActivation,
 } = useLauncher();
+
+/**
+ * 战役岛要"是 / 否"的那两个动作（启用、删除）。
+ *
+ * `ReactIsland` 的 emit 是单向的，没有回执通道，所以这条走 `api/ask.ts`
+ * 那条自定义事件：React 侧发问，这里处理完把结果写回去（shell 原有实现就是返回布尔）。
+ */
+onShellAsk(ASK_ACTIVATE, (slot, variantId) => {
+  // 预演弹窗里的「继续」走的是同一个事件，用哨兵值区分
+  if (slot === "__confirm__") return confirmActivation();
+  return requestActivation(slot, variantId);
+});
+onShellAsk(ASK_REMOVE_VARIANT, (slot, variantId) =>
+  variantId === null ? Promise.resolve(false) : removeVariant(slot, variantId),
+);
 
 /** React 岛回来说"提示一句" —— 统一在这里转给外壳的通知。 */
 function onIslandNotify(payload: unknown): void {
@@ -565,12 +589,24 @@ onUnmounted(() => {
       <!-- 切页时淡入上移，两个方向都给一点衔接 -->
       <Transition name="view" mode="out-in">
         <component :is="previewView" v-if="previewView" key="preview" />
-        <CampaignsView
-          v-else-if="currentView === 'campaigns'"
-          key="campaigns"
-          @open-settings="currentView = 'settings'"
-          @open-cheats="cheatsOpen = true"
-        />
+        <!-- 战役流程（列表 + 菜单 + 导入 / 自制战役面板）已整块迁到 React -->
+      <ReactIsland
+        v-else-if="currentView === 'campaigns'"
+        key="campaigns"
+        :mount="mountCampaigns"
+        :view-props="{ installation, slots, libraryRoot, loading, busy, droppedPackage, pendingActivation }"
+        @notify="onIslandNotify"
+        @reveal="onIslandReveal"
+        @menu="onIslandMenu"
+        @bootstrap="bootstrap"
+        @choose-game-dir="chooseGameDirectory"
+        @launch="launch"
+        @refresh="refresh"
+        @cancel-activation="cancelActivation"
+        @consume-drop="droppedPackage = null"
+        @open-settings="currentView = 'settings'"
+        @open-cheats="cheatsOpen = true"
+      />
         <CustomView
           v-else-if="currentView === 'custom'"
           key="custom"

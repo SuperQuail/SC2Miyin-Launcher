@@ -163,8 +163,15 @@ async function checkUpdateNow(quiet = false): Promise<void> {
   }
 }
 
-/** 启动时自动扫一次：**不需要用户手点**；有新版就把公告弹出来。 */
+/**
+ * 启动时自动扫一次：**不需要用户手点**；有新版就把公告弹出来。
+ *
+ * `?noupdate=1` 跳过这次自动检查 —— 截图 / 排查用（演示模式的新版公告会把内容区挡住，
+ * 和 `?theme=` / `?view=` 一个路数，不是给用户的功能）。
+ */
 async function autoCheckUpdate(): Promise<void> {
+  if (new URLSearchParams(location.search).has("noupdate")) return;
+
   await checkUpdateNow(true);
 
   if (updateCheck.value?.available && updateCheck.value.latest) {
