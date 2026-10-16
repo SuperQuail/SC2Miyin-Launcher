@@ -62,9 +62,10 @@
 | 归档 | `zip`、`flate2`、`tar` | 按 CCM 实际打包格式补充 |
 | HTTP | `reqwest`（rustls 优先） | 下载、更新检查 |
 | 哈希 | `sha2`、`blake3` | 完整性校验 |
-| GUI | **Tauri 2 + Vue 3 + TypeScript + Vite** | 见下方理由 |
+| GUI | **Tauri 2 + React 18 + TypeScript + Vite** | 见下方理由 |
 
-**GUI 选型理由**：参考项目 scnexus 是 Vue 3 + Electron，采用 Tauri 可直接复用其 **Vue 组件组织 / Pinia store 划分 / IPC 契约**经验，同时把 Electron 换成 Rust 后端，安装包体积与内存占用大幅下降。
+**GUI 选型理由**：参考项目 scnexus 是 Vue 3 + Electron，采用 Tauri 可复用其 **组件组织 / store 划分 / IPC 契约**经验，同时把 Electron 换成 Rust 后端，安装包体积与内存占用大幅下降。
+**组件库**：用户侧用自建控件层（`ui/src/react/ui/`），开发者页用 JetBrains 的 Ring UI（见 §18）。
 **备选**：`egui` / `iced`（纯 Rust、无 Web 工具链，适合追求极简依赖；代价是 UI 表现力与生态）。
 
 ### 3.2 依赖原则
@@ -107,13 +108,20 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
 │   ├── tauri.conf.json
 │   └── icons/                 # 由 scripts/prepare-icons.py 生成
-├── ui/                        # Vue 3 + TypeScript 前端
+├── ui/                        # React 18 + TypeScript 前端（两个入口，见 §18）
 │   ├── public/                # 美术资产（见 §13，含 NOTICE.md）
 │   └── src/
-│       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射
-│       ├── components/        # SlotCard（战役卡片）、VariantCard（版本卡片）
-│       ├── composables/       # useLauncher：全局状态与动作
-│       ├── views/             # CampaignsView（战役列表）、SlotMenuView（战役菜单）、SettingsView
+│       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射 / 纯函数
+│       ├── react/
+│       │   ├── app/           # 外壳：AppShell / TopBar / Dialogs / ContextMenu / shell.css
+│       │   ├── state/         # 领域状态：useInstallation / useLibrary / useSaves / useUpdate / useTheme / …
+│       │   ├── ui/            # 控件层（Button / Field / Sheet …）—— 用户侧唯一的控件来源（见 §18.1）
+│       │   ├── views/         # 各页面：campaigns / custom / mods / settings / cheats / room
+│       │   └── lib/           # useCommand / clipboard / devMode / contextMenu …
+│       ├── ide/               # 开发者页（React + Ring UI，独立入口；含 #gallery 控件展台）
+│       │   ├── workbench/     # 工作台：Toolbar / FileTree / DocTabs / MetaPane / HistoryPanel …
+│       │   ├── gallery/       # #gallery 控件展台
+│       │   └── lib/
 │       └── styles/            # tokens.css（设计令牌）、base.css
 ├── scripts/                   # prepare-assets.py / prepare-icons.py
 ├── docs/                      # 设计文档、格式说明
@@ -137,7 +145,7 @@ cargo test --workspace              # 领域逻辑测试都在 miyin-core
 # 前端
 pnpm -C ui install
 pnpm -C ui dev                      # 浏览器演示模式：无需桌面壳，自带示例数据
-pnpm -C ui build                    # vue-tsc 类型检查 + 打包到 ui/dist
+pnpm -C ui build                    # tsc 类型检查 + 两个入口都打包到 ui/dist
 
 # 门禁：任何一份原始代码超过 500 行就告警（不拦路）
 python scripts/check-file-size.py
@@ -443,11 +451,11 @@ StarCraft II/
 | 决策 | 结论 |
 | --- | --- |
 | 项目名 | 中文「弥音启动器」/ 英文 **MiYin Launcher**（曾用名 HSCL 仅保留在本地目录名） |
-| 技术栈 | **Rust + Tauri 2 + Vue 3 + TypeScript**（见 §3.1） |
+| 技术栈 | **Rust + Tauri 2 + React 18 + TypeScript**（见 §3.1；原本的 Vue 3 已于 2026-10 全部迁完并移除） |
 | 版本管理 | Git，`main` 为稳定分支，提交遵循 Conventional Commits（见 §7） |
 | 参考实现 | `reference/scnexus`（BSD-3-Clause，gitignored，**只读**，见 §8） |
 | 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
-| 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + Vue 3 前端（见 §4） |
+| 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + React 前端（见 §4） |
 | 功能范围 | 首个版本聚焦**战役管理与安装**（扫描 / 预检 / 安装 / 卸载），不含下载站与账号功能 |
 | 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + **蓝色主色** + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
 | 战役数据 | **存放在软件同级的 data 目录**（绿色版），支持同一战役多版本共存与自由切换（见 §14） |
@@ -804,39 +812,34 @@ unless defined with `#[tauri::command(async)]`*。）
 
 ---
 
-## 18. 前端：目标态全 React（用户侧 Vue 属待迁遗产）
+## 18. 前端：全 React（Vue 已于 2026-10 迁完并移除）
 
 > [!IMPORTANT]
-> **本项目的既定方向：逐步迁移，最终弃用 Vue，全用 React。**
+> **用户侧与开发者页现在都是 React 18，Vue 已从依赖里移除**
+> （`ui/package.json` 里没有 `vue` / `vue-tsc` / `@vitejs/plugin-vue` / `@vue/test-utils`，
+> `pnpm-lock.yaml` 已同步；`ui/src` 下**没有 .vue 文件**）。
 >
-> - **新写的界面优先 React。** 例外只有一种：改动本身就是"给某个现有 Vue 组件做个小修"
->   —— 为了它先重写一遍不值。
-> - **迁移是整块替换**：一个视图 / 一个面板**整体**换成 React 挂载点，
->   **不做**"同一个文件里混写两套框架"。
-> - **框架无关的东西放中间层**（`ui/src/api/*`、`ui/src/composables/*` 里那些不 import
->   `vue` 的），迁移时原样搬走，不用重写。
-> - 迁移顺序、注意事项、以及"别把 Vue 的坏习惯带过去"见
->   [`docs/frontend-migration.md`](docs/frontend-migration.md)。
->
-> 下面这些边界仍然有效 —— **两个入口在迁移完成前都活着**，谁也别踩谁。
+> - **不再写 Vue。** 任何新界面都是 React。
+> - **两个入口都是 React**（见下方路径）；迁移期的"整块替换 / 不混写两套框架"那套规矩已成历史。
+> - 控件来源：用户侧用自建控件层 `ui/src/react/ui/`（见 §18.1），开发者页用 Ring UI。
+> - 迁移的全过程与最终结构见 [`docs/frontend-migration.md`](docs/frontend-migration.md)。
 
-**两个入口，不是两套框架混在一页。**
+**两个入口仍然分开**（原因不再是框架不同，而是**包体积**：Ring UI 不能进用户侧的包）。
 
 ```text
-ui/index.html → src/main.ts     → Vue 3      用户侧（战役 / 模组 / 设置）
-ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台）
+ui/index.html → src/main.tsx     → React 18   用户侧（战役 / 模组 / 设置 / 开发者房间）
+ui/ide.html   → src/ide/main.tsx → React 18   开发者页（IDE 工作台 + #gallery 控件展台）
 ```
-
-**为什么**：开发者页要用 JetBrains 官方的 [Ring UI](https://github.com/JetBrains/ring-ui)，
-它是 React 组件库；用户侧已经用 Vue 写完，重写一遍不值。两边各用各的，靠 IPC 说话。
 
 **硬规矩**（越过这条，构建和样式会一起出鬼）：
 
-1. **用户侧只准 import `src/` 下 Vue 的那部分**；反过来也一样。两边**不共享组件**。
-2. 想共享的只能是**框架无关的纯 TS**（现在是 `api/bridge.ts`、`api/types.ts`、`api/markdown.ts`）。
-   共享文件里**不许出现 `vue` 或 `react` 的 import**。
+1. **两个入口不共享组件**：用户侧只准 import `ui/src/react/**`、`ui/src/api/**`；
+   开发者页只准 import `ui/src/ide/**` 与 `ui/src/api/**`。
+2. 两边共享的只能是**框架无关的纯 TS**（`ui/src/api/*`：桥接 / 类型 / markdown / 美术映射），
+   那里**不许 import `react`**。
 3. 跨页跳转是**换入口**（整页加载），不是路由跳转 —— 别假装它们在一个 SPA 里。
-4. 别为了"顺手"把某个 Ring UI 组件搬进 Vue 页面。要那个控件就在 IDE 页里用。
+4. 别为了"顺手"把某个 Ring UI 组件搬进用户侧。要那个控件就在开发者页里用
+   （开发者房间的第二页是 `iframe` 嵌 `ide.html#gallery`，见 §18.1）。
 
 **Ring UI 的三个坑**（都踩过）：
 
@@ -864,8 +867,17 @@ pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发�
 打开过一次开发者页，之后回到启动器点 X 也关不掉窗（Tauri 从此不再自己关，交给已经没了的
 JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`。踩过，整个启动器关不掉。
 
-**它的 `Tabs` 不要用**：那是"切换面板"的组件，在自定义容器里排不出多个标签，
-而我们要的是"文档标签页"。用 `Button` + 自己的下划线（见 `src/ide/IdeApp.tsx` 的 `.doc`）。
+**它的 `Tabs` 可以用**（2026-10 实测更正）：`children` 就是标签本身，**不要求配面板**；
+配 `autoCollapse`，放不下的标签会折成「更多」。导入路径是
+`@jetbrains/ring-ui-built/components/tabs/tabs`（没有包级 index，具名导出 `Tabs` / `Tab` /
+`CustomItem`）。文档标签页见 `ui/src/ide/workbench/parts/DocTabs.tsx`。
+
+自排容器时注意两点：`.ring-tabs-titles` 默认有 16px 的 `margin-bottom`，要归零；
+`Tabs` 会额外渲染一个装选中面板的空 `div`（不传 children 就是空盒子，无害）。
+
+> 原先这里写着"它的 Tabs 不要用：那是切换面板的组件，在自定义容器里排不出多个标签" ——
+> 那句是**错的**，来自一次没做成的尝试。实测：6 个标签溢出折叠、点选切换、每个标签带关闭 ✕
+> 全部正常（截图 `dist/preview/ide-doctabs*.png`）。
 
 ---
 
@@ -892,10 +904,10 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
 **WebView 的原生右键菜单（另存为 / 检查 / 重新加载）与这个应用格格不入，
 而且会把用户导向一个跟它无关的世界。所以整个窗口一律拦掉。**
 
-- 用户侧：`App.vue` 的 `onContextMenu` 在 window 上一律 `preventDefault()`；
-  组件自己的菜单靠 `contextMenuHandledRecently()` 时间戳优先。
+- 用户侧：`ui/src/react/app/useShellEffects.ts` 在 window 上一律 `preventDefault()`；
+  组件自己的菜单靠 `ui/src/react/lib/contextMenu.ts` 的时间戳优先。
   **输入框里给剪切/复制/粘贴/全选** —— 这是拦掉的代价，不能连粘贴路径都做不到。
-- 开发者页：空白处右键也要兜住（`IdeApp.tsx` 的 `bareMenu`），自己的菜单靠
+- 开发者页：空白处右键也要兜住（`ui/src/ide/workbench/` 里的空白菜单），自己的菜单靠
   `event.defaultPrevented` 判定。
 - 新写右键菜单时：**在自己的 `onContextMenu` 里先 `preventDefault()`**，
   否则它会和兜底菜单叠在一起。
