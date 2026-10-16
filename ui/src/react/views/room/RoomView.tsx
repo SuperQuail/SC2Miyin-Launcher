@@ -1,72 +1,31 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
-import type { SlotView, Variant } from "../../../api/types";
-import { SlotCard } from "../../components/SlotCard";
-import { VariantCard } from "../../components/VariantCard";
-import { Button, Field, Sheet } from "../../ui";
+import { Button } from "../../ui";
+import { DevSidePage } from "./DevSidePage";
+import { UserSidePage } from "./UserSidePage";
 import "./room.css";
 
 /**
- * **开发者房间**：控件的展示台。
+ * **开发者房间**：控件的展示台，分两页。
  *
- * 这个页面只有一个职责：让每一个控件在**进生产界面之前**先在这里被看见。
- * 新控件在这里排一行（有变体就每个变体来一份），确认长得对、手感对，再拿去用。
+ * - **用户侧**（`index.html`）：react/ui 的控件层与共用组件
+ * - **开发者工具侧**（`ide.html`）：Ring UI 那套（用 iframe 嵌，见 DevSidePage 的说明）
  *
  * 规矩写在 AGENTS §18.1：**没有在房间里出现过的控件，不许上生产界面。**
  */
 
-/** 一份假的版本数据，只为把卡片渲染出来（房间里不碰真实库）。 */
-function fakeVariant(over: Partial<Variant> = {}): Variant {
-  return {
-    id: "demo-variant",
-    name: "演示版本",
-    author: "示例作者",
-    version: "1.4",
-    description: null,
-    format: "miyin" as Variant["format"],
-    imported_at: 0,
-    source: null,
-    map_count: 14,
-    mod_count: 2,
-    size_bytes: 724_800_000,
-    target_sub: null,
-    cover: null,
-    tags: ["重制", "中文"],
-    registration_id: null,
-    declared_mods: [],
-    doc: null,
-    ...over,
-  };
-}
+type RoomPage = "user" | "dev";
 
-function fakeSlot(over: Partial<SlotView> = {}): SlotView {
-  return {
-    slug: "hots",
-    display_name: "虫群之心",
-    sub_directory: "swarm",
-    variants: [fakeVariant()],
-    active: null,
-    active_name: null,
-    notice: null,
-    ...over,
-  };
-}
-
-function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
-  return (
-    <section className="room__card">
-      <h3 className="room__card-title">{title}</h3>
-      {note && <p className="room__card-note">{note}</p>}
-      {children}
-    </section>
-  );
-}
+const PAGES: { id: RoomPage; label: string; sub: string }[] = [
+  { id: "user", label: "用户侧", sub: "index.html" },
+  { id: "dev", label: "开发者工具侧", sub: "ide.html" },
+];
 
 export function RoomView({ onBack }: { onBack: () => void }) {
-  const [sheet, setSheet] = useState(false);
-  const [backdropSheet, setBackdropSheet] = useState(false);
-  const [demoText, setDemoText] = useState("演示文本");
-  const [dismissed, setDismissed] = useState("");
+  // `#room=dev` 直接进第二页（截图与自测用）
+  const [page, setPage] = useState<RoomPage>(() =>
+    typeof location !== "undefined" && location.hash.includes("dev") ? "dev" : "user",
+  );
 
   return (
     <div className="room">
@@ -75,7 +34,7 @@ export function RoomView({ onBack }: { onBack: () => void }) {
           <h2 className="room__title">开发者房间</h2>
           <p className="room__lede">
             所有控件的展示台。**新控件必须先进这里**，确认外观与手感之后再拿到生产界面用。
-            页面里现在能看到的每一个控件，都是已经控件化、并且迁移到 React 的。
+            它分两页：用户侧与开发者工具侧，各自只放自己那一套控件。
           </p>
         </div>
         <Button variant="outline" onClick={onBack}>
@@ -83,161 +42,21 @@ export function RoomView({ onBack }: { onBack: () => void }) {
         </Button>
       </header>
 
-      <Card title="控件层 · Button" note="react/ui/Button —— 变体、尺寸、禁用态。">
-        <div className="room__row">
-          <span className="room__label">variant</span>
-          <Button variant="primary">primary</Button>
-          <Button variant="tonal">tonal</Button>
-          <Button variant="outline">outline</Button>
-          <Button>text</Button>
-          <Button variant="danger">danger</Button>
-        </div>
-        <div className="room__row">
-          <span className="room__label">size / 禁用</span>
-          <Button variant="primary" size="lg">
-            lg
-          </Button>
-          <Button variant="primary" disabled>
-            禁用
-          </Button>
-        </div>
-      </Card>
+      <nav className="room__tabs">
+        {PAGES.map((item) => (
+          <button
+            key={item.id}
+            className={"room__tab" + (page === item.id ? " room__tab--on" : "")}
+            type="button"
+            onClick={() => setPage(item.id)}
+          >
+            {item.label}
+            <span className="room__tab-sub">{item.sub}</span>
+          </button>
+        ))}
+      </nav>
 
-      <Card title="控件层 · Field" note="react/ui/Field —— 标签、提示、错误、整行。">
-        <div className="room__fields">
-          <Field label="普通输入">
-            <input type="text" value={demoText} onChange={(event) => setDemoText(event.target.value)} />
-          </Field>
-          <Field label="带提示" hint="这里写一行说明。">
-            <input type="text" defaultValue="" />
-          </Field>
-          <Field label="出错" error="这个名字不合法。">
-            <input type="text" defaultValue="???" />
-          </Field>
-          <Field label="下拉">
-            <select defaultValue="b">
-              <option value="a">选项 A</option>
-              <option value="b">选项 B</option>
-            </select>
-          </Field>
-        </div>
-        <Field label="整行（wide）" wide hint="说明、备注这种长字段用它。">
-          <textarea rows={2} defaultValue="" />
-        </Field>
-      </Card>
-
-      <Card
-        title="控件层 · Sheet"
-        note="react/ui/Sheet —— 遮罩弹窗。点遮罩关不关由调用方决定（这里是两种都演一遍）。"
-      >
-        <div className="room__row">
-          <Button variant="primary" onClick={() => setSheet(true)}>
-            打开（点遮罩可关）
-          </Button>
-          <Button onClick={() => setBackdropSheet(true)}>打开（点遮罩不关）</Button>
-        </div>
-        {dismissed && <p className="room__card-note">上一次的关闭来源：{dismissed}</p>}
-      </Card>
-
-      <Card
-        title="通用组件 · SlotCard / VariantCard"
-        note="react/components —— 用一份假数据渲染（房间里不碰真实库）。"
-      >
-        <div className="room__stage">
-          <SlotCard slot={fakeSlot()} onOpen={() => setDismissed("")} />
-          <SlotCard
-            slot={fakeSlot({ active: "demo-variant", active_name: "演示版本", variants: [fakeVariant(), fakeVariant({ id: "v2" })] })}
-            onOpen={() => setDismissed("")}
-          />
-          <VariantCard
-            slot={fakeSlot()}
-            variant={null}
-            active={false}
-            selected={false}
-            onPick={() => setDismissed("")}
-            onDrop={() => setDismissed("")}
-            onMenu={() => setDismissed("")}
-          />
-          <VariantCard
-            slot={fakeSlot()}
-            variant={fakeVariant()}
-            active
-            selected
-            onPick={() => setDismissed("")}
-            onDrop={() => setDismissed("")}
-            onMenu={() => setDismissed("")}
-          />
-        </div>
-      </Card>
-
-      <Card
-        title="待迁移（还没控件化的）"
-        note="这些还是 Vue 组件，也没有独立的控件形态 —— 迁完一个就从这张表里划掉一个。新写的界面不许再往这一类里加东西。"
-      >
-        <ul className="room__todo">
-          <li>
-            <code>App.vue</code> 1049 行 · 外壳（含顶栏、页签、弹窗宿主）
-          </li>
-          <li>
-            <code>CustomView.vue</code> · 自制战役页（里面的导入对话框与地图面板已经是 React）
-          </li>
-          <li>
-            <code>ContextMenu.vue</code> · 右键菜单宿主（要换成统一化那份）
-          </li>
-        </ul>
-      </Card>
-
-      {sheet && (
-        <Sheet
-          title="演示：点遮罩可关"
-          onClose={() => {
-            setDismissed("点遮罩 / 取消");
-            setSheet(false);
-          }}
-          actions={
-            <>
-              <Button
-                onClick={() => {
-                  setDismissed("取消");
-                  setSheet(false);
-                }}
-              >
-                取消
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setDismissed("确定");
-                  setSheet(false);
-                }}
-              >
-                确定
-              </Button>
-            </>
-          }
-        >
-          <p className="sheet__text">普通弹窗：点遮罩、点取消都能关。</p>
-        </Sheet>
-      )}
-
-      {backdropSheet && (
-        <Sheet title="演示：点遮罩不关" dismissOnBackdrop={false} onClose={() => setDismissed("（点遮罩无效）")}>
-          <p className="sheet__text">
-            编辑表单这类弹窗用它 —— 用户点到外面不该把填了一半的东西丢掉。
-          </p>
-          <div className="room__row">
-            <Button
-              variant="primary"
-              onClick={() => {
-                setDismissed("自己关掉的");
-                setBackdropSheet(false);
-              }}
-            >
-              关掉
-            </Button>
-          </div>
-        </Sheet>
-      )}
+      {page === "user" ? <UserSidePage /> : <DevSidePage />}
     </div>
   );
 }

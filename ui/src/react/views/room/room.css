@@ -90,3 +90,74 @@
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 12px;
 }
+
+/* ---------- 分页页签 ---------- */
+
+.room__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  align-self: flex-start;
+}
+
+.room__tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px 16px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.room__tab:hover {
+  color: var(--on-surface);
+}
+
+.room__tab--on {
+  background: var(--surface-1);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-1);
+}
+
+.room__tab-sub {
+  font-size: 11px;
+  font-weight: 400;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--on-surface-variant);
+}
+
+/* ---------- 开发者工具侧：嵌进来的那一页 ---------- */
+
+.room__card--frame {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room__frame-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.room__frame {
+  height: 70vh;
+  min-height: 420px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--outline) 45%, transparent);
+  background: var(--surface-2);
+}
+
+.room__frame-inner {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
