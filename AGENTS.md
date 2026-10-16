@@ -82,48 +82,19 @@
 HSCL/                          # 仓库根（目录名待后续统一为 miyin-launcher）
 ├── AGENTS.md                  # 本文件
 ├── Cargo.toml                 # workspace 根
-├── crates/
-│   └── miyin-core/            # 领域核心：不含任何 GUI 依赖
-│       └── src/
-│           ├── error.rs       # 统一错误类型（错误信息直接面向用户，用中文）
-│           ├── safety.rs      # 路径白名单与规范化校验（所有写操作的闸门）
-│           ├── sc2/           # 安装发现（注册表 / 手动）+ .build.info 解析
-│           ├── campaign/      # 战役包领域（与游戏目录耦合的那部分）
-│           │   ├── metadata.rs    # CCM metadata.txt / 标准 metadata.json 解析
-│           │   ├── sanitize.rs    # 目录名安全化（防目录穿越）
-│           │   ├── package.rs     # 包预检：格式识别、zip-slip、体积上限、解压
-│           │   ├── contents.rs    # 任意打包形式的读取（zip / 7z / rar / tar）
-│           │   └── identify.rs    # 没有元数据时按证据链判定归属
-│           └── library/       # **战役库**：多版本共存与切换（见 §14）
-│               ├── mod.rs          # 索引模型、槽位、路径规则
-│               ├── compose.rs      # 分层合成：落点与补丁覆盖
-│               ├── install.rs      # 统一安装引擎（白名单 + 清单记账）
-│               ├── store.rs        # 导入 / 删除 / 编辑版本
-│               ├── mods.rs         # 模组的独立版本管理
-│               ├── activation.rs   # 启用 / 停用（按清单精确回滚）
-│               ├── export.rs       # 导出 CCM 兼容包
-│               ├── naming.rs       # 注册 ID 与版本号校验
-│               └── known.rs        # 已知复刻战役的落点与启动器地图
-├── src-tauri/                 # Tauri 2 桌面壳：只做状态持有与命令转发
-│   ├── src/lib.rs             # 全部 #[tauri::command] 都在这里（一律带 (async)，见 §16）
-│   ├── tauri.conf.json
-│   └── icons/                 # 由 scripts/prepare-icons.py 生成
-├── ui/                        # React 18 + TypeScript 前端（两个入口，见 §18）
-│   ├── public/                # 美术资产（见 §13，含 NOTICE.md）
+├── crates/miyin-core/         # 领域核心，不含任何 GUI 依赖
 │   └── src/
-│       ├── api/               # 类型定义 / 后端桥接（含浏览器演示模式）/ 美术映射 / 纯函数
-│       ├── react/
-│       │   ├── app/           # 外壳：AppShell / TopBar / Dialogs / ContextMenu / shell.css
-│       │   ├── state/         # 领域状态：useInstallation / useLibrary / useSaves / useUpdate / useTheme / …
-│       │   ├── ui/            # 控件层（Button / Field / Sheet …）—— 用户侧唯一的控件来源（见 §18.1）
-│       │   ├── views/         # 各页面：campaigns / custom / mods / settings / cheats / room
-│       │   └── lib/           # useCommand / clipboard / devMode / contextMenu …
-│       ├── ide/               # 开发者页（React + Ring UI，独立入口；含 #gallery 控件展台）
-│       │   ├── workbench/     # 工作台：Toolbar / FileTree / DocTabs / MetaPane / HistoryPanel …
-│       │   ├── gallery/       # #gallery 控件展台
-│       │   └── lib/
-│       └── styles/            # tokens.css（设计令牌）、base.css
-├── scripts/                   # prepare-assets.py / prepare-icons.py
+│       ├── error.rs  safety.rs  # 统一错误 / 路径白名单与写盘闸门（§10.5）
+│       ├── sc2/                 # 安装发现（注册表 / 手动）+ .build.info 解析
+│       ├── campaign/            # 包：metadata / sanitize / package / contents / identify（§14.5-14.8）
+│       ├── library/             # **战役库**：索引 / 合成 / 安装 / 激活 / 导出 / 命名 / 已知战役（§14）
+│       ├── update/              # 自动更新：version / mirror / net / check / apply（§15）
+│       └── saves.rs             # 存档备份与还原（§14.10）
+├── src-tauri/                 # Tauri 2 桌面壳：状态持有 + 命令转发
+│   ├── src/lib.rs             # 全部 #[tauri::command]，一律带 (async)（§16）
+│   └── tauri.conf.json + icons/   # icons 由 scripts/prepare-icons.py 生成
+├── ui/                        # React 18 前端，两个入口 —— 结构与边界见 docs/frontend.md
+├── scripts/                   # prepare-assets.py / prepare-icons.py / check-file-size.py
 ├── docs/                      # 设计文档、格式说明
 └── reference/                 # ⚠️ 只读参考仓库，已 gitignore，禁止提交
 ```
@@ -168,9 +139,6 @@ cargo run -p miyin-launcher
 python scripts/prepare-assets.py     # 原始素材 -> ui/public/
 python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 ```
-
-> 调试运行（debug）时 Tauri 会去连 `devUrl`（`http://localhost:5183`），
-> 因此需要先在另一个终端执行 `pnpm -C ui dev`；release 构建则使用打包进二进制的前端。
 
 ---
 
@@ -306,26 +274,15 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 | 许可证 | BSD 3-Clause |
 | Git 状态 | **已加入 `.gitignore`（`/reference/`），永远不会被提交** |
 
-**用途**：仅作为**产品行为与文件格式的参考**，重点参考其：
-
-- SC2 安装发现逻辑（注册表键、路径校验）
-- CCM 自制战役的识别与解压流程（`packages/app-main/src/modules/campaign/ccm-process.ts`）
-- 模块划分（`modules/{profile,campaign,customize,workshop,setting,common}`）
-- IPC 契约与类型定义（`packages/app-shared/src/types/`）
+**用途**：只看**产品行为与文件格式** —— 安装发现（注册表键与校验）、CCM 包识别与解压
+（`modules/campaign/ccm-process.ts`）、模块划分、IPC 契约与类型定义（`packages/app-shared/src/types/`）。
 
 **规矩**：
 
-1. 可以读、可以学，**不要**把它的代码直接粘进 Rust 工程（语言不同，照抄只会带来坏设计）。
-2. 移植其**算法与常量**时，在注释里写明来源文件与行号，便于人类复核。
-3. 若将来确实需要大量复用其**代码**，需评估 BSD-3-Clause 的署名义务并在 `NOTICE` 中声明。
-4. 保持只读：不要在 `reference/scnexus` 里改代码、提交、或安装依赖。
-
-**更新参考仓库**：
-
-```bash
-git -C reference/scnexus pull        # 走系统代理，见 §9
-git -C reference/scnexus log --oneline -20
-```
+1. 可以读、可以学，**不要**把它的代码粘进 Rust 工程（语言不同，照抄只会带来坏设计）。
+2. 移植其**算法与常量**时，注释里写 `文件:行号`。
+3. 大量复用其**代码**前，先评估 BSD-3-Clause 的署名义务并在 `NOTICE` 里声明。
+4. 保持只读。更新：`git -C reference/scnexus pull`（走系统代理，见 §9）。
 
 ---
 
@@ -359,28 +316,12 @@ git -C reference/scnexus log --oneline -20
 
 ### 10.2 安装目录结构
 
-```text
-StarCraft II/
-├── .build.info               # 构建元数据（管道分隔表，含 Version=5.0.16.97579、Branch=cn、CDN 地址）
-├── .product.db / Launcher.db # 暴雪启动器数据库（二进制，勿改）
-├── StarCraft II.exe          # 根启动器
-├── StarCraft II Editor.exe   # 编辑器（32 位）
-├── StarCraft II Editor_x64.exe
-├── Support/                  # 32 位运行时
-├── Support64/
-│   └── SC2Switcher_x64.exe   # 版本切换器（启动器常用入口）
-│   └── SC2Editor_x64.exe
-├── Interfaces/               # 界面 Mod：Pro_2020 / Split_1v1 / Streamlined / WCS_3.0 等 .SC2Interface
-├── SC2Data/                  # 游戏资源：config / data / ecache / indices / s2c
-├── Versions/
-│   └── Base<build>/          # 每个构建号一个目录，如 Base97579
-│       ├── SC2.exe
-│       └── SC2_x64.exe       # 真正的游戏客户端
-├── Maps/                     # ⚠️ 首次使用自制内容时才创建
-│   ├── Campaign/             # 官方战役地图
-│   └── CustomCampaigns/      # CCM 自制战役根目录
-└── Mods/                     # ⚠️ 同上，按需创建
-```
+- `.build.info` 构建元数据（含 `Version=` / `Branch=` / CDN 地址）；`.product.db` / `Launcher.db` 是暴雪启动器的二进制库，**勿改**
+- `StarCraft II.exe`（根启动器）· `StarCraft II Editor[_x64].exe` · `Support64/SC2Switcher_x64.exe`（版本切换器）
+- `Interfaces/` 界面 Mod（`*.SC2Interface`）· `SC2Data/` 游戏资源（config / data / ecache / indices / s2c）
+- `Versions/Base<build>/SC2_x64.exe` —— **真正的游戏客户端**（目录名里的数字即构建号）
+- `Maps/Campaign/`（官方战役）· `Maps/CustomCampaigns/`（CCM 自制）· `Mods/`
+- ⚠️ `Maps` 与 `Mods` **首次使用自制内容时才创建**，不能假设其存在
 
 ### 10.3 关键结论
 
@@ -741,13 +682,12 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 
 终端的内容来自后端的 `Reporter`（见 `miyin-core/src/update/mod.rs`）：
 命令把它接到 Tauri 事件 `update://log` / `update://progress` 上，
-前端在 `useLauncher` 里统一订阅并缓存，顶栏与设置页共用同一份状态。
+前端在 `ui/src/react/state/useUpdate.ts` 里统一订阅并缓存，顶栏与设置页共用同一份状态。
 
 两条容易踩的坑：
 
-1. 对话框的 `.sheet` 系列样式**放在 `ui/src/styles/base.css`（全局）**，
-   不要写进某个组件的 `<style scoped>` —— 否则别的组件用同名类时会完全没有样式
-   （弹窗退化成堆在页面末尾的普通方块），踩过一次。
+1. 对话框的 `.sheet` 系列样式**放全局**（`ui/src/styles/base.css`），不要写在某个组件自己的样式里 ——
+   否则别的组件用同名类时完全没有样式（弹窗退化成堆在页面末尾的普通方块），踩过一次。
 2. `bindUpdateEvents()` **不要加 `isDesktop` 判断** —— 浏览器演示模式的桥接
    同样提供这两个订阅，加了判断演示模式就永远收不到日志。
 3. **Release 正文的 Markdown 必须先净化再插进 DOM**（`ui/src/api/markdown.ts`：
@@ -769,9 +709,8 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 
 ## 16. 命令层：一律 `#[tauri::command(async)]`
 
-**这是踩过的一个大坑**：Tauri 2 里**同步命令跑在主线程**上。
-启动器的命令动不动就是几秒到几分钟 —— 读整个压缩包、拷贝几个 GB 的战役、等用户选文件 ——
-同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
+**踩过的坑**：Tauri 2 里**同步命令跑在主线程**上。启动器的命令动辄几秒到几分钟 —— 读整个压缩包、
+拷贝几个 GB、等用户选文件 —— 同步写法会把主线程占死，窗口收不到消息泵，用户看到的就是**「未响应」**。
 
 所以 `src-tauri/src/lib.rs` 里的命令**全部**写成：
 
@@ -780,16 +719,10 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 fn import_package(...) -> Result<...> { ... }
 ```
 
-`(async)` 让 Tauri 把同步函数体丢到线程池执行，不用改写函数体 —— 一个词的事。
-（Tauri 文档原话：*Commands without the async keyword are executed on the main thread
-unless defined with `#[tauri::command(async)]`*。）
-
-特别长的活（下载更新、检查更新）再加一层 `async fn` +
-`tauri::async_runtime::spawn_blocking`，免得占着异步 worker 几十秒。
+`(async)` 让 Tauri 把同步函数体丢到线程池 —— 一个词的事，不用改写函数体。
+特别长的活（下载、查更新）再加一层 `async fn` + `tauri::async_runtime::spawn_blocking`。
 
 **自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。
-
-
 
 ---
 
@@ -822,7 +755,7 @@ unless defined with `#[tauri::command(async)]`*。）
 > - **不再写 Vue。** 任何新界面都是 React。
 > - **两个入口都是 React**（见下方路径）；迁移期的"整块替换 / 不混写两套框架"那套规矩已成历史。
 > - 控件来源：用户侧用自建控件层 `ui/src/react/ui/`（见 §18.1），开发者页用 Ring UI。
-> - 迁移的全过程与最终结构见 [`docs/frontend-migration.md`](docs/frontend-migration.md)。
+> - 前端全部说明（结构 / 边界 / 构建坑 / 调试开关 / 历史）见 [`docs/frontend.md`](docs/frontend.md)。
 
 **两个入口仍然分开**（原因不再是框架不同，而是**包体积**：Ring UI 不能进用户侧的包）。
 
@@ -857,11 +790,10 @@ React 固定在 **18**（ring-ui 的 peer 是 16/17/18；19 删了 `findDOMNode`
 pnpm -C ui build     # = 清空 dist -> 用户侧（vite.config.ts）-> 开发者页（vite.ide.config.ts）
 ```
 
-- **两个入口必须分开构建**。放同一次构建里，rolldown 会把两边的公共块塞进
-  `index.html` 预加载 —— 用户侧执行到 `createRoot(#ide)` 直接白屏（踩过）。
-- 两次构建都设了 `emptyOutDir: false`，**清空统一在 build 脚本开头做一次**。
-  否则单独跑一次 `vite build` 就会把 `dist/ide.html` 抹掉，
-  表现是「点开发者页闪一下、进不去」—— 因为文件根本不在包里（也踩过）。
+- **两个入口必须分开构建**（放一起，rolldown 会把公共块塞进 `index.html` 预加载 → 用户侧白屏）。
+- 两次构建都是 `emptyOutDir: false`，**清空只在 build 脚本开头做一次**（否则单跑一次 `vite build` 会把 `ide.html` 抹掉）。
+
+> 这两条与 tsconfig 的 `jsx`、`<style scoped>` 搬过来变全局 —— 现场记录都在 [`docs/frontend.md`](docs/frontend.md)。
 
 **别在开发者页用 Tauri 的 `onCloseRequested`**：那是**按窗口**注册的，不是按页面 ——
 打开过一次开发者页，之后回到启动器点 X 也关不掉窗（Tauri 从此不再自己关，交给已经没了的
@@ -874,10 +806,6 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
 
 自排容器时注意两点：`.ring-tabs-titles` 默认有 16px 的 `margin-bottom`，要归零；
 `Tabs` 会额外渲染一个装选中面板的空 `div`（不传 children 就是空盒子，无害）。
-
-> 原先这里写着"它的 Tabs 不要用：那是切换面板的组件，在自定义容器里排不出多个标签" ——
-> 那句是**错的**，来自一次没做成的尝试。实测：6 个标签溢出折叠、点选切换、每个标签带关闭 ✕
-> 全部正常（截图 `dist/preview/ide-doctabs*.png`）。
 
 ---
 
@@ -895,9 +823,8 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
   证明不了它长得好不好看、挪到别处是不是还成立。把它摆在一个专门的地方看，
   比在生产页面里逐个试便宜得多。
 
-> 现在的房间在**用户侧入口**里（`ui/src/react/views/room/`），因为控件层与它的样式
-> 都在用户侧；开发者页（`ide.html`）那边用的是 Ring UI，是另一套视觉语言。
-> 两边都要放控件时，房间再拆成两个。
+> 房间在**用户侧入口**里（`ui/src/react/views/room/`），已按两套视觉语言**分成两页**：
+> 第一页用户侧控件（`react/ui/`），第二页开发者工具侧（`iframe` 嵌 `ide.html#gallery`）。
 
 ### 18.2 右键菜单统一化，原生菜单一律不露
 
