@@ -1,0 +1,75 @@
+/* 由 scripts/scope-vue-styles.mjs 从 src/views/CustomView.vue 抽出，请勿手改 */
+.custom-page .page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+.custom-page .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 18px;
+}
+.custom-page .hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 24px 28px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+.custom-page .hero__body {
+  max-width: 620px;
+}
+.custom-page .hero__eyebrow {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.custom-page .hero__title {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+}
+.custom-page .hero__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.custom-page .hero__actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.custom-page .empty {
+  padding: 22px 24px;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+.custom-page .empty__title {
+  margin: 0 0 5px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.custom-page .empty__text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.custom-page code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}

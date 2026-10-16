@@ -1,0 +1,478 @@
+/* 设置页的三份样式合并而成（SettingsView / ToolsPanel / UpdatePanel）。
+   在 Vue 里它们各自 scoped 互不干扰；搬到 React 后 CSS 是全局的，所以合成一份：
+   **同名选择器保留第一份定义**（SettingsView 的版式），at-rule 整块保留。 */
+
+.isolation {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.isolation__switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.isolation__switch input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+.pitem--save {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.savepick {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-size: 12px;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.panel {
+  padding: 20px 24px 22px;
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.panel__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 128px 1fr;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 35%, transparent);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row dt {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.row dd {
+  margin: 0;
+  font-size: 12.5px;
+  word-break: break-all;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.path {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  word-break: break-all;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  color: var(--on-surface);
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--on-surface-variant);
+}
+
+.notes strong {
+  color: var(--on-surface);
+}
+
+.hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+
+.about {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.about__art {
+  flex: 0 0 auto;
+  width: 148px;
+  align-self: stretch;
+  min-height: 148px;
+  object-fit: cover;
+  object-position: center 34%;
+  border-radius: var(--radius-md);
+}
+
+.about__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.version {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 0;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 40%, transparent);
+}
+
+.tool:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.tool__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tool__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool__name {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.tool__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.tool__about {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.tool__failed {
+  margin: 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft, color-mix(in srgb, #b26a00 14%, transparent));
+  color: var(--warning, #b26a00);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.tool__path {
+  margin: 0;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag--ok {
+  background: color-mix(in srgb, #00897b 18%, transparent);
+  color: #00796b;
+}
+
+.versions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.versions__empty {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.version__label {
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.btn--tiny {
+  padding: 3px 10px;
+  font-size: 11.5px;
+}
+
+.btn--danger {
+  color: var(--danger, #c62828);
+}
+
+.notes__empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.panel__version {
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.panel__sub {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.panel__note,
+.panel__ok,
+.panel__warn {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.panel__ok {
+  color: var(--success, #2e7d32);
+}
+
+.panel__warn {
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.row__hint {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.release {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.release__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.release__version {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.release__date {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.release__notes {
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--on-surface);
+}
+
+.release__notes--folded {
+  max-height: 120px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 60%, transparent);
+}
+
+/* ---------- 进度条 ---------- */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.progress__track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+/* 总长度未知时来回扫，表示"在动但不知道还有多久" */
+.progress__fill--unknown {
+  width: 35%;
+  animation: progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
+}
+
+.progress__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.progress__percent {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---------- 内嵌终端 ---------- */
+
+.console {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--outline) 65%, transparent);
+}
+
+.console__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 11px;
+  background: var(--surface-3);
+}
+
+.console__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.console__hint {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.console__body {
+  height: 168px;
+  overflow-y: auto;
+  padding: 8px 11px;
+  background: #10141c;
+}
+
+.console__empty {
+  margin: 0;
+  font-size: 11.5px;
+  color: #7c8798;
+}
+
+.console__line {
+  margin: 0 0 2px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: #c8d2e0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.divider {
+  margin: 6px 0 2px;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 45%, transparent);
+}
+
+.field {
+  display: block;
+}
+
+.field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+
+.field__input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--outline);
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--on-surface);
+}
+
+.tag--warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}

@@ -14,6 +14,8 @@ import type {
   NetworkSettings,
   DocInfo,
   EditorLaunch,
+  GameLaunch,
+  UpdateResult,
   GameModEntry,
   LibraryMod,
   ModComparison,
@@ -56,7 +58,6 @@ const desktop: LauncherApi = {
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
-  sc2Running: () => invoke<string | null>("sc2_running"),
   saveIsolation: () => invoke<SaveIsolation>("save_isolation"),
   setSaveIsolation: (enabled) => invoke<SaveIsolation>("set_save_isolation", { enabled }),
   saveCurrentSaves: () => invoke<SaveIsolation>("save_current_saves"),
@@ -117,6 +118,11 @@ const desktop: LauncherApi = {
     invoke<MainMapChoice>("main_map_choice", { slot, variantId }),
   openMapInEditor: (slot, variantId, map) =>
     invoke<EditorLaunch>("open_map_in_editor", { slot, variantId, map }),
+  launchGameWithMap: (slot, variantId, map) =>
+    invoke<GameLaunch>("launch_game_with_map", { slot, variantId, map }),
+  resolveSiteUrl: (https, http) => invoke<string>("resolve_site_url", { https, http }),
+  updateVariantFromPackage: (slot, variantId, path) =>
+    invoke<UpdateResult>("update_variant_from_package", { slot, variantId, path }),
   variantDoc: (slot, variantId) => invoke<DocInfo | null>("variant_doc", { slot, variantId }),
   listLibraryMods: () => invoke<LibraryMod[]>("list_library_mods"),
   listGameMods: () => invoke<GameModEntry[]>("list_game_mods"),
@@ -511,7 +517,6 @@ const demo: LauncherApi = {
       issues: [],
     } satisfies PackageInspection),
 
-  sc2Running: async () => null,
   saveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
   setSaveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
   saveCurrentSaves: async () => ({ enabled: false, active: null, assignments: {} }),
@@ -719,6 +724,33 @@ const demo: LauncherApi = {
   setMountedMods: (_slot, _variantId, _mods) => delay({} as never),
   setMainMap: (_slot, _variantId, _map) => delay({} as never),
   mainMapChoice: () => delay({ path: "1. Rebel Yell/Terran01.SC2Map", automatic: false, warning: null }),
+  resolveSiteUrl: async (https, _http) => https,
+  updateVariantFromPackage: (slot, variantId, path) =>
+    delay(
+      (() => {
+        counter += 1;
+        const created = variant(
+          "更新后的战役包 v" + counter,
+          "更新后的战役包",
+          "未知作者",
+          "2." + counter,
+          counter,
+          512_000_000,
+        );
+        const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
+        // 演示里"更新"= 换掉指定的那一版（没指定就换当前那一版）
+        const at = variantId ? target.variants.findIndex((item) => item.id === variantId) : 0;
+        if (at >= 0) target.variants[at] = created;
+        else target.variants.unshift(created);
+        void path;
+        // 演示里假装新包带了两个新模组，好让"要不要一起启用"那块也看得见
+        return { variant: created, addedMods: ["SCMR_Alarak.SC2Mod", "SCMR_Tychus.SC2Mod"] };
+      })(),
+    ),
+  launchGameWithMap: async (_slot, _variantId, map) => ({
+    map,
+    guidance: "（演示模式）已经交给星际争霸，正在加载这张地图。",
+  }),
   openMapInEditor: (_slot, _variantId, map) =>
     delay({
       editor: "D:\\Game\\BLZ\\StarCraft II\\Support64\\SC2Editor_x64.exe",

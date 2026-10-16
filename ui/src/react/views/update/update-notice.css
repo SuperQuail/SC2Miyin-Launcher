@@ -1,0 +1,194 @@
+/* 从 UpdateNotice.vue 的 <style scoped> 原样搬过来（React 没有 scoped）。 */
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 94vw);
+  /* 公告可能很长，整个卡片别超出屏幕 */
+  max-height: min(80vh, 720px);
+  padding: 20px 22px 16px;
+}
+
+.notice__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex: none;
+}
+
+.notice__title {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.notice__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.notice__body {
+  flex: 1 1 auto;
+  min-height: 90px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  overflow-y: auto;
+}
+
+.notice__empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.notice__mute {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+/* ---------- 渲染出来的 Markdown ---------- */
+
+.markdown {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--on-surface);
+  word-wrap: break-word;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 14px 0 6px;
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child {
+  margin-top: 0;
+}
+
+.markdown p {
+  margin: 0 0 9px;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0 0 9px;
+  padding-left: 20px;
+}
+
+.markdown li {
+  margin-bottom: 3px;
+}
+
+.markdown li > p {
+  margin-bottom: 3px;
+}
+
+.markdown a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  cursor: pointer;
+}
+
+.markdown a:hover {
+  border-bottom-color: var(--accent);
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.markdown pre {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: #10141c;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+  color: #c8d2e0;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.markdown blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--on-surface-variant);
+}
+
+.markdown hr {
+  margin: 14px 0;
+  border: none;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+}
+
+.markdown table {
+  width: 100%;
+  margin: 0 0 10px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.markdown th,
+.markdown td {
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--surface-3);
+  font-weight: 700;
+}
+
+.markdown img {
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+}
+
+.markdown del {
+  color: var(--on-surface-variant);
+}
+
+.markdown details {
+  margin-bottom: 9px;
+}
+
+.markdown summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tag--warn {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 600;
+}

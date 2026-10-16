@@ -1,0 +1,288 @@
+/* 由 scripts/scope-vue-styles.mjs 从 src/views/SlotMenuView.vue 抽出，请勿手改 */
+.campaigns-menu .menu {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  padding-bottom: 4px;
+}
+.campaigns-menu .back {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.campaigns-menu .back:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.campaigns-menu .banner {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 168px;
+  padding: 22px 26px;
+  border-radius: var(--radius-lg);
+  background-color: #101a2e;
+  background-size: cover;
+  background-position: center 32%;
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.campaigns-menu .banner__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    rgba(8, 14, 28, 0.92) 8%,
+    rgba(8, 14, 28, 0.55) 52%,
+    rgba(8, 14, 28, 0.2) 100%
+  );
+}
+.campaigns-menu .banner__body {
+  position: relative;
+  z-index: 1;
+}
+.campaigns-menu .banner__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.4px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+.campaigns-menu .banner__sub {
+  margin: 5px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
+}
+.campaigns-menu .banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.campaigns-menu .banner__btn.btn-text {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+}
+.campaigns-menu .banner__btn.btn-text:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.campaigns-menu .banner__play {
+  position: relative;
+  z-index: 1;
+}
+.campaigns-menu .section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.campaigns-menu .section-head__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
+}
+.campaigns-menu .section-head__count {
+  padding: 1px 9px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 12.5px;
+}
+.campaigns-menu .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(252px, 1fr));
+  gap: 16px;
+}
+.campaigns-menu .hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+.campaigns-menu .section-head__hint {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
+}
+.campaigns-menu .patches {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+}
+.campaigns-menu .patches__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.campaigns-menu .patches__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.campaigns-menu .patches__count {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  font-size: 12px;
+}
+.campaigns-menu .patches__actions {
+  display: flex;
+  gap: 6px;
+}
+.campaigns-menu .patches__hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .plist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.campaigns-menu .pitem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+}
+.campaigns-menu .pitem--off {
+  opacity: 0.55;
+}
+.campaigns-menu .pitem__toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.campaigns-menu .pitem__name {
+  font-weight: 700;
+}
+.campaigns-menu .pitem__author {
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .pitem__spacer {
+  flex: 1;
+}
+.campaigns-menu .pitem__priority {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .pitem__input {
+  width: 68px;
+  padding: 3px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--outline);
+  background: var(--surface-1);
+  font-size: 12.5px;
+}
+.campaigns-menu .pavail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--outline) 65%, transparent);
+}
+.campaigns-menu .field {
+  display: block;
+  margin-bottom: 10px;
+}
+.campaigns-menu .field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .tag {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  font-weight: 600;
+}
+.campaigns-menu .actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--outline) 45%, transparent);
+  box-shadow: var(--shadow-2);
+}
+.campaigns-menu .actions__label {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .actions__label strong {
+  color: var(--on-surface);
+}
+.campaigns-menu .actions__spacer {
+  flex: 1;
+}
+.campaigns-menu .field__hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+.campaigns-menu .reqmods {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+}
+.campaigns-menu .reqmod {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.campaigns-menu .reqmod__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.campaigns-menu .reqmod__name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.campaigns-menu .reqmod__parts {
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}

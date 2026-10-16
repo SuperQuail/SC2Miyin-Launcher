@@ -23,6 +23,38 @@ pub fn import(
     slot_slug: &str,
     mode: ImportMode,
 ) -> Result<Variant> {
+    import_with(library, package, slot_slug, mode, None)
+}
+
+/// 用压缩包**替换指定的那一版** —— "更新"走这条路。
+///
+/// 和 [`import`] 只差一点：目标由调用方点明，**不看包里的名字对不对得上**。
+/// 玩家手里的更新包经常被改过标题（"XX 1.2 汉化版"），按名字/id 找根本找不到，
+/// 那样"更新"就变成了"再装一份"。
+///
+/// 沿用被替换那一版的目录名，所以挂在它身上的补丁绑定不受影响。
+pub fn replace_from_package(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    target_id: &str,
+) -> Result<Variant> {
+    import_with(
+        library,
+        package,
+        slot_slug,
+        ImportMode::Overwrite,
+        Some(target_id),
+    )
+}
+
+fn import_with(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+    force_target: Option<&str>,
+) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
     let inspection = package::inspect(package)?;
@@ -54,11 +86,14 @@ pub fn import(
     let mut index = library.index();
     let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();
 
-    // 覆盖更新时沿用已有版本的目录名 —— 这样挂在它身上的补丁绑定不受影响
-    let overwrite_target = if mode == ImportMode::Overwrite {
-        find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned()
-    } else {
-        None
+    // 覆盖更新时沿用已有版本的目录名 —— 这样挂在它身上的补丁绑定不受影响。
+    // 指定了目标就听调用方的（"更新"用），否则按包里的身份去找。
+    let overwrite_target = match force_target {
+        Some(id) => existing.variants.iter().find(|item| item.id == id).cloned(),
+        None if mode == ImportMode::Overwrite => {
+            find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned()
+        }
+        None => None,
     };
 
     let id = match &overwrite_target {
@@ -148,8 +183,11 @@ pub fn import(
         mod_count: inspection.mod_count,
         size_bytes: stats.bytes,
         main_map: inspection.main_map.clone(),
-        // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
-        mounted_mods: None,
+        // **替换时保住用户勾过的那份清单** —— 更新完不该让他重新挑一遍模组。
+        // 没有可继承的（全新导入）才是 None：不写清单 = 还没配过 = 全挂。
+        mounted_mods: overwrite_target
+            .as_ref()
+            .and_then(|old| old.mounted_mods.clone()),
         declared_mods: inspection.declared_mods.clone(),
         doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,
@@ -212,6 +250,140 @@ pub fn remove_variant(
     library.save_index(&index)?;
 
     Ok(())
+}
+
+/// 按**包自己的身份**在库里找它该替换的那一版（主页面「更新战役包…」用）。
+///
+/// 认不出来返回 None —— 那就是库里还没有这一版，装成新的。
+pub fn find_target_for_package(
+    library: &Library,
+    slot_slug: &str,
+    package: &Path,
+) -> Result<Option<Variant>> {
+    require_slot(slot_slug)?;
+    let inspection = package::inspect(package)?;
+    let display_name = inspection
+        .name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| {
+            package
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    let index = library.index();
+    let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();
+    Ok(find_existing(&existing.variants, inspection.id.as_deref(), &display_name).cloned())
+}
+
+/// 换版本的结果。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Replaced {
+    pub variant: Variant,
+    /// 新包里**多出来**的模组（挂载键）。已经按默认挂上了，界面拿它问一句要不要留。
+    pub added_mods: Vec<String>,
+}
+
+/// 换掉一个版本：**删旧的、装新的**，再把该跟着走的东西带过去。
+///
+/// 这就是「更新」的本质 —— 我们没有 diff，原地改文件做不到，
+/// 能做的只有「旧的清掉、新的装进来」，同时保证**别的记录不断**。
+///
+/// 要**带过去**的三样（都记在版本自己身上，删了版本就没了）：
+///
+/// - 是不是**正启用着** —— 带完再应用回去
+/// - **模组挂载清单** —— 用户精挑过的那份
+/// - **主地图** —— 用户手选的，包里不一定有
+///
+/// **不用带的**：存档档案与补丁绑定都是**按槽位**挂的
+/// （`saves::assign`、`LibraryIndex.bindings`），换版本天然跟着走；
+/// 激活清单由 `remove_variant` 开头那次 `activate(slot, None)` 清干净。
+///
+/// 失败最多停在「旧的已删、新的没装」—— 所以调用方是**更新**这种用户主动的动作，
+/// 不是后台悄悄跑的活。
+pub fn replace_variant(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    old_id: &str,
+    package: &Path,
+) -> Result<Replaced> {
+    require_slot(slot_slug)?;
+
+    let index = library.index();
+    let slot = index.slots.get(slot_slug).cloned().unwrap_or_default();
+    let old = slot
+        .variants
+        .iter()
+        .find(|item| item.id == old_id)
+        .cloned()
+        .ok_or_else(|| Error::CampaignNotFound(old_id.to_string()))?;
+
+    let was_active = slot.active.as_deref() == Some(old_id);
+    let keep_mods = old.mounted_mods.clone();
+    let keep_main = old.main_map.clone();
+
+    // 旧的先走：会先切回原版（把游戏目录擦干净）、删目录、摘索引
+    remove_variant(library, installation, slot_slug, old_id)?;
+
+    // 新的进来 —— 用 Rename，id 由内容重新生成
+    let mut variant = import(library, package, slot_slug, ImportMode::Rename)?;
+
+    // 挂载清单**只是一份记录**：谁在名单里、谁就能铺；名单里有但包里没有的，铺的时候自然被忽略
+    // （落盘只按包里的载荷走）。所以名单可以放心地"老 ∪ 新"。
+    let old_keys = match &keep_mods {
+        Some(list) => list.clone(),
+        // 老记录没配过 = 全挂：那就拿旧包实际带的那些当"老名单"
+        None => super::effective_mounted_mods(&old),
+    };
+    let new_keys = super::effective_mounted_mods(&variant);
+    let added_mods: Vec<String> = new_keys
+        .iter()
+        .filter(|key| !old_keys.contains(key))
+        .cloned()
+        .collect();
+    let mut merged = old_keys.clone();
+    for key in &added_mods {
+        if !merged.contains(key) {
+            merged.push(key.clone());
+        }
+    }
+
+    // 把记下的那几样贴回新版本身上（新包自己声明了的就不覆盖）
+    let mut index = library.index();
+    let mut updated = None;
+    if let Some(entry) = index
+        .slots
+        .get_mut(slot_slug)
+        .and_then(|item| item.variants.iter_mut().find(|item| item.id == variant.id))
+    {
+        entry.mounted_mods = Some(merged.clone());
+        if entry.main_map.is_none() {
+            entry.main_map = keep_main;
+        }
+        updated = Some(entry.clone());
+    }
+    if let Some(entry) = updated {
+        variant = entry;
+        library.save_index(&index)?;
+    }
+
+    // **跟着这一版来的模组记录要跟着改指**：它们只存元数据，内容就在版本目录里，
+    // 记录不跟着改就会指向一个已经没了的目录（列表里还在，铺下去却没东西）。
+    super::mods::repoint_campaign(library.root(), slot_slug, old_id, &variant.id)?;
+
+    // 原来是应用着的，装完再应用回去
+    if was_active {
+        super::activate(library, installation, slot_slug, Some(&variant.id))?;
+    }
+
+    variant.mounted_mods = Some(merged);
+    Ok(Replaced {
+        variant,
+        added_mods,
+    })
 }
 
 /// 允许用户修改的元数据字段；`None` 表示这一项不动。

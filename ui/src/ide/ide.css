@@ -1,4 +1,6 @@
-/* 开发者页的样式。只吃 tokens.css 的令牌，和用户侧那套卡片风格互不干扰。 */
+/* 开发者页的样式。
+   控件一律用 Ring UI（@jetbrains/ring-ui-built）—— 这里只留布局，
+   不再手搓按钮 / 输入框 / 下拉框的外观。 */
 
 html,
 body,
@@ -19,65 +21,15 @@ body {
   --line: var(--outline);
 }
 
-/* ---------- 工具栏：图标优先，主按钮在最右 ---------- */
+/* ---------- 工具栏 ---------- */
 .tb {
   display: flex;
   align-items: center;
   gap: 2px;
   height: 36px;
-  padding: 0 8px;
+  padding-left: 8px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-}
-.tbtn {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--on-surface-variant);
-  cursor: pointer;
-}
-.tbtn:hover {
-  background: var(--surface-3);
-  color: var(--on-surface);
-}
-.i {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.35;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.tpick {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 9px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--on-surface);
-  font-size: 13px;
-  cursor: pointer;
-}
-.tpick:hover {
-  background: var(--surface-3);
-}
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.caret {
-  font-size: 9px;
-  color: var(--on-surface-variant);
 }
 .tsep {
   width: 1px;
@@ -85,43 +37,48 @@ body {
   margin: 0 5px;
   background: var(--line);
 }
-.tact {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--on-surface);
-  font-size: 13px;
-  cursor: pointer;
-}
-.tact:hover {
-  background: var(--surface-3);
-}
-.tact--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-.tact--primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
 .tspacer {
   flex: 1;
 }
 .tsearch {
   width: 180px;
-  height: 24px;
-  padding: 0 9px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--on-surface);
+}
+.tsearch--pkg {
+  width: 150px;
+}
+.pkgnamectl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+/* ---------- 窗口按钮（这一页没有系统边框，得自己画） ---------- */
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.winctl__btn {
+  width: 44px;
+  height: 36px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+/* 关闭按钮悬停变红 —— 桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
 }
 
 /* ---------- 主体 ---------- */
@@ -139,24 +96,6 @@ body {
   padding: 5px 0;
   background: var(--rail);
   border-right: 1px solid var(--line);
-}
-.rspacer {
-  flex: 1;
-}
-.rbtn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--on-surface-variant);
-  cursor: pointer;
-}
-.rbtn--on {
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 .main {
   flex: 1;
@@ -177,13 +116,13 @@ body {
   background: var(--surface-1);
   border-right: 1px solid var(--line);
 }
-.pane--commit {
+.pane--tree {
   flex: none;
-  width: 300px;
+  width: 360px;
 }
-.pane--diff {
+.pane--meta {
   flex: none;
-  width: 300px;
+  width: 296px;
   border-right: none;
 }
 .pane--editor {
@@ -195,8 +134,9 @@ body {
   border-top: 1px solid var(--line);
   border-right: none;
 }
-.pbar,
-.tabs {
+
+/* ---------- 面板头 / 内容 / 状态栏 ---------- */
+.pbar {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -227,265 +167,63 @@ body {
 .pbody--flat {
   padding: 0;
 }
-.pfoot {
+.status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
+  gap: 16px;
+  height: 26px;
+  padding: 0 12px;
   border-top: 1px solid var(--line);
   background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
 }
-.pspacer {
+.sspacer {
   flex: 1;
 }
-.btn2 {
-  height: 26px;
-  padding: 0 12px;
-  border: 1px solid var(--outline-strong);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--on-surface);
-  font-size: 13px;
-  cursor: pointer;
-}
-.btn2:hover {
-  background: var(--surface-3);
-}
-.split {
-  display: inline-flex;
-  height: 26px;
-}
-.split__main,
-.split__more {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-.split__main {
-  padding: 0 12px;
-  border-radius: 4px 0 0 4px;
-}
-.split__more {
-  width: 20px;
-  border-left-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
-  border-radius: 0 4px 4px 0;
-  font-size: 9px;
-}
-.split__main:hover,
-.split__more:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* ---------- 提交窗 ---------- */
-.group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 2px;
-  padding: 3px 4px;
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.group input {
-  accent-color: var(--accent);
-  width: 13px;
-  height: 13px;
-}
-.meta {
-  margin-left: auto;
-  font-weight: 400;
-  font-size: 11px;
-  color: var(--on-surface-variant);
-}
-.group--muted {
-  color: var(--on-surface-variant);
-  font-weight: 400;
-}
-.flist {
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
-}
-.frow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 4px 0 18px;
-  font-size: 12.5px;
-}
-.frow:hover {
-  background: var(--accent-softer);
-}
-.frow.is-open {
-  background: var(--accent-soft);
-}
-.frow input {
-  accent-color: var(--accent);
-  width: 13px;
-  height: 13px;
-}
-.badge {
-  display: inline-grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  color: #fff;
-  font-size: 9.5px;
-  font-weight: 700;
-  flex: none;
-}
-.badge--mod {
-  background: #4b7bec;
-}
-.badge--add {
-  background: #2f9e44;
-}
-.badge--del {
-  background: #8a94a6;
-}
-.fname {
-  font-weight: 600;
-  white-space: nowrap;
-}
-.fdir {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--on-surface-variant);
-  font-size: 11.5px;
-}
-.fsize {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--on-surface-variant);
-}
-.msg {
-  border-top: 1px solid var(--line);
-  padding-top: 6px;
-}
-.amend {
+.progress {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 6px;
-  font-size: 12px;
 }
-.amend label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 600;
-}
-.amend input {
-  accent-color: var(--accent);
-}
-.amend span {
-  font-size: 11px;
-  color: var(--on-surface-variant);
-}
-.msg textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid var(--outline-strong);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--on-surface);
-  font-family: inherit;
-  font-size: 12.5px;
-  resize: none;
-}
-.hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 6px 0 0;
-}
-.chips {
-  display: flex;
-  gap: 3px;
-}
-.chip {
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--on-surface-variant);
-  font-size: 11px;
-  cursor: pointer;
-}
-.auto {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--on-surface-variant);
+.pxbar {
+  width: 140px;
 }
 
-/* ---------- 标签页 ---------- */
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 29px;
-  padding: 0 9px;
-  border: none;
-  border-right: 1px solid var(--line);
-  border-top: 2px solid transparent;
-  background: transparent;
-  color: var(--on-surface-variant);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.tab--on {
-  background: var(--surface-1);
-  color: var(--on-surface);
-  border-top-color: var(--accent);
-}
-.tabsbar {
-  display: flex;
-  align-items: stretch;
-  height: 30px;
+/* ---------- 文档标签页（Ring UI Tabs，见 parts/DocTabs.tsx） ---------- */
+.doctabs {
+  padding-left: 4px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  padding-left: 4px;
 }
-.doc {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 10px;
-  border: none;
-  border-right: 1px solid var(--line);
-  border-top: 2px solid transparent;
-  background: transparent;
-  color: var(--on-surface-variant);
+/* Ring UI 的标签条默认给下面的面板留了 16px 边距；这里只有标签，不留 */
+.doctabs .ring-tabs-titles {
+  margin-bottom: 0;
+  box-shadow: none;
+}
+.doctabs .ring-tabs-title {
+  line-height: 30px;
   font-size: 12.5px;
-  cursor: pointer;
 }
-.doc:hover {
-  background: var(--surface-3);
+.doctab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
-.doc--on {
-  background: var(--surface-1);
-  color: var(--on-surface);
-  border-top-color: var(--accent);
-}
-.docx {
-  margin-left: 2px;
-  font-size: 13px;
-  opacity: 0.55;
-}
-.tabx {
-  font-size: 13px;
-  opacity: 0.6;
+.doctab__close {
+  height: 18px;
 }
 
 /* ---------- 文本 / 二进制 / 图片 ---------- */
+.i {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .code {
   padding: 8px 0;
   font-family: ui-monospace, Consolas, monospace;
@@ -505,6 +243,12 @@ body {
 }
 .ctext {
   white-space: pre;
+}
+.empty {
+  margin: 10px 4px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--on-surface-variant);
 }
 .unsupported {
   height: 100%;
@@ -530,11 +274,6 @@ body {
   font-size: 12.5px;
   line-height: 1.85;
   color: var(--on-surface-variant);
-}
-.uact {
-  display: flex;
-  gap: 8px;
-  margin: 10px 0 0;
 }
 .uhint {
   margin: 6px 0 0;
@@ -582,54 +321,114 @@ body {
 .vzoom {
   margin-left: auto;
 }
-.status {
+
+/* ---------- 文件树（开发者页左栏） ---------- */
+.tnode {
+  user-select: none;
+}
+.trow2 {
   display: flex;
   align-items: center;
-  gap: 16px;
-  height: 26px;
-  padding: 0 12px;
-  border-top: 1px solid var(--line);
-  background: var(--surface-2);
-  font-size: 11.5px;
+  gap: 6px;
+  height: 22px;
+  padding-right: 8px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.trow2:hover {
+  background: var(--accent-softer);
+}
+.trow2.is-open {
+  background: var(--accent-soft);
+}
+/* 展开按钮：判定区保到 18×18，别让人拿鼠标追那一个小三角 */
+.tcaret {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
   color: var(--on-surface-variant);
 }
-.sspacer {
-  flex: 1;
+.tcaret:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
+}
+.tcaret--leaf {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.tcheck {
+  flex: none;
+}
+/* 名字要能被挤扁（min-width:0），否则长路径会把右边那列顶出去 */
+.tname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tname--ext {
+  color: var(--warning);
+}
+.tsize {
+  flex: none;
+  width: 72px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
 }
 
-/* ---------- diff ---------- */
-.dunit {
-  margin: 0 0 4px;
-  font-weight: 600;
-}
-.dunit--gap {
-  margin-top: 12px;
-}
-.drow {
+/* ---------- 包信息表单 ---------- */
+.field {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 3px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12.5px;
+  margin-bottom: 7px;
+  font-size: 12px;
 }
-.dfield {
-  min-width: 54px;
+.field > span {
+  flex: none;
+  width: 62px;
   color: var(--on-surface-variant);
 }
-.dfrom {
-  color: var(--danger);
-  text-decoration: line-through;
+.field--full {
+  align-items: flex-start;
 }
-.darrow {
+.field__ctl {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.field__file {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
   color: var(--on-surface-variant);
 }
-.dto {
-  color: var(--success);
-  font-weight: 600;
+.hintbox {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--outline);
+  border-left: 3px solid var(--warning);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
 }
 
-/* ---------- Git 树 ---------- */
+/* ---------- 日志（版本管理，现在藏着） ---------- */
+.commitmsg {
+  width: 180px;
+}
 .logwrap {
   display: flex;
 }
@@ -658,7 +457,6 @@ body {
 .graph {
   flex: none;
 }
-
 .tver {
   width: 68px;
   flex: none;
@@ -673,22 +471,6 @@ body {
 .refs {
   display: flex;
   gap: 3px;
-}
-.ref {
-  padding: 0 6px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 10.5px;
-}
-.ref--base {
-  background: var(--surface-3);
-  color: var(--on-surface-variant);
-}
-.twho {
-  width: 48px;
-  flex: none;
-  color: var(--on-surface-variant);
-  font-size: 11px;
 }
 .twhen {
   width: 88px;
@@ -713,6 +495,16 @@ body {
   font-size: 11.5px;
   color: var(--on-surface-variant);
 }
+.ldactions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.ldhint {
+  align-self: center;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
 .mini {
   list-style: none;
   margin: 0;
@@ -729,256 +521,7 @@ body {
   color: var(--on-surface-variant);
 }
 
-/* ---------- 目录树分组 / 空状态 / 提示块 ---------- */
-.treegroup {
-  margin-bottom: 6px;
-}
-.empty {
-  margin: 10px 4px;
-  font-size: 12px;
-  line-height: 1.9;
-  color: var(--on-surface-variant);
-}
-.hintbox {
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--outline);
-  border-left: 3px solid var(--warning);
-  background: var(--surface-2);
-  font-size: 11.5px;
-  line-height: 1.8;
-  color: var(--on-surface-variant);
-}
-.frow--ext .fname {
-  color: var(--warning);
-}
-.frow {
-  cursor: default;
-}
-
-/* ---------- 包名（开发者页工具栏） ---------- */
-.pkgnamectl {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 8px;
-  border: 1px solid var(--outline);
-  border-radius: 4px;
-  background: var(--surface-1);
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-.pkgnamectl input {
-  width: 130px;
-  border: none;
-  background: transparent;
-  color: var(--on-surface);
-  font-size: 12.5px;
-  font-family: inherit;
-  outline: none;
-}
-
-/* ---------- 文件树（开发者页左栏） ---------- */
-.pane--tree {
-  flex: none;
-  width: 360px;
-}
-.pane--meta {
-  flex: none;
-  width: 296px;
-}
-.tnode {
-  user-select: none;
-}
-.trow2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding-right: 8px;
-  font-size: 12.5px;
-  cursor: default;
-}
-.trow2:hover {
-  background: var(--accent-softer);
-}
-.trow2.is-open {
-  background: var(--accent-soft);
-}
-/* + / − 展开按钮：判定区做到 18×18，别让人拿鼠标追那一个小三角 */
-.tcaret {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--on-surface-variant);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-}
-.tcaret:hover {
-  background: var(--surface-3);
-  color: var(--on-surface);
-}
-.tcaret--leaf {
-  display: inline-block;
-}
-.tcheck {
-  flex: none;
-  width: 13px;
-  height: 13px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-/* 名字要能被挤扁（min-width:0），否则长路径会把右边那列顶出去 —— 之前重叠就是这么来的 */
-.tname {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tname--ext {
-  color: var(--warning);
-}
-.tsize {
-  flex: none;
-  width: 72px;
-  text-align: right;
-  font-size: 11px;
-  color: var(--on-surface-variant);
-  white-space: nowrap;
-}
-.tag--ext {
-  flex: none;
-  padding: 0 5px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 10px;
-}
-
-/* ---------- 包信息表单 ---------- */
-.field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 7px;
-  font-size: 12px;
-}
-.field > span {
-  flex: none;
-  width: 62px;
-  color: var(--on-surface-variant);
-}
-.field input,
-.field select,
-.field textarea {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 4px 7px;
-  border: 1px solid var(--outline);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--on-surface);
-  font-family: inherit;
-  font-size: 12px;
-}
-.field textarea {
-  resize: vertical;
-}
-.field--full {
-  align-items: flex-start;
-}
-
-/* ---------- 提交输入 ---------- */
-.commitmsg {
-  width: 180px;
-  height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--outline);
-  border-radius: 4px;
-  background: var(--surface-1);
-  color: var(--on-surface);
-  font-size: 12px;
-  font-family: inherit;
-}
-
-/* ---------- 窗口按钮（这一页没有系统边框，得自己画） ---------- */
-.tb {
-  padding-right: 0;
-}
-.winctl {
-  display: flex;
-  align-self: stretch;
-  margin-left: 10px;
-  border-left: 1px solid var(--line);
-}
-.winctl__btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--on-surface-variant);
-  cursor: pointer;
-}
-.winctl__btn svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.2;
-  stroke-linecap: round;
-}
-.winctl__btn:hover {
-  background: var(--surface-3);
-  color: var(--on-surface);
-}
-/* 关闭按钮悬停变红 —— 桌面应用的共同约定 */
-.winctl__btn--close:hover {
-  background: #d13438;
-  color: #fff;
-}
-
-
-
-.tag--empty {
-  flex: none;
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--surface-3);
-  color: var(--on-surface-variant);
-  font-size: 10px;
-}
-
-.field--bad input {
-  border-color: var(--danger);
-}
-.field__error {
-  margin: -2px 0 8px 70px;
-  font-size: 11px;
-  color: var(--danger);
-}
-.field__file {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11.5px;
-  color: var(--on-surface-variant);
-}
-
-/* ---------- 右键菜单（开发者页自己的一份） ---------- */
+/* ---------- 右键菜单（空白处 / 文件行 / 提交记录共用） ---------- */
 .ctx {
   position: fixed;
   z-index: 40;
@@ -989,35 +532,24 @@ body {
   background: var(--surface-2);
   box-shadow: var(--shadow-2);
 }
+/* 菜单项是 Ring UI 的 Button —— 这里把它压成菜单行的样子 */
 .ctx__item {
   display: block;
   width: 100%;
   padding: 6px 10px;
   border: none;
   border-radius: 4px;
+  box-shadow: none;
   background: transparent;
   color: var(--on-surface);
   font-size: 12.5px;
   font-family: inherit;
   text-align: left;
-  cursor: pointer;
 }
 .ctx__item:hover {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.ldactions {
-  display: flex;
-  gap: 6px;
-  margin: 8px 0;
-}
-
-.ldhint {
-  align-self: center;
-  font-size: 11px;
-  color: var(--on-surface-variant);
-}
-
 .ctx__item--danger {
   color: var(--danger);
 }
@@ -1026,35 +558,104 @@ body {
   color: var(--danger);
 }
 
-.hintbox--check {
-  border-left-color: var(--success);
+/* ---------- 打包没完就想走 ---------- */
+.guard {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.45);
 }
-.checkline {
-  display: block;
-  line-height: 1.9;
+.guard__card {
+  width: 380px;
+  padding: 18px 20px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-3);
 }
-.checkline--bad {
-  color: var(--danger);
-  font-weight: 600;
+.guard__title {
+  margin: 0 0 8px;
+  font-size: 14px;
 }
-
-/* ---------- 导出进度 ---------- */
-.progress {
+.guard__text {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.guard__actions {
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
-.progress__bar {
-  display: inline-block;
-  width: 160px;
-  height: 6px;
+
+/* ---------- 控件展台（#gallery，只有它自己） ---------- */
+.gallery {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 18px 20px 48px;
+}
+.gallery__head {
+  max-width: 880px;
+  margin: 0 auto 14px;
+}
+.gallery__title {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.gallery__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.gallery__note code {
+  padding: 1px 5px;
   border-radius: 3px;
   background: var(--surface-3);
-  overflow: hidden;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
 }
-.progress__fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.15s linear;
+.gcard {
+  max-width: 880px;
+  margin: 0 auto 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.gcard__title {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+.gcard__note {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+.grow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 6px;
+}
+.glabel {
+  flex: none;
+  width: 84px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.gbar {
+  width: 160px;
+}
+/* 展台里演示标签溢出：故意收窄，让 5 个标签折成「更多」 */
+.gdoctabs {
+  width: 420px;
+  max-width: 100%;
 }
