@@ -24,6 +24,7 @@ function build(props: Record<string, unknown>, emit: (event: string, payload?: u
       checkUpdate: () => emit("check-update"),
       downloadUpdate: () => emit("download-update"),
       applyUpdate: () => emit("apply-update"),
+      openRoom: () => emit("open-room"),
       openDevPage: () => emit("open-dev"),
     },
   };

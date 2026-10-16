@@ -1,0 +1,92 @@
+/* 开发者房间自己的版式。控件本身的样式由控件负责，这里只管摆放。 */
+.room {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.room__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.room__title {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.room__lede {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+
+.room__card {
+  padding: 18px 20px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 40%, transparent);
+}
+
+.room__card-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.room__card-note {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--on-surface-variant);
+}
+
+.room__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.room__row:last-child {
+  margin-bottom: 0;
+}
+
+.room__label {
+  flex: 0 0 92px;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--on-surface-variant);
+}
+
+/* 组件样品区：给个浅底把它从卡片背景上分出来 */
+.room__stage {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.room__fields {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.room__todo {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--on-surface-variant);
+}
+
+.room__todo code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+}

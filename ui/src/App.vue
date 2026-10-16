@@ -16,6 +16,7 @@ import CustomView from "./views/CustomView.vue";
 import { mountMods } from "./react/views/mods/mount";
 import ReactIsland from "./components/ReactIsland.vue";
 import { mountCheats } from "./react/views/cheats/mount";
+import { mountRoom } from "./react/views/room/mount";
 import { mountSettings } from "./react/views/settings/mount";
 
 const { sitePending, siteResolved, siteProbing, requestSite, confirmSite, cancelSite } =
@@ -110,6 +111,26 @@ function onIslandDownloadUpdate(): void {
 }
 function onIslandApplyUpdate(): void {
   void applyUpdateNow();
+}
+
+// 调试 / 截图入口：`#room` 直接进开发者房间（和战役页的 `#slot=` 一个路数）。
+// 仍然要开发者模式开着 —— 调试入口不该变成绕过开关的后门。
+if (location.hash.includes("room") && localStorage.getItem("miyin.devMode") === "1") {
+  currentView.value = "room";
+}
+
+/**
+ * 进开发者房间。
+ *
+ * 这里只做一次门槛检查 —— 开关存在 `localStorage`，而房间是"看一眼控件"的页面，
+ * 不值得为它把状态同步进外壳。关掉开发者模式后就进不来了。
+ */
+function openRoom(): void {
+  if (localStorage.getItem("miyin.devMode") !== "1") {
+    notify("info", "先打开「开发者模式」");
+    return;
+  }
+  currentView.value = "room";
 }
 
 /** React 岛要外壳打开一个目录。 */
@@ -566,7 +587,15 @@ onUnmounted(() => {
         @bootstrap="bootstrap"
         @menu="onIslandMenu"
       />
-        <!-- 设置页已迁到 React（连它里面的「可选工具」「更新」两个面板一起） -->
+        <!-- 开发者房间：控件的展示台（只有开了开发者模式才进得来） -->
+      <ReactIsland
+        v-else-if="currentView === 'room'"
+        key="room"
+        :mount="mountRoom"
+        @back="currentView = 'settings'"
+      />
+
+      <!-- 设置页已迁到 React（连它里面的「可选工具」「更新」两个面板一起） -->
       <ReactIsland
         v-else
         key="settings"
@@ -605,8 +634,10 @@ onUnmounted(() => {
         @check-update="onIslandCheckUpdate"
         @download-update="onIslandDownloadUpdate"
         @apply-update="onIslandApplyUpdate"
+        @open-room="openRoom"
         @open-dev="openDevPage"
       />
+
       </Transition>
     </main>
 

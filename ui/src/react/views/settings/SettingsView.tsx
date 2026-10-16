@@ -12,6 +12,7 @@ import type {
   UpdateCheck,
   UpdateProgress,
 } from "../../../api/types";
+import { useDevMode } from "../../lib/devMode";
 import { Button } from "../../ui";
 import { ToolsPanel } from "./ToolsPanel";
 import { UpdatePanel } from "./UpdatePanel";
@@ -53,6 +54,9 @@ export interface SettingsViewProps {
     checkUpdate: () => void;
     downloadUpdate: () => void;
     applyUpdate: () => void;
+    /** 进开发者房间（控件的展示台）。 */
+    openRoom: () => void;
+    /** 进开发者页（ide.html，独立的 React 入口）。 */
     openDevPage: () => void;
   };
 }
@@ -66,6 +70,7 @@ export interface SettingsViewProps {
  */
 export function SettingsView(props: SettingsViewProps) {
   const { installation, saves, saveIsolation, saveBackups, busy, actions } = props;
+  const [devMode, setDevMode] = useDevMode();
 
   useEffect(() => {
     actions.refresh();
@@ -264,19 +269,48 @@ export function SettingsView(props: SettingsViewProps) {
 
       <section className="card panel">
         <header className="panel__head">
-          <h3 className="panel__title">开发者页</h3>
+          <h3 className="panel__title">开发者</h3>
           <span className="version">实验</span>
         </header>
-        <p className="hint">
-          给包作者的工作台：扫游戏目录、勾选要打进包的内容、按行读文本文件。
-          地图和模组这类二进制会明确告诉你打不开、可以用什么打开。
-        </p>
-        <p className="hint">版本管理（提交 / 回滚 / 日志）还没接，界面里那一块标着「示例」。</p>
-        <p className="about__actions">
-          <Button variant="tonal" onClick={actions.openDevPage}>
-            打开开发者页
-          </Button>
-        </p>
+
+        <div className="isolation">
+          <label className="isolation__switch">
+            <input
+              type="checkbox"
+              checked={devMode}
+              onChange={(event) => setDevMode(event.target.checked)}
+            />
+            <span>开发者模式</span>
+          </label>
+          <p className="hint">
+            打开后这里会多出两个入口。它只存在本机（<code>localStorage</code>），
+            换台机器要重新打开 —— 也不会把作者模式带给普通用户。
+          </p>
+        </div>
+
+        {devMode ? (
+          <>
+            <p className="hint">
+              <strong>开发者房间</strong>是所有控件的展示台：新控件必须先在房间里出现，
+              确认外观与手感之后，才能拿到生产界面用（见 AGENTS §18.1）。
+            </p>
+            <p className="hint">
+              <strong>开发者页</strong>是给包作者的工作台：扫游戏目录、勾选要打进包的内容、
+              按行读文本文件。地图和模组这类二进制会明确告诉你打不开、可以用什么打开。
+              版本管理（提交 / 回滚 / 日志）还没接，界面里那一块标着「示例」。
+            </p>
+            <p className="about__actions">
+              <Button variant="primary" onClick={actions.openRoom}>
+                进入开发者房间
+              </Button>
+              <Button variant="tonal" onClick={actions.openDevPage}>
+                打开开发者页
+              </Button>
+            </p>
+          </>
+        ) : (
+          <p className="hint">打开「开发者模式」后，这里会出现「开发者房间」与「开发者页」两个入口。</p>
+        )}
       </section>
 
       <ToolsPanel notify={props.notify} />

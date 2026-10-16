@@ -354,6 +354,40 @@ export function IdeApp() {
     };
   }, [menu]);
 
+  /**
+   * 空白处的右键菜单。
+   *
+   * 这个页面里的卡片/文件行各有自己的菜单（它们在自己的 onContextMenu 里
+   * preventDefault 了）—— 这里只兜住**没被任何人处理**的右键：
+   * 原生浏览器菜单一律不露（AGENTS §18.2）。
+   */
+  const [bareMenu, setBareMenu] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const onContextMenu = (event: MouseEvent) => {
+      if (event.defaultPrevented) return; // 组件已经接管了这次右键
+      event.preventDefault();
+      setMenu(null);
+      setBareMenu({ x: event.clientX, y: event.clientY });
+    };
+    addEventListener("contextmenu", onContextMenu);
+    return () => removeEventListener("contextmenu", onContextMenu);
+  }, []);
+
+  useEffect(() => {
+    if (!bareMenu) return;
+    const close = () => setBareMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setBareMenu(null);
+    };
+    addEventListener("click", close);
+    addEventListener("keydown", onKey);
+    return () => {
+      removeEventListener("click", close);
+      removeEventListener("keydown", onKey);
+    };
+  }, [bareMenu]);
+
   // 双击标题栏 / Win+↑ 是系统改的最大化状态，只能靠 resize 补上
   useEffect(() => {
     if (!isDesktop) return;
@@ -1090,6 +1124,32 @@ export function IdeApp() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {bareMenu && (
+        <div className="ctx" style={{ left: bareMenu.x, top: bareMenu.y }} onClick={(event) => event.stopPropagation()}>
+          <button className="ctx__item" type="button" onClick={() => setBareMenu(null)}>
+            关闭菜单
+          </button>
+          <button
+            className="ctx__item"
+            type="button"
+            onClick={() => {
+              location.reload();
+            }}
+          >
+            刷新页面
+          </button>
+          <button
+            className="ctx__item"
+            type="button"
+            onClick={() => {
+              location.href = "/index.html";
+            }}
+          >
+            返回启动器
+          </button>
         </div>
       )}
 

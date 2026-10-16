@@ -46,7 +46,8 @@ const updateDownloading = ref(false);
 /** 下载完成后弹的那个"要重启了"对话框。 */
 const showRestartPrompt = ref(false);
 /** 页面标识。新增页面时这里加一个，App.vue 的标签页跟着加。 */
-export type ViewId = "campaigns" | "custom" | "mods" | "settings";
+/** 顶层视图。"room" 是开发者房间：它不在页签里，从设置页的开发者模式进。 */
+export type ViewId = "campaigns" | "custom" | "mods" | "settings" | "room";
 
 /** 当前页面。放在这里而不是 App.vue 里，是为了让更新公告也能切页面。 */
 /** `?view=settings` 能直接进某一页 —— 截图与排查用，不是给用户的功能。 */
