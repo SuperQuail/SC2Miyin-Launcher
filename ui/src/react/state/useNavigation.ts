@@ -20,6 +20,8 @@ export interface NavigationApi {
   installEntry: "campaign" | "custom";
   /** 进「安装整合包」页。**先到页面、再在那里选文件** —— 别一上来就弹系统选择器。 */
   openInstall: (entry?: "campaign" | "custom") => void;
+  /** 是从哪一页进的安装页 —— 装完/返回要回到那儿，而不是甩回主页。 */
+  installReturn: ViewId;
 }
 
 export function useNavigation(options: { notify: Notify }): NavigationApi {
@@ -29,6 +31,7 @@ export function useNavigation(options: { notify: Notify }): NavigationApi {
   );
   const [cheatsOpen, setCheatsOpen] = useState(false);
   const [installEntry, setInstallEntry] = useState<"campaign" | "custom">("campaign");
+  const [installReturn, setInstallReturn] = useState<ViewId>("campaigns");
 
   const openCheats = useCallback(() => setCheatsOpen(true), []);
   const closeCheats = useCallback(() => setCheatsOpen(false), []);
@@ -49,10 +52,15 @@ export function useNavigation(options: { notify: Notify }): NavigationApi {
     location.href = "/ide.html";
   }, []);
 
-  const openInstall = useCallback((entry: "campaign" | "custom" = "campaign") => {
-    setInstallEntry(entry);
-    setView("install");
-  }, []);
+  const openInstall = useCallback(
+    (entry: "campaign" | "custom" = "campaign") => {
+      setInstallEntry(entry);
+      // 记下来路：装完或点返回时回到那一页，别甩回主页
+      setInstallReturn(view === "install" ? "campaigns" : view);
+      setView("install");
+    },
+    [view],
+  );
 
-  return { view, setView, cheatsOpen, openCheats, closeCheats, openRoom, openDevPage, installEntry, openInstall };
+  return { view, setView, cheatsOpen, openCheats, closeCheats, openRoom, openDevPage, installEntry, installReturn, openInstall };
 }

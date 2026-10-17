@@ -181,10 +181,11 @@ export function AppShell() {
                 droppedPackage={app.library.droppedPackage}
                 consumeDropped={() => app.library.setDroppedPackage(null)}
                 notify={app.notify}
-                onBack={() => app.nav.setView("campaigns")}
+                onBack={() => app.nav.setView(app.nav.installReturn)}
                 onInstalled={(slug) => {
                   void app.library.refresh();
-                  app.nav.setView("campaigns");
+                  // 装完回到进来之前那一页（用户要的是这个，不是甩回主页）
+                  app.nav.setView(app.nav.installReturn);
                   void slug;
                 }}
               />
