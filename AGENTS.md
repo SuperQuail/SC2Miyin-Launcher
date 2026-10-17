@@ -829,7 +829,7 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
 > 房间在**用户侧入口**里（`ui/src/react/views/room/`），已按两套视觉语言**分成两页**：
 > 第一页用户侧控件（`react/ui/`），第二页开发者工具侧（`iframe` 嵌 `ide.html#gallery`）。
 
-### 18.2 右键菜单统一化，原生菜单一律不露
+### 18.2 右键菜单与快捷键：一律不露浏览器味儿
 
 **WebView 的原生右键菜单（另存为 / 检查 / 重新加载）与这个应用格格不入，
 而且会把用户导向一个跟它无关的世界。所以整个窗口一律拦掉。**
@@ -841,3 +841,14 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
   `event.defaultPrevented` 判定。
 - 新写右键菜单时：**在自己的 `onContextMenu` 里先 `preventDefault()`**，
   否则它会和兜底菜单叠在一起。
+
+**快捷键也是同一件事**（2026-10 补）：用户不该在这个应用里感觉到"我在用浏览器"。三层：
+
+| 层 | 在哪 | 管什么 |
+| --- | --- | --- |
+| **WebView2 硬开关** | `src-tauri/src/lib.rs` 的 `tame_webview` | `SetAreBrowserAcceleratorKeysEnabled(false)` + `SetAreDefaultContextMenusEnabled(false)` —— **唯一**能彻底摘掉浏览器加速键（Ctrl+F/P/U/R、F5、Ctrl+±/0）与原生菜单的地方。Tauri 2.11 没暴露 wry 的对应 builder，只能顺着 `with_webview` 拿 `ICoreWebView2Controller` 自己关 |
+| **页面兜底** | `ui/src/api/webview.ts` 的 `installWebviewGuards()` | 两个入口都装：拦刷新/打印/缩放/中键/拖放导航；**浏览器演示模式也生效**。开发者页用 `allow` 放行 `Ctrl+F`（编辑器的查找）与开发者工具 |
+| **要用的快捷键** | 原生菜单 accelerators 或页面自己的 keydown | 别依赖浏览器默认 —— 想用哪个就自己实现哪个 |
+
+- **别拦过头**：`Ctrl+C/V/Z/A/S`、方向键、输入法组合键都不能碰（`webview.ts` 里有测试钉着）。
+- 拦不住的只有 OS 级组合（Alt+Tab、Win 键）—— 那些本来也不该拦。

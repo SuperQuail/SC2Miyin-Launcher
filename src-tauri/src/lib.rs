@@ -1775,6 +1775,43 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
+/// 让 webview 不像浏览器：关掉 WebView2 自带的**浏览器加速键**（Ctrl+F/P/U/R、F5、缩放…）
+/// 与**原生右键菜单**。
+///
+/// 为什么不用 Tauri 的接口：Tauri 2.11 没有把 wry 的 `with_browser_accelerator_keys` /
+/// `with_default_context_menus` 暴露出来（wry 0.55 内部有）；这里顺着 `with_webview`
+/// 拿到 `ICoreWebView2Controller`，自己去关 —— 这是**唯一**能把浏览器快捷键彻底摘掉的地方，
+/// 页面里的 keydown 拦截只盖得住一部分（窗口级组合键拦不住）。
+///
+/// 关掉 ≠ 快捷键没了：要用的快捷键改走原生菜单 accelerators，或页面自己的 keydown
+/// （AGENTS §18.2）。两处都失败也不影响功能，只是浏览器味道回来一点。
+#[cfg(windows)]
+fn tame_webview(webview: &tauri::webview::PlatformWebview) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows::core::Interface;
+
+    // SAFETY: 回调运行在 WebView2 自己的 UI 线程上，controller 在回调期间有效。
+    unsafe {
+        let Ok(core) = webview.controller().CoreWebView2() else {
+            return;
+        };
+        let Ok(settings) = core.Settings() else {
+            return;
+        };
+        if let Err(error) = settings.SetAreDefaultContextMenusEnabled(false) {
+            eprintln!("[miyin] 关 WebView2 原生右键菜单失败：{error}");
+        }
+        match settings.cast::<ICoreWebView2Settings3>() {
+            Ok(settings3) => {
+                if let Err(error) = settings3.SetAreBrowserAcceleratorKeysEnabled(false) {
+                    eprintln!("[miyin] 关 WebView2 浏览器加速键失败：{error}");
+                }
+            }
+            Err(error) => eprintln!("[miyin] WebView2 太旧，拿不到 Settings3：{error}"),
+        }
+    }
+}
+
 /// 启动应用。
 pub fn run() {
     tauri::Builder::default()
@@ -1792,6 +1829,14 @@ pub fn run() {
                 .unwrap_or_else(|| PathBuf::from("data"));
 
             app.manage(AppState::bootstrap(config_path, data_root));
+
+            // 让它不像浏览器：关掉 WebView2 自己的浏览器加速键与原生右键菜单（见 tame_webview）
+            #[cfg(windows)]
+            for (label, window) in app.webview_windows() {
+                if let Err(error) = window.with_webview(|webview| tame_webview(&webview)) {
+                    eprintln!("[miyin] 拿不到 webview（{label}）：{error}；浏览器快捷键兜底交给页面里的拦截");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
