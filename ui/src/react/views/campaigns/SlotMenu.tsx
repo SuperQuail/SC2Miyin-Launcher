@@ -96,10 +96,15 @@ export function SlotMenu({
     setInspecting(isCustom && !isVanilla ? id : null);
   }
 
-  /** 启用当前选中的版本。 */
+  /**
+   * 启用当前选中的版本。
+   *
+   * **启用完留在这一页** —— 以前是 `if (ok) onBack()` 退回战役列表，
+   * 用户的原话是「启用后别把我弹回去」。启用成功后 `host.activate` 会刷新库，
+   * 这一页的卡片与横幅自己就变成"已启用"了，留在原地才能看见结果。
+   */
   async function apply(): Promise<void> {
-    const ok = await host.activate(slot.slug, selected);
-    if (ok) onBack();
+    await host.activate(slot.slug, selected);
   }
 
   /** 启用并立刻启动游戏。 */
