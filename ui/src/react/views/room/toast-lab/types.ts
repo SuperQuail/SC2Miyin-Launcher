@@ -16,52 +16,57 @@ export const AUTO_MS = 24000;
 
 export type Demo = {
   phase: DemoPhase;
-  /** 交给 DOM —— 鼠标压上去就暂停自动消失，和市面上那些一样 */
+  /** 交给 DOM —— 鼠标压上去就暂停自动消失（剩余时间冻住，离开接着走） */
   hover: { onMouseEnter: () => void; onMouseLeave: () => void };
 };
 
+type Run = { reset: number; life: number; exit: number };
+
 /**
- * 演示计时：进场（挂载时 CSS 自己放）→ 停 `lifeMs` 自动退场（退出动画放 `exitMs`）→ 卸载。
+ * 演示计时：进场（挂载时 CSS 自己放）→ 停 `life` 自动退场（退出动画放 `exit`）→ 卸载。
  *
  * 分开两步才看得见退场 —— 直接把元素删掉的话退场动画根本没机会跑。
  *
- * `reset` 由调用方在点「播一遍」时 +1：**这里是重置而不是重播**，重播靠调用方换 `key`
- * 把元素重新挂上，入场动画才会从头放（同一个元素上再挂一次 animation 是不动的）。
+ * `reset` 由调用方在点「播一遍」时 +1：这里等它真的变了才重新放，
+ * 而且**从点击那一刻重新装弹**（不是把旧的剩余时间捡回来），所以连点两次也放得出来。
+ * 重放时元素是从"已经卸载"的状态重新挂上去的，CSS 的 animation 自然从头放 —— **调用方不用换 key**。
  *
- * `active` 是 `?toast=` 点名那条：只说"这次演出算不算数"，**变了不算重播**。
- * （踩过的坑：早先把 `reset` 放在 useEffect 里 setPhase，挂载时那次 effect 一定会跑，
- * 于是没点名的那几个也跟着放，五个候选一起糊在屏幕上。）
+ * `active` 是 `?toast=` 点名那条：真值时用 `AUTO_MS` 的长时长；变了不算重播。
  */
 export function useDemo(active: boolean, reset: number, lifeMs: number, exitMs: number): Demo {
   // 没点名的那几条一开始就是 gone（不渲染）
-  const life = active ? Math.max(lifeMs, AUTO_MS) : lifeMs;
   const [phase, setPhase] = useState<DemoPhase>(active ? "shown" : "gone");
   const [paused, setPaused] = useState(false);
+  // 现算，不等到 effect：挂载当帧就要是"这一条该不该露脸"
+  const total = active ? Math.max(lifeMs, AUTO_MS) : lifeMs;
 
-  // "该演了"在渲染期算出来：首次挂载算一次，之后只在 reset（重播）或 active（点名）变化时再算。
-  const lastRef = useRef({ reset, active });
-  const fresh = useRef(true);
-  const runRef = useRef(0);
-  if (fresh.current || lastRef.current.reset !== reset || lastRef.current.active !== active) {
-    fresh.current = false;
-    lastRef.current = { reset, active };
-    runRef.current += 1;
-  }
-  const run = runRef.current;
+  // 每次演出一个 Run；remainingRef 是"这一条还剩多少毫秒"，悬停时冻住它
+  const runRef = useRef<Run>({ reset, life: total, exit: exitMs });
+  const remainingRef = useRef(total);
 
+  // 点「播一遍」：reset 变了就把这一条放出来，且从满血重新装弹。
+  // （踩过的坑一：早先只重置了剩余时间、没把 phase 从 gone 挪出来 —— 按钮点了没反应。
+  //  踩过的坑二：调用方当时还用了 key={+at(id)} 强制重挂，重挂后 runRef 一初始化就等于新值，
+  //  这个"变了吗"的判断永远为假 —— 所以那个 key 也一起去掉了：
+  //  元素在 gone/leaving 时本来就已经卸载，重新挂载没必要。）
   useEffect(() => {
-    if (!active) return;
+    if (runRef.current.reset === reset) return;
+    runRef.current = { reset, life: total, exit: exitMs };
+    remainingRef.current = total;
     setPhase("shown");
-    setPaused(false);
-  }, [run, active]);
+  }, [reset, total, exitMs]);
 
   useEffect(() => {
-    if (paused || phase === "gone") return;
-    const next = phase === "shown" ? "leaving" : "gone";
-    const delay = phase === "shown" ? life : exitMs;
-    const id = window.setTimeout(() => setPhase(next), delay);
-    return () => window.clearTimeout(id);
-  }, [phase, paused, run, life, exitMs]);
+    if (phase === "gone") return;
+    if (paused) return;
+    const id = window.setTimeout(() => setPhase((p) => (p === "shown" ? "leaving" : "gone")), remainingRef.current);
+    const startedAt = Date.now();
+    return () => {
+      window.clearTimeout(id);
+      const left = remainingRef.current - (Date.now() - startedAt);
+      remainingRef.current = Math.max(left, 0);
+    };
+  }, [phase, paused]);
 
   return {
     phase,

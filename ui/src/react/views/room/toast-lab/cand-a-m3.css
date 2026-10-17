@@ -93,3 +93,15 @@
     animation-duration: 1ms;
   }
 }
+
+/* 整块可点：光标与悬停反馈（点卡片任意位置都能播一遍） */
+.cand__play {
+  cursor: pointer;
+}
+.cand__play:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.cand__play:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

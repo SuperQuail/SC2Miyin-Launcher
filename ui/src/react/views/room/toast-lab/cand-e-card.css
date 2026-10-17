@@ -60,7 +60,8 @@
 
 .cornercard__body {
   min-width: 0;
-  padding-right: 18px;
+  /* 关掉按钮占右上角，正文让开一块 */
+  padding-right: 16px;
 }
 
 .cornercard__title {
@@ -78,8 +79,11 @@
 }
 
 .cornercard__action {
-  margin-top: 10px;
-  padding: 7px 14px;
+  /* 整行按钮：右下角这块面积小，实心按钮撑满更好点 */
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 14px;
   border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--on-accent);

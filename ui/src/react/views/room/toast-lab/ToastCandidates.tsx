@@ -29,6 +29,13 @@ type Spec = {
   diff: string[];
 };
 
+/** 卡片上的说明只用一种强调：\`**这样**\` 的部分加粗，其余原样。 */
+function bold(text: string) {
+  return text.split("**").map((part, index) =>
+    index % 2 === 1 ? <b key={part}>{part}</b> : part,
+  );
+}
+
 const SPECS: Spec[] = [
   {
     id: "a",
@@ -105,14 +112,27 @@ export function ToastCandidates() {
       <h3 className="room__card-title">提示样式候选 · 待用户挑一个</h3>
       <p className="room__card-note">
         生产那个 Toast（<code>react/ui/Toast.tsx</code>）没动。这里是另外几种思路，各写各的，
-        点「播一遍」重放一次：入场、停留、**退场**都会演到（演示时长 6~9 秒。
+        点卡片或「播一遍」重放一次：入场、停留、退场都会演到（演示时长 6~9 秒。
         地址后面加 <code>?toast=a|b|c|d|e</code> 可以进页面就自动放那一条，
         那种情况下演示时长给到 {AUTO_MS / 1000} 秒，方便慢慢看 / 截图）。
       </p>
 
       <div className="cand__list">
         {SPECS.map((spec) => (
-          <div className="cand" key={spec.id}>
+          <div
+            className="cand cand__play"
+            key={spec.id}
+            role="button"
+            tabIndex={0}
+            title="点这里播一遍"
+            onClick={() => play(spec.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                play(spec.id);
+              }
+            }}
+          >
             <div className="cand__head">
               <h4 className="cand__name">{spec.name}</h4>
               <span className="cand__copy">抄 {spec.copy}</span>
@@ -120,11 +140,17 @@ export function ToastCandidates() {
             </div>
             <ul className="cand__diff">
               {spec.diff.map((line) => (
-                <li key={line}>{line}</li>
+                <li key={line}>{bold(line)}</li>
               ))}
             </ul>
             <div className="cand__actions">
-              <Button variant="outline" onClick={() => play(spec.id)}>
+              <Button
+                variant="outline"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  play(spec.id);
+                }}
+              >
                 播一遍
               </Button>
               {auto === spec.id && <span className="cand__live">← 现在放的就是这条（?toast= 指定）</span>}
@@ -135,7 +161,6 @@ export function ToastCandidates() {
 
       {/* 候选本体：fixed 定位，和卡片摆在哪儿无关 */}
       <CandASnackbar
-        key={"a" + at("a")}
         active={auto === "a"}
         reset={at("a")}
         tone="success"
@@ -143,7 +168,6 @@ export function ToastCandidates() {
         action={{ label: "查看", onClick: () => {} }}
       />
       <CandBNoticeCard
-        key={"b" + at("b")}
         active={auto === "b"}
         reset={at("b")}
         tone="error"
@@ -152,7 +176,6 @@ export function ToastCandidates() {
         action={{ label: "查看日志", onClick: () => {} }}
       />
       <CandCSonnerStack
-        key={"c" + at("c")}
         active={auto === "c"}
         reset={at("c")}
         items={[
@@ -165,9 +188,8 @@ export function ToastCandidates() {
           },
         ]}
       />
-      <CandDCapsule key={"d" + at("d")} active={auto === "d"} reset={at("d")} tone="info" message="已重新扫描，找到 12 个战役。" />
+      <CandDCapsule active={auto === "d"} reset={at("d")} tone="info" message="已重新扫描，找到 12 个战役。" />
       <CandECard
-        key={"e" + at("e")}
         active={auto === "e"}
         reset={at("e")}
         tone="warning"
