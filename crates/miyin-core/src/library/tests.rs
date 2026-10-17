@@ -2411,3 +2411,92 @@ fn anything_inside_the_game_folder_can_be_written() {
         "{error}"
     );
 }
+
+/// 数据根在**安装目录的同级**；没有安装目录时退回程序旁边（全新机器第一次启动得能起来）。
+#[test]
+fn data_root_is_the_installation_sibling() {
+    let exe = Path::new("C:/games/launcher/miyin-launcher.exe");
+    assert_eq!(
+        super::data_root(Some(Path::new("D:/Game/BLZ/StarCraft II")), exe),
+        PathBuf::from("D:/Game/BLZ/").join(super::DATA_DIR_NAME)
+    );
+    assert_eq!(
+        super::data_root(None, exe),
+        PathBuf::from("C:/games/launcher/data")
+    );
+}
+
+#[test]
+fn fresh_install_uses_the_new_root_without_migrating() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe = base.path().join("launcher").join("miyin-launcher.exe");
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe);
+    assert_eq!(
+        plan.root,
+        base.path().join("BLZ").join(super::DATA_DIR_NAME)
+    );
+    assert!(!plan.migrated);
+    assert!(plan.legacy.is_none(), "没有旧数据时不该报 legacy");
+}
+
+/// 旧数据要**搬过去**，而且内容一个不少（搬完旧的不在原处）。
+#[test]
+fn migration_moves_legacy_data_and_keeps_the_content() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(legacy.join("campaigns").join("wol")).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"{}").expect("索引");
+    std::fs::write(legacy.join("campaigns").join("wol").join("a.txt"), b"hello").expect("版本内容");
+
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+    assert!(plan.migrated, "应该搬过来：{}", plan.note);
+    assert_eq!(
+        plan.root,
+        base.path().join("BLZ").join(super::DATA_DIR_NAME)
+    );
+    assert!(!legacy.exists(), "旧的应该已经不在原处");
+    assert_eq!(
+        std::fs::read_to_string(plan.root.join("library.json")).expect("索引"),
+        "{}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(plan.root.join("campaigns").join("wol").join("a.txt"))
+            .expect("版本内容"),
+        "hello"
+    );
+}
+
+/// 新根已经有东西时**一律不动**：不覆盖、不合并、不删旧数据（数据是用户的）。
+#[test]
+fn migration_never_touches_an_existing_new_root() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(&legacy).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"OLD").expect("旧索引");
+
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    let new_root = base.path().join("BLZ").join(super::DATA_DIR_NAME);
+    std::fs::create_dir_all(&new_root).expect("新数据目录");
+    std::fs::write(new_root.join("library.json"), b"NEW").expect("新索引");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+    assert!(!plan.migrated, "新根已经有东西，不许动");
+    assert_eq!(
+        std::fs::read_to_string(plan.root.join("library.json")).expect("新索引"),
+        "NEW"
+    );
+    assert_eq!(
+        std::fs::read_to_string(legacy.join("library.json")).expect("旧索引还在"),
+        "OLD",
+        "旧数据既不该被覆盖也不该被删"
+    );
+}

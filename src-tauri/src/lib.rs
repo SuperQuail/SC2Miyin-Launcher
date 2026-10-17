@@ -61,13 +61,24 @@ struct ProgressPayload {
 
 impl AppState {
     /// 读取配置并尝试恢复上次使用的安装。
-    fn bootstrap(config_path: PathBuf, library_root: PathBuf) -> Self {
+    fn bootstrap(config_path: PathBuf, executable: PathBuf) -> Self {
         let config = load_config(&config_path);
 
         let installation = config
             .game_root
             .and_then(|root| Installation::from_root(root, DiscoverySource::Manual).ok())
             .or_else(|| Installation::discover().ok());
+
+        // 数据根：**星际争霸安装目录的同级** `miyin_launcher_data/` —— 同一台机器上的
+        // 多个启动器实例共用一份战役库；还没配过游戏目录时退回程序旁边的 data/。
+        // 程序旁边若还留着旧的那份，顺手搬过来（新根已经有东西就一律不动）。
+        let data_root = miyin_core::library::resolve_data_root(
+            installation.as_ref().map(|found| found.root.as_path()),
+            &executable,
+        );
+        if data_root.migrated || data_root.legacy.is_some() {
+            eprintln!("[miyin] {}", data_root.note);
+        }
 
         // 网络设置与既有配置放同一目录
         let network_path = config_path
@@ -82,7 +93,7 @@ impl AppState {
         Self {
             installation: Mutex::new(installation),
             config_path: Mutex::new(Some(config_path)),
-            library: Library::new(library_root),
+            library: Library::new(data_root.root),
             network: Mutex::new(network),
             network_path,
             staged: Mutex::new(None),
@@ -1833,13 +1844,10 @@ pub fn run() {
                 .map(|dir| dir.join("config.json"))
                 .unwrap_or_else(|_| PathBuf::from("miyin-config.json"));
 
-            // 战役库放在**软件同级目录**下（绿色版，随软件走）
-            let data_root = std::env::current_exe()
-                .ok()
-                .map(|executable| miyin_core::library::default_root(&executable))
-                .unwrap_or_else(|| PathBuf::from("data"));
+            // 数据根在 bootstrap 里定（要先知道游戏装在哪）—— 这里只把 exe 路径递进去
+            let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("miyin-launcher.exe"));
 
-            app.manage(AppState::bootstrap(config_path, data_root));
+            app.manage(AppState::bootstrap(config_path, executable));
 
             // 让它不像浏览器：关掉 WebView2 自己的浏览器加速键与原生右键菜单（见 tame_webview）
             #[cfg(windows)]

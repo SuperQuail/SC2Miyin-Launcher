@@ -1046,6 +1046,100 @@ pub fn default_root(executable: &Path) -> PathBuf {
         .join("data")
 }
 
+/// 数据目录名 —— 放在**星际争霸安装目录的同级**。
+///
+/// 为什么不在 exe 同级：绿色版可以拷好几份、也可以装在不同地方，各自一份 data 就互不相通。
+/// 挂在游戏安装目录旁边之后，同一台机器上的所有启动器实例共用同一份战役库。
+pub const DATA_DIR_NAME: &str = "miyin_launcher_data";
+
+/// 数据根目录：安装目录的同级；**找不到安装**（还没配过游戏目录）时退回 exe 同级的 `data/`。
+///
+/// 退回这一条不能省：全新机器上第一次启动时还没有安装目录，程序得能起来。
+pub fn data_root(installation_root: Option<&Path>, executable: &Path) -> PathBuf {
+    match installation_root.and_then(Path::parent) {
+        Some(parent) => parent.join(DATA_DIR_NAME),
+        None => default_root(executable),
+    }
+}
+
+/// 数据根目录的结论：最后用哪个、有没有搬过东西、给人看的一句话。
+#[derive(Debug, Clone)]
+pub struct DataRootPlan {
+    /// 实际要用的数据根。
+    pub root: PathBuf,
+    /// 旧的 exe 同级 `data/`（存在才给）。
+    pub legacy: Option<PathBuf>,
+    /// 这次是不是真的把旧数据搬过来了。
+    pub migrated: bool,
+    /// 给日志 / 界面的一句话说明。
+    pub note: String,
+}
+
+/// 决定数据根，并在需要时把旧数据搬过去。
+///
+/// **只在"新根不存在、旧根存在"时搬**；新根已经有东西就一律不动 —— 不覆盖、不合并，
+/// 只记一句说明（数据是用户的，宁可让他自己看一眼，也不要自作主张合两份）。
+/// 搬迁失败时**退回旧根继续用**：启动器不能因为搬不动就没了库。
+pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) -> DataRootPlan {
+    let root = data_root(installation_root, executable);
+    let legacy = default_root(executable);
+    let legacy_exists = legacy.is_dir();
+
+    if root == legacy {
+        return DataRootPlan {
+            root,
+            legacy: None,
+            migrated: false,
+            note: "数据目录就在程序旁边".to_string(),
+        };
+    }
+
+    let legacy = legacy_exists.then_some(legacy);
+
+    if root.exists() {
+        return DataRootPlan {
+            root: root.clone(),
+            note: if legacy.is_some() {
+                format!(
+                    "数据目录用 {}（程序旁边还有一份旧的 data/，没动它 —— 要合并请手动处理）",
+                    root.display()
+                )
+            } else {
+                format!("数据目录 {}", root.display())
+            },
+            legacy,
+            migrated: false,
+        };
+    }
+
+    let Some(legacy_path) = legacy.clone() else {
+        return DataRootPlan {
+            root: root.clone(),
+            legacy: None,
+            migrated: false,
+            note: format!("数据目录 {}", root.display()),
+        };
+    };
+
+    match crate::platform::move_path(&legacy_path, &root) {
+        Ok(()) => DataRootPlan {
+            note: format!("已把 {} 迁到 {}", legacy_path.display(), root.display()),
+            root,
+            legacy: Some(legacy_path),
+            migrated: true,
+        },
+        Err(error) => DataRootPlan {
+            note: format!(
+                "迁移数据目录失败（{error}），这次仍用 {}",
+                legacy_path.display()
+            ),
+            root: legacy_path.clone(),
+            legacy: Some(legacy_path),
+            migrated: false,
+        },
+    }
+}
+
 /// 由包内声明的资料片推断应该导入到哪个槽位。
 ///
 /// 规则本体在 [`CampaignType::main_slot`]，这里只是给调用方一个好找的入口。
