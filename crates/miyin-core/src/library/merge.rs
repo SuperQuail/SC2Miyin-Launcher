@@ -4,7 +4,8 @@
 //! 目录旁边之后，这些散落的库要能**并成一份**：不冲突的直接并进来，撞上的交给用户选。
 //!
 //! 两条底线：
-//! 1. `plan()` **只读**，不动任何文件 —— 界面可以放心地先算给人看。
+//! 1. `plan()` 不改**数据**，界面可以放心地先算给人看。（唯一的例外：索引坏了的时候，
+//!    `Library::index()` 会把 `library.json` 改名成 `.json.corrupt` —— 那是保护性动作。）
 //! 2. 和**当前这台安装**绑死的东西（激活清单 / 已装记录 / 开发历史 / 官方文件备份）
 //!    一律以游戏目录那份为准 —— 两份 active.json 合起来没有任何意义。
 
@@ -91,6 +92,17 @@ pub fn plan(local: &Path, target: &Path) -> Result<MergePlan> {
             let found =
                 existing.and_then(|it| it.variants.iter().find(|item| item.id == variant.id));
             match found {
+                // 目标里没有**记录**，但可能有**同名目录**（索引丢过/坏过，或者用户手工放进去的）。
+                // 那不算"不冲突的加法" —— 直接搬会静默覆盖同名文件，交给用户选。
+                None if version_dir(target, slug, &variant.id).exists() => {
+                    conflicts.push(MergeConflict {
+                        slot: slug.clone(),
+                        variant: variant.id.clone(),
+                        variant_name: variant.name.clone(),
+                        local_bytes: variant.size_bytes,
+                        target_bytes: 0,
+                    })
+                }
                 None => additions.push(MergeAddition {
                     slot: slug.clone(),
                     variant: variant.id.clone(),
@@ -153,6 +165,8 @@ pub fn apply(
                 .push(record);
         }
         report.added += 1;
+        // 每搬完一条就落一次索引 —— 中途失败也不会留下「磁盘上有、界面上看不见」的版本
+        library.save_index(&index)?;
     }
 
     // ② 冲突的按用户的选择办
@@ -170,7 +184,7 @@ pub fn apply(
 
         if choice == MergeChoice::Local {
             // 原来那份改名留着 —— 用户选错了还能捞回来
-            let backup = to.with_extension("superseded");
+            let backup = superseded_name(&to);
             if to.exists() {
                 crate::platform::move_path(&to, &backup)?;
                 report.superseded.push(backup);
@@ -186,6 +200,7 @@ pub fn apply(
                 }
             }
             report.replaced += 1;
+            library.save_index(&index)?;
         } else {
             // 两份都留：换个没人用的目录名进去
             let new_id = free_variant_id(&index, &conflict.slot, &conflict.variant);
@@ -201,11 +216,36 @@ pub fn apply(
                     .push(record);
             }
             report.renamed += 1;
+            library.save_index(&index)?;
         }
     }
 
     library.save_index(&index)?;
     Ok(report)
+}
+
+/// 换下来那份的落脚处：**目录名后面接** `.superseded`。
+///
+/// **不能用 `with_extension`** —— 那会把版本 id 里的点当扩展名吃掉：
+/// `军械库2.4` 变成 `军械库2.superseded`，于是 `军械库2.4` 与 `军械库2.5` 两份备份撞进同一个目录，
+/// 后一份把前一份**覆盖掉**（verifier 实测出来的真丢内容）。id 里带点是常态，不能赌。
+fn superseded_name(dir: &Path) -> PathBuf {
+    let name = dir
+        .file_name()
+        .map(|item| item.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parent = dir.parent().unwrap_or(Path::new("."));
+    for n in 0..1000 {
+        let candidate = parent.join(if n == 0 {
+            format!("{name}.superseded")
+        } else {
+            format!("{name}.superseded-{n}")
+        });
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{name}.superseded-old"))
 }
 
 fn version_dir(root: &Path, slot: &str, variant: &str) -> PathBuf {

@@ -48,7 +48,7 @@ const USAGE: &str = "\
 退出码：
   0  全部可安装
   1  存在 broken 级问题（包坏了、下载不完整、越界条目……）
-  2  参数错，或者路径不存在 / 读不了
+  2  参数错 / 路径不存在
 
 slug 取值：wol / hots / hotsevolution / lotv / lotvprologue / nova / custom
 ";

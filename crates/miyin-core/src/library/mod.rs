@@ -1110,6 +1110,13 @@ fn parked_root(root: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// 目录里有没有东西（空目录不算"半份数据"）。
+fn dir_has_entries(root: &Path) -> bool {
+    std::fs::read_dir(root)
+        .map(|mut it| it.next().is_some())
+        .unwrap_or(false)
+}
+
 /// 能不能往这个根里写东西。写不了就别选它 —— 不然整个库都是坏的，
 /// 而 `C:/Program Files (x86)/…` 恰好是星际争霸的常见安装位置。
 fn is_writable(root: &Path) -> bool {
@@ -1147,22 +1154,8 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
 
     let legacy = legacy_exists.then_some(legacy);
 
-    // 上次搬到一半留下的中转目录：连同这次的半份一起挪开，重来。
-    let partial = partial_root(&root);
-    let mut leftover: Option<PathBuf> = None;
-    if partial.is_dir() || (!is_complete(&root) && root.exists()) {
-        let parked = parked_root(&root);
-        let from = if partial.is_dir() {
-            partial.clone()
-        } else {
-            root.clone()
-        };
-        if crate::platform::move_path(&from, &parked).is_ok() {
-            leftover = Some(parked);
-        }
-    }
-
-    // 新根已经是完整库 —— 用它（旧数据一个字节都不动）
+    // 新根已经是完整库 —— 用它（旧数据一个字节都不动）。
+    // **这一步必须排在碰 .partial 之前**：多实例同时在跑时，别人正在写的中转目录不该被我们搬走。
     if is_complete(&root) {
         return DataRootPlan {
             root: root.clone(),
@@ -1179,6 +1172,25 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
         };
     }
 
+    // 上次搬到一半留下的中转目录、或者一份半成品目录，先挪开（**保留**）再重来。
+    // 只把「有内容的目录」和「挡路的文件」算半份 —— **空目录不算**（那只是还没导入过东西），
+    // 否则每次启动都会攒一个 .incomplete。
+    let partial = partial_root(&root);
+    let mut leftover: Option<PathBuf> = None;
+    let half_baked = root.exists() && (!root.is_dir() || dir_has_entries(&root));
+    if partial.is_dir() || half_baked {
+        let parked = parked_root(&root);
+        let from = if partial.is_dir() {
+            partial.clone()
+        } else {
+            root.clone()
+        };
+        if crate::platform::move_path(&from, &parked).is_ok() {
+            leftover = Some(parked);
+        }
+    }
+
+    // 该有的兜底：新根写不进去，或者根本没有旧数据可搬
     // 该有的兜底：新根写不进去，或者根本没有旧数据可搬
     let note_prefix = leftover
         .as_ref()

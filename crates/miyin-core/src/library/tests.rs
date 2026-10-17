@@ -2689,3 +2689,111 @@ fn a_file_blocking_the_new_root_falls_back() {
         "旧数据一个字节没动"
     );
 }
+
+/// S1（verifier 实测的真丢内容）：版本 id 里带点时，备份目录名**不许**把点当扩展名吃掉。
+/// `军械库2.4` 与 `军械库2.5` 同时选「用本地这份」，两份备份必须落在不同目录。
+#[test]
+fn superseded_backup_name_does_not_collide_on_dotted_ids() {
+    use std::collections::BTreeMap;
+
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(
+        &local,
+        "wol",
+        &[("军械库2.4", 999, 5), ("军械库2.5", 888, 5)],
+    );
+    seed_library(
+        &target,
+        "wol",
+        &[("军械库2.4", 100, 5), ("军械库2.5", 100, 5)],
+    );
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    assert_eq!(plan.conflicts.len(), 2, "两个都该是冲突");
+    let mut choices = BTreeMap::new();
+    choices.insert("wol/军械库2.4".to_string(), merge::MergeChoice::Local);
+    choices.insert("wol/军械库2.5".to_string(), merge::MergeChoice::Local);
+    let report = merge::apply(&target, &plan, &choices).expect("执行合并");
+
+    assert_eq!(report.superseded.len(), 2, "两份备份都得留着");
+    assert_ne!(
+        report.superseded[0], report.superseded[1],
+        "两个带点 id 的备份不能撞进同一个目录"
+    );
+    for path in &report.superseded {
+        assert!(path.is_dir(), "{} 要在", path.display());
+        assert!(
+            path.join("a.txt").is_file(),
+            "{} 的内容要完整",
+            path.display()
+        );
+        assert!(
+            path.to_string_lossy().contains("军械库2."),
+            "名字里要保留完整的原 id：{}",
+            path.display()
+        );
+    }
+}
+
+/// S2：目标有**同名目录**但索引里没记录（索引坏过/丢过的典型状态）→ 算冲突，不许静默覆盖。
+#[test]
+fn a_same_named_dir_without_a_record_is_a_conflict() {
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(&local, "wol", &[("重名战役", 100, 3)]);
+    seed_library(&target, "wol", &[]);
+    // 目标盘上有目录、索引里没有 —— 直接搬会覆盖同名文件
+    std::fs::create_dir_all(target.join("campaigns").join("wol").join("重名战役"))
+        .expect("孤儿目录");
+    std::fs::write(
+        target
+            .join("campaigns")
+            .join("wol")
+            .join("重名战役")
+            .join("a.txt"),
+        b"TARGET",
+    )
+    .expect("孤儿内容");
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    assert!(plan.additions.is_empty(), "不许当成不冲突的加法");
+    assert_eq!(plan.conflicts.len(), 1, "要交给用户选");
+}
+
+/// S4：空目录不算「半份」—— 没导入过东西的新机器不该每次启动攒一个 .incomplete。
+#[test]
+fn an_empty_root_is_not_half_baked() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    let root = base.path().join("BLZ").join(super::DATA_DIR_NAME);
+    std::fs::create_dir_all(&root).expect("空的新根");
+
+    for _ in 0..3 {
+        let plan =
+            super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+        assert_eq!(plan.root, root, "空目录就该直接用");
+    }
+    assert!(
+        !base
+            .path()
+            .join("BLZ")
+            .join("miyin_launcher_data.incomplete")
+            .exists()
+    );
+    assert!(
+        !base
+            .path()
+            .join("BLZ")
+            .join("miyin_launcher_data.incomplete-1")
+            .exists()
+    );
+}
