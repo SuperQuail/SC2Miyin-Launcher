@@ -534,7 +534,9 @@ const demo: LauncherApi = {
   setInstallation: () => delay(demoInstallation),
   libraryRoot: () => delay(DEMO_LIBRARY_ROOT),
   listSlots: () => delay(demoslots.map((slot) => ({ ...slot }))),
-  mergeStatus: () => delay(demoMergeStatus()),
+  // 演示模式：假的合并案只在 ?merge=1 时给 —— 否则一进演示就被弹窗挡住，什么都看不见
+  mergeStatus: () =>
+    new URLSearchParams(location.search).has("merge") ? delay(demoMergeStatus()) : delay(null),
   mergeApply: (choices) =>
     delay(
       (() => {

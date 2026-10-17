@@ -4,6 +4,7 @@ import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
 import { Button, Choice, Field, Progress, Sheet, Toast, type ToastKind } from "../../ui";
+import { ToastCandidates } from "./toast-lab/ToastCandidates";
 
 /**
  * 开发者房间 · **用户侧**。
@@ -74,7 +75,10 @@ export function UserSidePage() {
 
   return (
     <>
-      <Card title="控件层 · Button" note="react/ui/Button —— 变体、尺寸、禁用态。">
+      <Card
+        title="控件层 · Button"
+        note="react/ui/Button —— 变体（primary / tonal / outline / text / danger）、尺寸、禁用态。"
+      >
         <div className="room__row">
           <span className="room__label">variant</span>
           <Button variant="primary">primary</Button>
@@ -94,7 +98,10 @@ export function UserSidePage() {
         </div>
       </Card>
 
-      <Card title="控件层 · Field" note="react/ui/Field —— 标签、提示、错误、整行。">
+      <Card
+        title="控件层 · Field"
+        note="react/ui/Field —— 标签、提示、错误、下拉，以及「标签左、值右」的属性行。"
+      >
         <div className="room__fields">
           <Field label="普通输入">
             <input type="text" value={demoText} onChange={(event) => setDemoText(event.target.value)} />
@@ -153,8 +160,8 @@ export function UserSidePage() {
       </Card>
 
       <Card
-        title="控件层 · Toast"
-        note="react/ui/Toast —— 四种语气、右下角滑入、淡出退场、自动消失倒计时条。点一次看一次动画。"
+        title="控件层 · Toast（现役那一版，别改）"
+        note="react/ui/Toast —— 生产在用的那个：四种语气、右下角滑入、淡出退场、自动消失倒计时条。这就是用户说「还是太奇怪了」的那条，摆在这里当对照。要换思路看下面那张卡。"
       >
         <div className="room__row">
           {(["success", "info", "warning", "error"] as ToastKind[]).map((kind) => (
@@ -171,7 +178,7 @@ export function UserSidePage() {
           ))}
         </div>
         <p className="room__card-note">
-          这就是右下角那条提示本身（举高到 9 秒，方便你看清倒计时条；生产里是 4.2 秒）。
+          点一次看一次动画 —— 举高到 9 秒只是方便你看清倒计时条，生产里是 4.2 秒。
         </p>
         {toastKind && (
           <Toast
@@ -183,6 +190,8 @@ export function UserSidePage() {
           />
         )}
       </Card>
+
+      <ToastCandidates />
 
       <Card
         title="控件层 · Sheet"

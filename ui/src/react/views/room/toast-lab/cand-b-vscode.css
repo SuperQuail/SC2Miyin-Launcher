@@ -1,0 +1,146 @@
+/* 候选 B · VS Code 通知卡片。颜色只走令牌。 */
+
+.vscnote {
+  position: fixed;
+  right: 20px;
+  top: 64px;
+  z-index: 63;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  width: 360px;
+  max-width: calc(100vw - 40px);
+  padding: 14px 14px 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 70%, transparent);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: vscnote-in 240ms var(--ease);
+}
+
+/* 语气色：只在 warning / error 时给一条左窄条，其余靠图标 —— VS Code 就是这么省的 */
+.vscnote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: transparent;
+}
+.vscnote--warning::before {
+  background: var(--warning);
+}
+.vscnote--error::before {
+  background: var(--danger);
+}
+
+.vscnote--out {
+  animation: vscnote-out 200ms ease-in forwards;
+}
+
+.vscnote__icon {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--accent);
+}
+.vscnote--success .vscnote__icon {
+  color: var(--success);
+}
+.vscnote--warning .vscnote__icon {
+  color: var(--warning);
+}
+.vscnote--error .vscnote__icon {
+  color: var(--danger);
+}
+
+.vscnote__body {
+  min-width: 0;
+}
+
+.vscnote__title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vscnote__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
+  overflow-wrap: anywhere;
+  /* 长文案折行，最多 3 行 —— VS Code 也截断 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.vscnote__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.vscnote__action {
+  padding: 5px 10px;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.vscnote__action:hover {
+  background: var(--accent-softer);
+}
+
+.vscnote__close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--on-surface-variant);
+}
+.vscnote__close:hover {
+  background: color-mix(in srgb, var(--on-surface) 10%, transparent);
+}
+.vscnote__close svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+@keyframes vscnote-in {
+  from {
+    opacity: 0;
+    translate: 24px 0;
+  }
+}
+@keyframes vscnote-out {
+  to {
+    opacity: 0;
+    translate: 24px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vscnote,
+  .vscnote--out {
+    animation-duration: 1ms;
+  }
+}

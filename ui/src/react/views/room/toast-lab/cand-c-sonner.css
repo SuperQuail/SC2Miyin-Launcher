@@ -1,0 +1,151 @@
+/* 候选 C · Sonner 式堆叠。栈底在左下角，往左上叠；颜色只走令牌。 */
+
+.sonnerstack {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 64;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  pointer-events: none;
+}
+
+.sonner {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 34px 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  animation: sonner-in 240ms var(--ease);
+}
+
+/* 叠在后面的那几条：压暗、缩一点，只露头和肩膀（sonner 的做法） */
+.sonner:not(:first-child) {
+  margin-top: -46px;
+  scale: 0.965;
+  opacity: 0.62;
+}
+.sonner:nth-child(n + 4) {
+  display: none;
+}
+
+.sonner--out {
+  animation: sonner-out 220ms ease-in forwards;
+}
+
+.sonner__icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--accent);
+}
+.sonner__icon--ok,
+.sonner--success .sonner__icon {
+  color: var(--success);
+}
+.sonner--warning .sonner__icon {
+  color: var(--warning);
+}
+.sonner--error .sonner__icon {
+  color: var(--danger);
+}
+
+.sonner__body {
+  min-width: 0;
+}
+
+.sonner__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sonner__text {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.sonner__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sonner__action {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-softer);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.sonner__action:hover {
+  background: var(--accent-soft);
+}
+
+.sonner__close {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--on-surface-variant);
+  opacity: 0.65;
+}
+.sonner__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--on-surface) 10%, transparent);
+}
+.sonner__close svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sonner {
+  position: relative;
+}
+
+@keyframes sonner-in {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+    scale: 0.97;
+  }
+}
+@keyframes sonner-out {
+  to {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sonner,
+  .sonner--out {
+    animation-duration: 1ms;
+  }
+}

@@ -1,0 +1,159 @@
+/* 候选 E · 右下角语气色卡。颜色只走令牌。 */
+
+.cornercard {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 66;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: cornercard-in 240ms var(--ease);
+}
+
+.cornercard--out {
+  animation: cornercard-out 200ms ease-in forwards;
+}
+
+/* 语气色不整块染卡片，收在图标徽章上 */
+.cornercard__badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cornercard--success .cornercard__badge {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.cornercard--warning .cornercard__badge {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.cornercard--error .cornercard__badge {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.cornercard__icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cornercard__body {
+  min-width: 0;
+  padding-right: 18px;
+}
+
+.cornercard__title {
+  margin: 0 0 3px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cornercard__text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.cornercard__action {
+  margin-top: 10px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.cornercard__action:hover {
+  background: var(--accent-hover);
+}
+
+.cornercard__close {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+}
+.cornercard__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--on-surface) 10%, transparent);
+}
+.cornercard__close svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* 可选的那条倒计时条 —— 生产版就是这个，留在这里当对照 */
+.cornercard__life {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent);
+  opacity: 0.5;
+  transform-origin: left;
+  animation: cornercard-life var(--cornercard-life, 8000ms) linear forwards;
+}
+
+@keyframes cornercard-in {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+    scale: 0.97;
+  }
+}
+@keyframes cornercard-out {
+  to {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+@keyframes cornercard-life {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cornercard,
+  .cornercard--out,
+  .cornercard__life {
+    animation-duration: 1ms;
+  }
+}
