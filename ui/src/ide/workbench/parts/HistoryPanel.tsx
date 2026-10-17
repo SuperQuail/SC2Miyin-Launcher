@@ -1,5 +1,6 @@
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
+import ScrollableSection from "@jetbrains/ring-ui-built/components/scrollable-section/scrollable-section";
 import Tag from "@jetbrains/ring-ui-built/components/tag/tag";
 
 import type { CommitRecord, HistoryDiff } from "../../api";
@@ -32,11 +33,13 @@ export type HistoryPanelProps = {
   message: string;
   onMessage: (value: string) => void;
   onSubmit: () => void;
+  /** 提交是 IPC 往返 —— 按钮转 loader */
+  submitting: boolean;
   logPicked: number | null;
   pendingDiff: HistoryDiff | null;
   onPickWorktree: () => void;
   onPick: (item: CommitRecord, previous: CommitRecord | undefined) => void;
-  onContextMenu: (item: CommitRecord, x: number, y: number) => void;
+  onContextMenu: (item: CommitRecord, event: { clientX: number; clientY: number }) => void;
   onApply: (item: CommitRecord) => void;
 };
 
@@ -55,6 +58,7 @@ export function HistoryPanel({
   message,
   onMessage,
   onSubmit,
+  submitting,
   logPicked,
   pendingDiff,
   onPickWorktree,
@@ -77,12 +81,17 @@ export function HistoryPanel({
             onChange={(event) => onMessage(event.target.value)}
             placeholder="这次改了什么"
           />
-          <Button disabled={!pkg.trim() || picked.length === 0 || !message.trim()} onClick={onSubmit}>
-            提交
+          <Button
+            loader={submitting}
+            disabled={!pkg.trim() || picked.length === 0 || !message.trim()}
+            onClick={onSubmit}
+          >
+            {submitting ? "提交中…" : "提交"}
           </Button>
         </span>
       </header>
-      <div className="pbody pbody--flat logwrap">
+      {/* 日志区两边都能滚动：ScrollableSection 在滚出边界的那一侧加阴影线 */}
+      <ScrollableSection className="pbody pbody--flat logwrap">
         <ul className="tree">
           <li>
             <Button className="trow" onClick={onPickWorktree}>
@@ -100,7 +109,7 @@ export function HistoryPanel({
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onContextMenu(item, event.clientX, event.clientY);
+                onContextMenu(item, event);
               }}
             >
               <Button
@@ -162,7 +171,7 @@ export function HistoryPanel({
             })()
           )}
         </aside>
-      </div>
+      </ScrollableSection>
     </section>
   );
 }

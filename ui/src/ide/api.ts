@@ -214,6 +214,22 @@ export async function exportPackage(
   }
 }
 
+/**
+ * 关掉当前窗口。
+ *
+ * 动态 import：浏览器演示模式里没有 `@tauri-apps/api/window` 的那套能力，
+ * 静态 import 进来会让演示模式白屏。调用点也不该自己写 try/catch（AGENTS §18 的坑表里
+ * 「窗口按钮」那一条就是这么来的）。
+ */
+export async function closeWindow(): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().close();
+  } catch {
+    // 演示模式关不了窗，忽略
+  }
+}
+
 /** 删掉一条提交记录（只删记录，不动任何文件）。 */
 export async function forgetCommit(pkg: string, id: number): Promise<CommitRecord[]> {
   if (!isDesktop) return [];

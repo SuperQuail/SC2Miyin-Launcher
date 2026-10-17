@@ -25,20 +25,36 @@ body {
 .tb {
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* 组与组之间的间隔比组内宽一点：ButtonToolbar 自己只给组内间距 */
+  gap: 10px;
   height: 36px;
   padding-left: 8px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
 }
-.tsep {
-  width: 1px;
-  height: 18px;
-  margin: 0 5px;
-  background: var(--line);
+/* Ring UI 的按钮工具栏是 inline-block + font-size:0（靠字距排版）——
+   这里改成 flex，免得它自动换行，也让按钮在 36px 的行里垂直居中 */
+.tb > .ring-button-toolbar-buttonToolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  /* 库给它 font-size:0（为了消掉按钮之间的空白），按钮里的字得自己捡回来 */
+  font: inherit;
+  line-height: normal;
 }
 .tspacer {
   flex: 1;
+}
+/* 带图标的 Ring UI Button 会挂 .ring-button-inline（这本来是给正文里的文字链用的：
+   display:inline + padding:0），放进弹性容器里图标和文字就断开成两行。工具栏要的是
+   "图标 + 文字"的标准按钮，这里把它掰回来（也顺手改回正文色 —— 文字链才是蓝的） */
+.tb .ring-button-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 上下各 6px 撑出手搓那版 28px 的按钮高度（inline 这份自带 padding:0） */
+  padding: 6px 8px;
+  color: var(--on-surface);
 }
 .tsearch {
   width: 180px;
@@ -164,8 +180,25 @@ body {
   overflow: auto;
   padding: 6px 8px;
 }
+/* 内容自带滚动的面板（文件树 / 代码预览）：这里只当布局行，滚动的名分让给里层的
+   ScrollableSection —— 它要在自己身上看到溢出才会画那条阴影边 */
 .pbody--flat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0;
+}
+.pbody--flat > * {
+  flex: 1;
+  min-height: 0;
+}
+/* 树行跟着父级伸缩会被拉成一路等高的横条（文件看着"飞散了"），所以两轴都别伸 */
+.pbody--flat .tnode {
+  flex: none;
+}
+/* 空状态用（编辑器中间那两句提示）*/
+.fill {
+  min-height: 0;
 }
 .status {
   display: flex;
@@ -210,8 +243,20 @@ body {
   align-items: center;
   gap: 4px;
 }
+/* 关闭是 span（标签本身已经是 button，不能再套）；这里给它按钮的判定区与悬停反馈 */
 .doctab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
   height: 18px;
+  border-radius: 3px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+.doctab__close:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
 }
 
 /* ---------- 文本 / 二进制 / 图片 ---------- */
@@ -404,7 +449,7 @@ body {
   white-space: nowrap;
 }
 
-/* ---------- 包信息表单 ---------- */
+/* ---------- 包信息表单（标签用 Ring UI ControlLabel，见 parts/MetaPane.tsx） ---------- */
 .field {
   display: flex;
   align-items: center;
@@ -412,13 +457,17 @@ body {
   margin-bottom: 7px;
   font-size: 12px;
 }
-.field > span {
+/* ControlLabel 默认是 block + 下边距（竖排表单用的），这里横排，两个都不要 */
+.field__label {
   flex: none;
   width: 62px;
-  color: var(--on-surface-variant);
+  margin-bottom: 0;
 }
 .field--full {
   align-items: flex-start;
+}
+.field--full > .field__label {
+  padding-top: 3px;
 }
 .field__ctl {
   flex: 1 1 auto;
@@ -448,8 +497,10 @@ body {
 .commitmsg {
   width: 180px;
 }
+/* 左列表 + 右详情：横向排，父级现在是 flex 列（pbody--flat）*/
 .logwrap {
   display: flex;
+  flex-direction: row;
 }
 .tree {
   list-style: none;
@@ -550,60 +601,33 @@ body {
   color: var(--on-surface-variant);
 }
 
-/* ---------- 右键菜单（空白处 / 文件行 / 提交记录共用） ---------- */
+/* ---------- 右键菜单（空白处 / 文件行 / 提交记录共用，见 parts/MenuLayer.tsx） ---------- */
+/* 定位用的隐形锚点：PopupMenu 需要一个真实元素当参照物，它就是那个"落点" */
+.ctxanchor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+/* 默认菜单比手搓那版窄，长菜单项（"应用这一版（勾选 + 包信息）"）会折行 */
 .ctx {
-  position: fixed;
-  z-index: 40;
   min-width: 168px;
-  padding: 4px;
-  border: 1px solid var(--outline);
-  border-radius: 6px;
-  background: var(--surface-2);
-  box-shadow: var(--shadow-2);
 }
-/* 菜单项是 Ring UI 的 Button —— 这里把它压成菜单行的样子 */
-.ctx__item {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 4px;
-  box-shadow: none;
-  background: transparent;
-  color: var(--on-surface);
+/* 菜单行用页面的字号，库默认的 14px 在这张密集的界面里偏大 */
+.ctx .ring-list-item {
   font-size: 12.5px;
-  font-family: inherit;
-  text-align: left;
 }
-.ctx__item:hover {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.ctx__item--danger {
+/* 危险项：库没有 danger 变体，靠菜单项自己带的类名上色 */
+.ctx .ctx__item--danger {
   color: var(--danger);
 }
-.ctx__item--danger:hover {
+.ctx .ctx__item--danger.ring-list-item_active {
   background: var(--danger-soft);
   color: var(--danger);
 }
 
-/* ---------- 打包没完就想走 ---------- */
-.guard {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.45);
-}
-.guard__card {
-  width: 380px;
-  padding: 18px 20px;
-  border: 1px solid var(--outline);
-  border-radius: 8px;
-  background: var(--surface-2);
-  box-shadow: var(--shadow-3);
-}
+/* ---------- 打包没完就想走（Ring UI Dialog，见 parts/LeaveGuard.tsx） ---------- */
 .guard__title {
   margin: 0 0 8px;
   font-size: 14px;
@@ -683,8 +707,29 @@ body {
 .gbar {
   width: 160px;
 }
+/* ButtonToolbar 在展台里也得能看见字：库的 font-size:0 会连按钮里的文字一起吃掉
+   （生产页面的 .tb 里有一份同样的收口，两处各自就近说明） */
+.grow .ring-button-toolbar-buttonToolbar {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  line-height: normal;
+}
 /* 展台里演示标签溢出：故意收窄，让 5 个标签折成「更多」 */
 .gdoctabs {
   width: 420px;
   max-width: 100%;
+}
+/* Message 是个弹层（脱离文档流），给它一个定位容器才看得出它落在哪 */
+.gmsgbox {
+  position: relative;
+  min-height: 96px;
+}
+/* 展台里演示 ScrollableSection 的阴影边：故意限高 */
+.gscroll {
+  height: 96px;
+  padding: 6px 8px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  font-size: 12px;
 }

@@ -19,12 +19,14 @@ export type FileTreeProps = {
   /** 每个节点"勾了它等于勾了哪些路径"—— 在 Workbench 里预计算好了 */
   selections: Map<string, string[]>;
   pickedBytes: number;
+  /** 正在重新扫描 —— 刷新按钮转 loader */
+  scanning: boolean;
   onRefresh: () => void;
   onToggleExpand: (path: string) => void;
   onToggleNode: (node: TreeNode) => void;
   onToggleFile: (path: string) => void;
   onOpen: (entry: DevEntry) => void;
-  onContextMenu: (node: TreeNode, x: number, y: number) => void;
+  onContextMenu: (node: TreeNode, event: { clientX: number; clientY: number }) => void;
 };
 
 /** 左栏：游戏目录的文件树（勾选 / 展开 / 打开 / 右键）。 */
@@ -36,6 +38,7 @@ export function FileTree({
   search,
   selections,
   pickedBytes,
+  scanning,
   onRefresh,
   onToggleExpand,
   onToggleNode,
@@ -64,7 +67,7 @@ export function FileTree({
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onContextMenu(node, event.clientX, event.clientY);
+            onContextMenu(node, event);
           }}
         >
           {isDir && node.children.length > 0 ? (
@@ -130,15 +133,18 @@ export function FileTree({
         <span className="ptitle">游戏目录</span>
         <span className="psub">勾 {picked.length} 项 · {formatBytes(pickedBytes) || "0 B"}</span>
         <span className="ptools">
-          <Button onClick={onRefresh}>刷新</Button>
+          <Button loader={scanning} onClick={onRefresh}>刷新</Button>
         </span>
       </header>
       <div className="pbody pbody--flat">
         {tree.length === 0 ? (
-          <p className="empty">
-            还没有内容。<br />
-            先确认设置页里指定了星际争霸 II 的安装目录，或者点上面「添加目录…」加一个进来。
-          </p>
+          /* 空状态：一句话 + 一个 Ring UI Button。不用 Message —— 那是个带尾巴的气泡弹层，
+             摆在这儿会浮到隔壁面板上去 */
+          <div className="empty">
+            <p>还没有内容。</p>
+            <p>先确认设置页里指定了星际争霸 II 的安装目录，或者点上面「添加目录…」加一个进来。</p>
+            <Button loader={scanning} onClick={onRefresh}>重新扫描</Button>
+          </div>
         ) : (
           tree.map((node) => renderNode(node, 0))
         )}
