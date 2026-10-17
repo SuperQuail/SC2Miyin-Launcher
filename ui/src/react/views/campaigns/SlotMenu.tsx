@@ -390,6 +390,7 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
               active={slot.active === null}
               selected={selected === null}
               onPick={() => setSelected(null)}
+              onActivate={() => void host.activate(slot.slug, null)}
               onDrop={() => undefined}
               onMenu={(event) => showVariantMenu(event, null)}
             />
@@ -402,6 +403,7 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
               active={slot.active === item.id}
               selected={selected === item.id}
               onPick={() => pickVariant(item.id)}
+              onActivate={() => void host.activate(slot.slug, item.id)}
               onDrop={() => setConfirming(item)}
               onMenu={(event) => showVariantMenu(event, item)}
             />

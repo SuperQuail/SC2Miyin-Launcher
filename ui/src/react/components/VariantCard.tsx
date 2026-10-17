@@ -16,6 +16,7 @@ export function VariantCard({
   active,
   selected,
   onPick,
+  onActivate,
   onDrop,
   onMenu,
 }: {
@@ -25,6 +26,8 @@ export function VariantCard({
   active: boolean;
   selected: boolean;
   onPick: () => void;
+  /** 双击：直接启用这一份（已经启用的就不重复动作）。 */
+  onActivate: () => void;
   onDrop: () => void;
   onMenu: (event: ReactMouseEvent) => void;
 }) {
@@ -68,13 +71,17 @@ export function VariantCard({
       role="button"
       tabIndex={0}
       onClick={onPick}
+      onDoubleClick={() => {
+        if (!active) onActivate();
+      }}
       onKeyDown={(event) => event.key === "Enter" && onPick()}
       onContextMenu={onMenu}
     >
       <div className="variant__cover" style={coverStyle}>
         <div className="variant__scrim" />
 
-        {selected && <span className="variant__check">✓</span>}
+        {/* 勾表示**已启用**，不表示"选中" —— 选中的样子靠卡片边框（.variant--selected） */}
+        {active && <span className="variant__check">✓</span>}
         {isVanilla ? (
           <span className="variant__badge variant__badge--left">原版</span>
         ) : (

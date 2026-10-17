@@ -214,6 +214,7 @@ export function CustomView(host: CustomHost) {
                 active={customSlot.active === item.id}
                 selected={opened === item.id}
                 onPick={() => setOpened(item.id)}
+                onActivate={() => void host.activate(customSlot.slug, item.id)}
                 onDrop={() => setConfirming(item)}
                 onMenu={(event) => showVariantMenu(event, item)}
               />

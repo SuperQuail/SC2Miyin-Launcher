@@ -163,8 +163,8 @@ export function useShellEffects(): { dragging: boolean } {
               setDragging(false);
               const path = payload.paths[0];
               if (!path) return;
-              // 拖到哪个页面都行：切回战役页，交给它去预检
-              latest.current.nav.setView("campaigns");
+              // 拖到哪个页面都行：直接进安装页 —— 以前是切回战役页，人在别处拖完还得自己退回去看
+              latest.current.nav.setView("install");
               latest.current.library.setDroppedPackage(path);
             }
           })

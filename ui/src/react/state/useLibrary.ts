@@ -42,6 +42,29 @@ export interface LibraryApi {
   launch: () => Promise<void>;
 }
 
+/** 已经跟他确认过"会改动哪些文件"的战役（每个战役只提示一次）。 */
+const ACK_KEY = "miyin.activationAcknowledged";
+
+function acknowledgedSlots(): string[] {
+  try {
+    const raw = localStorage.getItem(ACK_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    // 读不出来就当没记过 —— 多提示一次，总比静默改文件强
+    return [];
+  }
+}
+
+function rememberAcknowledged(slot: string): void {
+  try {
+    const list = acknowledgedSlots();
+    if (!list.includes(slot)) localStorage.setItem(ACK_KEY, JSON.stringify([...list, slot]));
+  } catch {
+    // 存不下就每次都提示，功能不受影响
+  }
+}
+
 export function useLibrary(options: LibraryOptions): LibraryApi {
   const { notify, busy, setLoading } = options;
   const [slots, setSlots] = useState<SlotView[]>([]);
@@ -84,6 +107,11 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
   /**
    * 请求启用 —— **先算预演，再让用户点头**。
    *
+   * **每个战役只提示一次**：预演说的是"这个包会往游戏目录里放什么"，同一个战役的
+   * 第二次启用基本是同一份清单，每次都拦一下只会烦人。承认过一次就记下来（见
+   * `acknowledgedSlots`），之后直接启用 —— 想看清单还有预检那一步。
+   *
+   *
    * 写盘闸门放开到「安装目录里任意位置」之后，这是唯一一眼：
    * 会新增什么、覆盖什么（覆盖前会备份）、把谁的东西接管过来、删掉什么。
    * 切回原版不拦（那只是撤下我们装的东西）。
@@ -91,6 +119,8 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
   const requestActivation = useCallback(
     (slot: string, variantId: string | null) => {
       if (variantId === null) return activate(slot, null);
+      // 这个战役已经点头过一次了，别再拦
+      if (acknowledgedSlots().includes(slot)) return activate(slot, variantId);
       return busy(async () => {
         try {
           const preview = await api.previewActivation(slot, variantId);
@@ -115,6 +145,7 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
 
   const confirmActivation = useCallback(async () => {
     if (!pendingActivation) return false;
+    rememberAcknowledged(pendingActivation.slot);
     setPendingActivation(null);
     return activate(pendingActivation.slot, pendingActivation.variantId);
   }, [activate, pendingActivation]);

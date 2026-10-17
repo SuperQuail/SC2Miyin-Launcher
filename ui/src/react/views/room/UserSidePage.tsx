@@ -217,6 +217,7 @@ export function UserSidePage() {
             active={false}
             selected={false}
             onPick={() => setDismissed("")}
+            onActivate={() => setDismissed("")}
             onDrop={() => setDismissed("")}
             onMenu={() => setDismissed("")}
           />
@@ -226,6 +227,7 @@ export function UserSidePage() {
             active
             selected
             onPick={() => setDismissed("")}
+            onActivate={() => setDismissed("")}
             onDrop={() => setDismissed("")}
             onMenu={() => setDismissed("")}
           />

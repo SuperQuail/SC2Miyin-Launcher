@@ -9,6 +9,7 @@ import { CampaignsView } from "../views/campaigns/CampaignsView";
 import type { CampaignsHost } from "../views/campaigns/host";
 import { CheatsView } from "../views/cheats/CheatsView";
 import { CustomView } from "../views/custom/CustomView";
+import { InstallView } from "../views/install/InstallView";
 import type { CustomHost } from "../views/custom/host";
 import { ModsView } from "../views/mods/ModsView";
 import type { ModsHost } from "../views/mods/useMods";
@@ -73,6 +74,7 @@ export function AppShell() {
     cancelActivation: app.library.cancelActivation,
     openCheats: app.nav.openCheats,
     openSettings: () => app.nav.setView("settings"),
+    openInstall: () => app.nav.setView("install"),
   };
 
   const customHost: CustomHost = {
@@ -170,6 +172,20 @@ export function AppShell() {
           // 切页时淡入上移，免得页面像被"啪"地换掉
           <div className="view" key={view}>
             {view === "campaigns" && <CampaignsView {...campaignsHost} />}
+            {view === "install" && (
+              <InstallView
+                slots={app.library.slots}
+                droppedPackage={app.library.droppedPackage}
+                consumeDropped={() => app.library.setDroppedPackage(null)}
+                notify={app.notify}
+                onBack={() => app.nav.setView("campaigns")}
+                onInstalled={(slug) => {
+                  void app.library.refresh();
+                  app.nav.setView("campaigns");
+                  void slug;
+                }}
+              />
+            )}
             {view === "custom" && <CustomView {...customHost} />}
             {view === "mods" && <ModsView {...modsHost} />}
             {view === "settings" && <SettingsView {...settingsProps} />}

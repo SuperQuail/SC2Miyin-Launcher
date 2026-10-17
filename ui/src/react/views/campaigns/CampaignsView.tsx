@@ -39,7 +39,7 @@ export function CampaignsView(host: CampaignsHost) {
         { id: "settings", label: "设置" },
       ],
       (id) => {
-        if (id === "import") startImport("import");
+        if (id === "import") host.openInstall();
         if (id === "reload") host.refresh();
         if (id === "cheats") host.openCheats();
         if (id === "settings") host.openSettings();
@@ -167,7 +167,7 @@ export function CampaignsView(host: CampaignsHost) {
                   className="btn btn-primary"
                   type="button"
                   disabled={view.busy !== null}
-                  onClick={() => startImport("import")}
+                  onClick={() => host.openInstall()}
                 >
                   ＋ 导入战役包
                 </button>
