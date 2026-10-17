@@ -1,16 +1,16 @@
 
-/* ---------- 拖动排序（views/campaigns/useSlotOrder + DraggableSlotCard）---------- */
+/* ---------- 版本卡片的拖动排序（useVariantOrder + SortableCard）---------- */
 
 .sortable {
   display: flex;
   min-width: 0;
 }
 
-.sortable > .slot {
+.sortable > * {
   flex: 1;
 }
 
-.sortable:focus-visible {
+.sortable:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: var(--radius-lg);
@@ -21,17 +21,17 @@
   opacity: 0.4;
 }
 
-.sortable--dragging > .slot,
-.sortable--dragging > .slot:hover {
+.sortable--dragging > *,
+.sortable--dragging > *:hover {
   transform: none;
   box-shadow: var(--shadow-2);
 }
 
 /* 落点：贴着卡片左/右边一条竖线 */
-.sortable--drop-before > .slot {
+.sortable--drop-before > * {
   box-shadow: -3px 0 0 0 var(--accent), var(--shadow-2);
 }
 
-.sortable--drop-after > .slot {
+.sortable--drop-after > * {
   box-shadow: 3px 0 0 0 var(--accent), var(--shadow-2);
 }

@@ -2,12 +2,10 @@ import { type MouseEvent as ReactMouseEvent } from "react";
 
 import { MIYIN } from "../../../api/art";
 import { SlotMenu } from "./SlotMenu";
-import { DraggableSlotCard } from "./DraggableSlotCard";
+import { SlotCard } from "../../components/SlotCard";
 import { findSlot, officialSlots, useCampaigns } from "./useCampaigns";
-import { useSlotOrder } from "./useSlotOrder";
 import { regionLabel, type CampaignsHost } from "./host";
 import "./campaigns.css";
-import "./sortable.css";
 
 /**
  * 战役列表页（React 版，从 `views/CampaignsView.vue` 整块迁过来）。
@@ -53,9 +51,8 @@ export function CampaignsView(host: CampaignsHost) {
     );
   }
 
+  // 顺序固定（AGENTS §14.2：由 CampaignType.MENU 定，不许改）—— 官方四张不参与拖动排序
   const official = officialSlots(host.slots);
-  // 卡片顺序：固定顺序打底，用户拖过的按存的顺序排前面（见 lib/slotOrder.ts）
-  const order = useSlotOrder(official);
   const modCount = host.slots.reduce((total, slot) => total + slot.variants.length, 0);
   const activeCount = host.slots.filter((slot) => slot.active !== null).length;
 
@@ -172,27 +169,9 @@ export function CampaignsView(host: CampaignsHost) {
             </p>
 
 
-            {/* 整块 grid 也是落点：卡片之间的缝里松手同样算数（卡片自己处理过的不重复处理） */}
-            <div
-              className="grid"
-              onDragOver={(event) => {
-                if (event.target === event.currentTarget) order.dragOver(event, event.currentTarget);
-              }}
-              onDrop={(event) => {
-                if (event.target === event.currentTarget) order.dropAt(event, event.currentTarget);
-              }}
-            >
-              {order.slots.map((slot) => (
-                <DraggableSlotCard
-                  key={slot.slug}
-                  slot={slot}
-                  dragging={order.dragging}
-                  dropMark={order.dropMark}
-                  onDragState={order.setDragging}
-                  onDragOver={order.dragOver}
-                  onDrop={order.dropAt}
-                  onOpen={view.setOpened}
-                />
+            <div className="grid">
+              {official.map((slot) => (
+                <SlotCard key={slot.slug} slot={slot} onOpen={view.setOpened} />
               ))}
             </div>
           </>
