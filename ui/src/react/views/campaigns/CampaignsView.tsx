@@ -1,7 +1,6 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type MouseEvent as ReactMouseEvent } from "react";
 
 import { MIYIN } from "../../../api/art";
-import { ImportDialog } from "./ImportDialog";
 import { SlotMenu } from "./SlotMenu";
 import { SlotCard } from "../../components/SlotCard";
 import { findSlot, officialSlots, useCampaigns } from "./useCampaigns";
@@ -16,17 +15,7 @@ import "./campaigns.css";
  */
 export function CampaignsView(host: CampaignsHost) {
   const view = useCampaigns(host);
-  const [importNonce, setImportNonce] = useState(0);
-  /** 导入对话框在不在跑（核对 / 处理中），用来禁用那两个入口按钮。 */
-  const [importBusy, setImportBusy] = useState(false);
-
   const openSlot = findSlot(host.slots, view.opened);
-
-  /** 导入还是更新 —— 两个按钮共用同一个对话框。 */
-  function startImport(mode: "import" | "update"): void {
-    view.setImportMode(mode);
-    setImportNonce((value) => value + 1);
-  }
 
   /** 页面空白处的右键菜单。 */
   function showPageMenu(event: ReactMouseEvent): void {
@@ -158,8 +147,7 @@ export function CampaignsView(host: CampaignsHost) {
                 <button
                   className="btn btn-outline"
                   type="button"
-                  disabled={importBusy}
-                  onClick={() => startImport("update")}
+                  onClick={() => host.openInstall()}
                 >
                   更新战役包…
                 </button>
@@ -179,18 +167,6 @@ export function CampaignsView(host: CampaignsHost) {
               点开可以导入并切换不同玩家制作的版本，多个版本同时保留、互不覆盖。
             </p>
 
-            <ImportDialog
-              entry="campaign"
-              mode={view.importMode}
-              importNonce={importNonce}
-              slots={host.slots}
-              droppedPackage={host.droppedPackage}
-              consumeDropped={host.consumeDropped}
-              notify={host.notify}
-              refresh={host.refresh}
-              onImported={(slug) => view.setOpened(slug)}
-              onBusy={setImportBusy}
-            />
 
             <div className="grid">
               {official.map((slot) => (

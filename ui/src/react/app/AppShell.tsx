@@ -74,10 +74,11 @@ export function AppShell() {
     cancelActivation: app.library.cancelActivation,
     openCheats: app.nav.openCheats,
     openSettings: () => app.nav.setView("settings"),
-    openInstall: () => app.nav.setView("install"),
+    openInstall: () => app.nav.openInstall("campaign"),
   };
 
   const customHost: CustomHost = {
+    openInstall: () => app.nav.openInstall("custom"),
     slots: app.library.slots,
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
@@ -174,6 +175,7 @@ export function AppShell() {
             {view === "campaigns" && <CampaignsView {...campaignsHost} />}
             {view === "install" && (
               <InstallView
+                entry={app.nav.installEntry}
                 slots={app.library.slots}
                 droppedPackage={app.library.droppedPackage}
                 consumeDropped={() => app.library.setDroppedPackage(null)}

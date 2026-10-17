@@ -10,6 +10,8 @@ import type { SlotView } from "../../../api/types";
 import type { CampaignMenuItem } from "../campaigns/host";
 
 export interface CustomHost {
+  /** 进「安装整合包」页（自制战役版）。 */
+  openInstall: () => void;
   /** 全部槽位；这一页只取 slug 为 `custom` 的那个。 */
   slots: SlotView[];
   /** 库根目录（复制版本目录路径用）。 */

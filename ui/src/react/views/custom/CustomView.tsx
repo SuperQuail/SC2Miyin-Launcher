@@ -9,7 +9,6 @@ import { copyText } from "../../lib/clipboard";
 import { Button, Sheet } from "../../ui";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
 import { variantPath } from "../campaigns/host";
-import { ImportDialog } from "../campaigns/ImportDialog";
 import type { CustomHost } from "./host";
 import "./custom.css";
 
@@ -25,9 +24,6 @@ import "./custom.css";
  */
 export function CustomView(host: CustomHost) {
   /** 导入按钮的"该开文件对话框了"信号；每次 +1。 */
-  const [importNonce, setImportNonce] = useState(0);
-  /** 导入对话框的忙碌状态（用存在外壳的这份来禁用按钮和换文案）。 */
-  const [importing, setImporting] = useState(false);
   /** 正在看哪一部自制战役。 */
   const [opened, setOpened] = useState<string | null>(null);
   /** 正在读的说明文档。 */
@@ -44,12 +40,6 @@ export function CustomView(host: CustomHost) {
   const customSlot = host.slots.find((slot) => slot.slug === "custom") ?? null;
   const variants = customSlot?.variants ?? [];
   const openedVariant = variants.find((item) => item.id === opened) ?? null;
-
-  /** 导入完直接打开刚进来的那部。 */
-  function onImported(): void {
-    const newest = variants[0];
-    if (newest) setOpened(newest.id);
-  }
 
   /** 启用 / 停用某部自制战役。 */
   async function toggleActive(variant: Variant): Promise<void> {
@@ -135,7 +125,7 @@ export function CustomView(host: CustomHost) {
         { id: "reload", label: "重新读取" },
       ],
       (id) => {
-        if (id === "import") setImportNonce((value) => value + 1);
+        if (id === "import") host.openInstall();
         if (id === "cheats") host.openCheats();
         if (id === "reload") host.refresh();
       },
@@ -184,25 +174,13 @@ export function CustomView(host: CustomHost) {
             <button
               className="btn btn-primary"
               type="button"
-              disabled={importing}
-              onClick={() => setImportNonce((value) => value + 1)}
+              onClick={() => host.openInstall()}
             >
-              {importing ? "核对中…" : "＋ 导入战役包"}
+              ＋ 导入战役包
             </button>
           </div>
         </section>
 
-        <ImportDialog
-          entry="custom"
-          importNonce={importNonce}
-          slots={host.slots}
-          droppedPackage={null}
-          consumeDropped={() => undefined}
-          notify={host.notify}
-          refresh={host.refresh}
-          onImported={onImported}
-          onBusy={setImporting}
-        />
 
         {customSlot && variants.length > 0 ? (
           <div className="grid">

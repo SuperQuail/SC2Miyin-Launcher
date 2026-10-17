@@ -17,6 +17,7 @@ import "./install.css";
  * 所以人在哪个页签都不影响。
  */
 export function InstallView({
+  entry = "campaign",
   slots,
   droppedPackage,
   consumeDropped,
@@ -24,6 +25,8 @@ export function InstallView({
   onBack,
   onInstalled,
 }: {
+  /** 战役包还是自制战役包 —— 交给后端预检时按哪套规则认归属。 */
+  entry?: "campaign" | "custom";
   slots: SlotView[];
   droppedPackage: string | null;
   consumeDropped: () => void;
@@ -40,7 +43,7 @@ export function InstallView({
   async function inspect(path: string): Promise<void> {
     setBusy(true);
     try {
-      const result = await api.prepareImport(path, "campaign");
+      const result = await api.prepareImport(path, entry);
       setPreview(result);
       setTarget(result.slot ?? "");
       setMode("overwrite");
