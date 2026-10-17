@@ -25,8 +25,11 @@ const BLOCKED = new Set([
   "ctrl+=",
   "ctrl++",
   "ctrl+-", // 缩放
+  // 前进后退。**注意**：用户侧现在拿 Alt+←/→ 做战役卡片排序（views/campaigns/useSlotOrder.ts），
+  // 它是在 window 捕获阶段自己接的 —— 这里用 preventDefault + stopPropagation，同一节点上后注册的
+  // 监听仍会执行，所以排序能用。**别把这里改成 stopImmediatePropagation**，否则那个快捷键会变哑。
   "alt+arrowleft",
-  "alt+arrowright", // 前进后退
+  "alt+arrowright",
   "f12",
   "ctrl+shift+i",
   "ctrl+shift+j",

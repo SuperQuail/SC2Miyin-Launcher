@@ -1,0 +1,37 @@
+
+/* ---------- 拖动排序（views/campaigns/useSlotOrder + DraggableSlotCard）---------- */
+
+.sortable {
+  display: flex;
+  min-width: 0;
+}
+
+.sortable > .slot {
+  flex: 1;
+}
+
+.sortable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-lg);
+}
+
+/* 正在拖的那张：半透明，并压掉 hover 的上浮（拖动时不该还在"跳"） */
+.sortable--dragging {
+  opacity: 0.4;
+}
+
+.sortable--dragging > .slot,
+.sortable--dragging > .slot:hover {
+  transform: none;
+  box-shadow: var(--shadow-2);
+}
+
+/* 落点：贴着卡片左/右边一条竖线 */
+.sortable--drop-before > .slot {
+  box-shadow: -3px 0 0 0 var(--accent), var(--shadow-2);
+}
+
+.sortable--drop-after > .slot {
+  box-shadow: 3px 0 0 0 var(--accent), var(--shadow-2);
+}
