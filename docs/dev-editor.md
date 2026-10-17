@@ -118,10 +118,45 @@ foo.SC2Map（自制战役）           —                        （留在库�
 | `zod` / `yup` | 表单校验 | **不推荐**：校验规则在后端 `naming.rs`，前端再来一套必然打架 |
 | 状态库（redux / zustand） | — | **不推荐**：现有 context + hook 够用 |
 
+## 8.5 「更 JB 的体验」：用 Ring UI 已有的，不引新库
+
+**结论先说**：JetBrains 的 UI 库就是 **Ring UI**（`@jetbrains/ring-ui-built`，已装 7.0.130）——
+所以「更 JB」不是装新包，而是**把库里更 JB 的组件用起来**。
+
+| 已确认存在的 JB 包 | 是什么 | 我们 |
+| --- | --- | --- |
+| `@jetbrains/ring-ui-built` 7.0.130 | 官方 React 组件库（80+ 组件） | **已用**（19 种，还有 60+ 可用） |
+| `@jetbrains/icons` 5.23.4 | 官方图标集 | **已用** |
+| `@jetbrains/logos` 3.1.0 | 产品 logo（IntelliJ / WebStorm …） | 未用；页头想要产品味可加 |
+| `@jetbrains/eslint-config` 6.0.5 | 官方 lint 规则 | **不建议**：会引入整套 eslint 工具链，与现有门禁重复 |
+
+（`@jetbrains/foxtrot`、`@jetbrains/babel-preset` 在 npm 上**不存在**，别再找。）
+
+### 该用起来的 JB 组件（按本页的价值排）
+
+| 组件 | 用在哪 | 为什么更 JB |
+| --- | --- | --- |
+| `content-layout` + `header` / `footer` + `island` | 替换手搓的 `.pane` / `.pbar` / `.pbody` | IDEA 那种「面板岛」的骨架，边距与分隔线由库给 |
+| **`query-assist`** | 文件搜索框 | JB 的搜索式输入：`ext:SC2Map` 这类操作符、命中高亮、补全 —— 比裸 Input 强一个量级 |
+| **`shortcuts`** | 导出 / 提交 / 搜索的快捷键提示 | JB 的快捷键气泡；只写浏览器里能用的组合 |
+| `table` / `data-list` | 历史与提交列表 | 列宽、表头、密度由库管；现在是拿 ul/li 拼的 |
+| `editable-heading` | 包名 | 双击就地改名 —— JB 的重命名手势 |
+| `code` | 包内路径、元数据键名 | 行内等宽码样式 |
+| `markdown` | 包内说明文档预览 | JB 的 markdown 渲染，比 marked 更贴 IDE |
+| `alert` / `alert-service` / `confirm-service` | 提示与破坏性确认 | 状态栏之外的 JB 式通知 |
+| `collapse` / `group` / `grid` | 右栏表单分组 | JB 表单的分组与栅格 |
+| `banner` / `avatar` / `logos` | 页头（可选） | 产品味，不是必需 |
+
+### 落地注意
+
+- **浏览器不是 IDE**：Ctrl+W、Ctrl+Shift+… 会被浏览器 / webview 抢走 —— `shortcuts` 只写能用的组合。
+- `island` 自带内边距，工具页要紧凑就得覆盖 —— 按既有做法**就近写一行理由**。
+- 先换骨架（`content-layout` + `header`/`footer` + `island`），再逐块试 `query-assist` 与 `table`。
 ## 9. 分期
 
 - **P0**：工作区抽象（三来源）+ 落点预览（只读）—— **不加任何依赖**
 - **P1**：`overrides` 编辑 + metadata 生成向导
+- **P1.5**：JB 骨架 + `query-assist` 搜索 + `table` 历史
 - **P2**：压缩包另存 / 外部改动刷新（`notify`）/ 文本编辑（CodeMirror）
 - **P3**：PDF 预览 / 虚拟滚动（按真实包大小决定）
 
