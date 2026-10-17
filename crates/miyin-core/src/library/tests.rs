@@ -2797,3 +2797,46 @@ fn an_empty_root_is_not_half_baked() {
             .exists()
     );
 }
+
+/// N1（verifier 第三轮）：S2 那条「目标有目录、索引无记录」的冲突，用户选「用本地这份」之后，
+/// 搬进去的版本**必须进索引** —— 否则磁盘上有、界面上看不见，等于用户视角的丢。
+#[test]
+fn local_on_a_dir_without_a_record_still_lands_in_the_index() {
+    use std::collections::BTreeMap;
+
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(&local, "wol", &[("无记录战役", 78, 3)]);
+    seed_library(&target, "wol", &[]);
+    std::fs::create_dir_all(target.join("campaigns").join("wol").join("无记录战役"))
+        .expect("目标孤儿目录");
+    std::fs::write(
+        target
+            .join("campaigns")
+            .join("wol")
+            .join("无记录战役")
+            .join("a.txt"),
+        b"OLD",
+    )
+    .expect("孤儿内容");
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    assert_eq!(plan.conflicts.len(), 1, "这条该是冲突");
+    let mut choices = BTreeMap::new();
+    choices.insert("wol/无记录战役".to_string(), merge::MergeChoice::Local);
+    merge::apply(&target, &plan, &choices).expect("执行合并");
+
+    let ids: Vec<String> = crate::library::Library::new(&target)
+        .index()
+        .slots
+        .get("wol")
+        .map(|slot| slot.variants.iter().map(|item| item.id.clone()).collect())
+        .unwrap_or_default();
+    assert!(
+        ids.contains(&"无记录战役".to_string()),
+        "搬进去的版本必须在索引里：{ids:?}"
+    );
+}

@@ -190,13 +190,17 @@ pub fn apply(
                 report.superseded.push(backup);
             }
             crate::platform::move_path(&from, &to)?;
-            if let (Some(record), Some(slot)) = (record, index.slots.get_mut(&conflict.slot)) {
-                if let Some(item) = slot
+            // **有记录就替换、没有就补一条**。S2 那条分支恰恰是「目标有目录、索引里没记录」——
+            // 只替换不补的话，搬进去的版本会留在磁盘上、索引里却没有，界面上看不见（verifier 实测 N1）。
+            if let Some(record) = record {
+                let slot = index.slots.entry(conflict.slot.clone()).or_default();
+                match slot
                     .variants
                     .iter_mut()
                     .find(|item| item.id == conflict.variant)
                 {
-                    *item = record;
+                    Some(item) => *item = record,
+                    None => slot.variants.push(record),
                 }
             }
             report.replaced += 1;

@@ -74,7 +74,7 @@ export function MergeDialog({ status, choices, applying, onChoose, onApply, onLa
               <div className="merge__conflict" key={key}>
                 <p className="merge__name">{conflict.variant_name}</p>
                 <p className="merge__sizes">
-                  本地 {formatBytes(conflict.local_bytes)} · 游戏目录 {formatBytes(conflict.target_bytes)}
+                  本地 {formatBytes(conflict.local_bytes)} · 游戏目录 {conflict.target_bytes > 0 ? formatBytes(conflict.target_bytes) : "未知"}
                 </p>
                 <Choice
                   name={"merge-" + key}
