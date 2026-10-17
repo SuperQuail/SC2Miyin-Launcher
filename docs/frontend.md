@@ -42,6 +42,12 @@ ui/src/
 - 原来 Vue 的 `<style scoped>` 搬过来会变成全局 CSS，同名选择器打架。合并多份样式时按「首个定义优先」，
   并**用括号配对解析**（扁平正则会切开 `@keyframes`，报 Invalid empty selector）。
 
+## 预览草稿（`ui/src/preview/`）
+
+设计方案的渲染草稿放这里（gitignore 的），`?preview=<名字>` 打开，机制在 `AppShell.tsx` 的 `previewModules`。
+**`src/preview` 也会被类型检查**（tsconfig 的 include 是 `src/**/*.tsx` + `noUnusedLocals`）——
+草稿里有类型错误或未用变量会让 `pnpm -C ui build` **直接失败**。写草稿时就当它在生产代码里写。
+
 ## 控件规矩
 
 见 AGENTS §18.1：**控件先在开发者房间（`#room`）展示过，再上生产**。
