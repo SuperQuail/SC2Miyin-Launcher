@@ -23,7 +23,7 @@ use miyin_core::campaign::metadata::{CampaignType, PackageKind};
 use miyin_core::campaign::package::{PackageInspection, Payload, PayloadTarget, inspect};
 use miyin_core::library::compose::{Placement, payload_target_path};
 
-/// 参数错或读不了包。
+/// 参数错 / 路径不存在。
 const EXIT_USAGE: u8 = 2;
 /// 有 broken 级问题。
 const EXIT_BROKEN: u8 = 1;
@@ -53,7 +53,7 @@ const USAGE: &str = "\
 slug 取值：wol / hots / hotsevolution / lotv / lotvprologue / nova / custom
 ";
 
-/// 运行期错误：一律映射到退出码 2（参数错 / 读不了包）。
+/// 运行期错误：一律映射到退出码 2（参数错 / 路径不存在）。
 #[derive(Debug)]
 struct CliError(String);
 
