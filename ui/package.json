@@ -10,9 +10,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.5.2",
     "@jetbrains/icons": "^5.23.4",
     "@jetbrains/ring-ui-built": "^7.0.127",
+    "@tanstack/react-virtual": "^3.14.20",
     "@tauri-apps/api": "^2.12.1",
+    "codemirror": "^6.0.2",
     "dompurify": "^3.4.16",
     "marked": "^18.1.0",
     "pdfjs-dist": "^6.4.299",

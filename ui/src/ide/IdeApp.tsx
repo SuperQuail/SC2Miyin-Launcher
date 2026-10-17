@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Gallery } from "./gallery/Gallery";
+import { Spike } from "./spike/Spike";
 import { Workbench } from "./workbench/Workbench";
 
 /**
@@ -11,13 +12,14 @@ import { Workbench } from "./workbench/Workbench";
  * 也不会跑，浏览器演示模式里照样能看。
  */
 export function IdeApp() {
-  const [gallery, setGallery] = useState(() => location.hash === "#gallery");
+  const [route, setRoute] = useState(() => location.hash);
 
   useEffect(() => {
-    const sync = () => setGallery(location.hash === "#gallery");
+    const sync = () => setRoute(location.hash);
     addEventListener("hashchange", sync);
     return () => removeEventListener("hashchange", sync);
   }, []);
 
-  return gallery ? <Gallery /> : <Workbench />;
+  if (route === "#spike") return <Spike />;
+  return route === "#gallery" ? <Gallery /> : <Workbench />;
 }
