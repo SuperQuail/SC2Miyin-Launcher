@@ -1177,15 +1177,21 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
     // 否则每次启动都会攒一个 .incomplete。
     let partial = partial_root(&root);
     let mut leftover: Option<PathBuf> = None;
-    let half_baked = root.exists() && (!root.is_dir() || dir_has_entries(&root));
-    if partial.is_dir() || half_baked {
+
+    // 上次搬到一半留下的中转目录：**先接着把它改名叫上来** —— 里面装的可能是真数据
+    // （legacy -> .partial 成功了、.partial -> root 那一步失败时，旧目录已经不在，
+    // 数据全在中转目录里；当「半份」停掉就等于把用户的库晾在那儿）。
+    if partial.is_dir() && crate::platform::move_path(&partial, &root).is_err() {
         let parked = parked_root(&root);
-        let from = if partial.is_dir() {
-            partial.clone()
-        } else {
-            root.clone()
-        };
-        if crate::platform::move_path(&from, &parked).is_ok() {
+        if crate::platform::move_path(&partial, &parked).is_ok() {
+            leftover = Some(parked);
+        }
+    }
+
+    // 半成品目录（有内容但没有 library.json）也挪开 —— 空目录不算（那只是还没导入过东西）。
+    if root.exists() && (!root.is_dir() || (dir_has_entries(&root) && !is_complete(&root))) {
+        let parked = parked_root(&root);
+        if crate::platform::move_path(&root, &parked).is_ok() {
             leftover = Some(parked);
         }
     }

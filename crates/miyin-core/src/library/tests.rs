@@ -2840,3 +2840,70 @@ fn local_on_a_dir_without_a_record_still_lands_in_the_index() {
         "搬进去的版本必须在索引里：{ids:?}"
     );
 }
+
+/// 用户报的：迁移完成后**必须**把原来那份删掉，否则每次启动都会被当成「另一份数据」再合并一遍。
+#[test]
+fn migration_removes_the_legacy_dir_so_it_is_not_merged_twice() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(&legacy).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"{}").expect("旧索引");
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    let exe = exe_dir.join("miyin-launcher.exe");
+
+    let first = super::resolve_data_root(Some(&installation), &exe);
+    assert!(first.migrated, "{}", first.note);
+    assert!(!legacy.exists(), "迁完旧的必须不在：{}", first.note);
+
+    let second = super::resolve_data_root(Some(&installation), &exe);
+    assert!(
+        second.legacy.is_none(),
+        "第二次启动不该还惦记着旧数据，否则会反复合并"
+    );
+    assert!(!second.migrated);
+}
+
+/// 合并把本地那份都并干净之后，本地目录要被删掉（不然下次启动又弹一遍）。
+#[test]
+fn merge_removes_the_local_root_once_everything_is_merged() {
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(&local, "wol", &[("新战役", 100, 3)]);
+    seed_library(&target, "wol", &[]);
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    let report = merge::apply(&target, &plan, &Default::default()).expect("执行合并");
+    assert_eq!(report.added, 1);
+    assert!(report.removed_local, "并干净了就该把本地删掉");
+    assert!(!local.exists(), "本地那份应当已经不在了");
+}
+
+/// 反过来：本地还有没并的（用户选了「保持游戏目录那份」），本地目录**不许**删。
+#[test]
+fn merge_keeps_the_local_root_when_something_is_left_behind() {
+    use std::collections::BTreeMap;
+
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(&local, "wol", &[("留下的", 999, 3)]);
+    seed_library(&target, "wol", &[("留下的", 100, 3)]);
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    assert_eq!(plan.conflicts.len(), 1);
+    let mut choices = BTreeMap::new();
+    choices.insert("wol/留下的".to_string(), merge::MergeChoice::Target);
+    let report = merge::apply(&target, &plan, &choices).expect("执行合并");
+    assert!(!report.removed_local, "还有没并的就不许删本地");
+    assert!(
+        local.join("campaigns").join("wol").join("留下的").is_dir(),
+        "本地那份还在"
+    );
+}

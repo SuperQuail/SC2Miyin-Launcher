@@ -76,6 +76,8 @@ pub struct MergeReport {
     pub skipped_same: usize,
     /// 换掉的那份原来的位置（留着，确认没问题可以自己删）。
     pub superseded: Vec<PathBuf>,
+    /// 本地那份是不是已经整个删掉了（都并完了才删）。
+    pub removed_local: bool,
 }
 
 /// 算一份合并案。**只读**。
@@ -225,6 +227,13 @@ pub fn apply(
     }
 
     library.save_index(&index)?;
+
+    // 都并完了就把本地那份删掉 —— **留着它下次启动还会被当成「另一份数据」再问一遍**。
+    // 还有没并的（用户选了「保持游戏目录那份」，或者本地还有别的槽位/版本）就留着，别动。
+    if !local_has_versions(&plan.local) {
+        crate::platform::remove_path(&plan.local);
+        report.removed_local = true;
+    }
     Ok(report)
 }
 
@@ -250,6 +259,22 @@ fn superseded_name(dir: &Path) -> PathBuf {
         }
     }
     parent.join(format!("{name}.superseded-old"))
+}
+
+/// 本地那份里还有没有版本目录。空壳（campaigns/<槽位>/<版本> 一个都不剩）才算并干净。
+fn local_has_versions(root: &Path) -> bool {
+    let Ok(slots) = std::fs::read_dir(root.join("campaigns")) else {
+        return false;
+    };
+    for slot in slots.flatten() {
+        let Ok(variants) = std::fs::read_dir(slot.path()) else {
+            continue;
+        };
+        if variants.flatten().any(|item| item.path().is_dir()) {
+            return true;
+        }
+    }
+    false
 }
 
 fn version_dir(root: &Path, slot: &str, variant: &str) -> PathBuf {
