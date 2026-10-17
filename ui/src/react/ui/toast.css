@@ -1,0 +1,163 @@
+/* 右下角提示：入场/退场动画 + 倒计时条。颜色全走令牌。 */
+
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 260px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 12px 36px 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 38%), 0 0 0 1px color-mix(in srgb, var(--outline) 55%, transparent);
+  color: var(--on-surface);
+  overflow: hidden;
+  animation: toast-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1);
+  transform-origin: right bottom;
+}
+
+/* 左边缘那条语气色 —— 比整块染色克制，和 HMCL 的卡片语言一致 */
+.toast::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+
+.toast--success::before {
+  background: var(--success);
+}
+.toast--warning::before {
+  background: var(--warning);
+}
+.toast--error::before {
+  background: var(--danger);
+}
+
+.toast__icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--accent);
+}
+.toast--success .toast__icon {
+  color: var(--success);
+}
+.toast--warning .toast__icon {
+  color: var(--warning);
+}
+.toast--error .toast__icon {
+  color: var(--danger);
+}
+.toast__icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.toast__message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.toast__close {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+}
+.toast__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--on-surface) 10%, transparent);
+}
+.toast__close svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* 倒计时条：从满到空，时长和外壳的自动消失一致 */
+.toast__life {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent);
+  opacity: 0.45;
+  transform-origin: left;
+  animation: toast-life var(--toast-life, 4200ms) linear forwards;
+}
+.toast--success .toast__life {
+  background: var(--success);
+}
+.toast--warning .toast__life {
+  background: var(--warning);
+}
+.toast--error .toast__life {
+  background: var(--danger);
+}
+
+/* 退场：外壳先置 leaving，等动画放完再卸载 */
+.toast--leaving {
+  animation: toast-out 0.18s ease-in forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(16px, 8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes toast-life {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast--leaving,
+  .toast__life {
+    animation-duration: 1ms;
+  }
+}

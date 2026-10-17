@@ -2,3 +2,4 @@
 export { Button, type ButtonVariant } from "./Button";
 export { Field } from "./Field";
 export { Sheet } from "./Sheet";
+export { Toast, type ToastKind, type ToastProps } from "./Toast";

@@ -24,6 +24,8 @@ export interface AppState {
   isDesktop: boolean;
   notify: Notify;
   toast: Toast | null;
+  /** 关掉当前这条提示（✕ 按钮用） */
+  dismiss: () => void;
   /** 有没有会写盘的动作在跑。 */
   busy: boolean;
   /** 正在读战役库。 */
@@ -42,7 +44,7 @@ export interface AppState {
 const AppStateContext = createContext<AppState | null>(null);
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const { toast, notify } = useNotify();
+  const { toast, notify, dismiss } = useNotify();
   const { busy, run: runBusy } = useBusy();
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -70,6 +72,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     isDesktop,
     notify,
     toast,
+    dismiss,
     busy,
     loading,
     installation,

@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
-import { Button, Field, Sheet } from "../../ui";
+import { Button, Field, Sheet, Toast, type ToastKind } from "../../ui";
 
 /**
  * 开发者房间 · **用户侧**。
@@ -66,6 +66,9 @@ export function UserSidePage() {
   const [backdropSheet, setBackdropSheet] = useState(false);
   const [demoText, setDemoText] = useState("演示文本");
   const [dismissed, setDismissed] = useState("");
+  // Toast 演示：换 key 强制重播入场动画（同一条提示再点一次也要重播）
+  const [toastKind, setToastKind] = useState<ToastKind | null>("success");
+  const [toastTick, setToastTick] = useState(0);
 
   return (
     <>
@@ -110,6 +113,38 @@ export function UserSidePage() {
         <Field label="整行（wide）" wide hint="说明、备注这种长字段用它。">
           <textarea rows={2} defaultValue="" />
         </Field>
+      </Card>
+
+      <Card
+        title="控件层 · Toast"
+        note="react/ui/Toast —— 四种语气、右下角滑入、淡出退场、自动消失倒计时条。点一次看一次动画。"
+      >
+        <div className="room__row">
+          {(["success", "info", "warning", "error"] as ToastKind[]).map((kind) => (
+            <Button
+              key={kind}
+              variant={kind === "error" ? "danger" : "outline"}
+              onClick={() => {
+                setToastKind(kind);
+                setToastTick((tick) => tick + 1);
+              }}
+            >
+              {kind}
+            </Button>
+          ))}
+        </div>
+        <p className="room__card-note">
+          这就是右下角那条提示本身（举高到 9 秒，方便你看清倒计时条；生产里是 4.2 秒）。
+        </p>
+        {toastKind && (
+          <Toast
+            key={toastTick}
+            kind={toastKind}
+            message={"演示：" + toastKind + " 语气的提示，比如「已启用 Starcraft Mass Recall 8.0」"}
+            lifeMs={9000}
+            onClose={() => setToastKind(null)}
+          />
+        )}
       </Card>
 
       <Card

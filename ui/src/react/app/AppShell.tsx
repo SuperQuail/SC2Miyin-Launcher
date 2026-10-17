@@ -3,6 +3,8 @@ import { Suspense, lazy, type ComponentType } from "react";
 import { BACKDROP } from "../../api/art";
 import { showContextMenu } from "../lib/contextMenu";
 import { useAppState } from "../state/AppState";
+import { TOAST_MS } from "../state/useNotify";
+import { Toast } from "../ui";
 import { CampaignsView } from "../views/campaigns/CampaignsView";
 import type { CampaignsHost } from "../views/campaigns/host";
 import { CheatsView } from "../views/cheats/CheatsView";
@@ -176,7 +178,15 @@ export function AppShell() {
         )}
       </main>
 
-      {app.toast && <div className={"toast toast--" + app.toast.kind}>{app.toast.message}</div>}
+      {app.toast && (
+        <Toast
+          kind={app.toast.kind}
+          message={app.toast.message}
+          leaving={app.toast.leaving}
+          lifeMs={TOAST_MS}
+          onClose={app.dismiss}
+        />
+      )}
 
       {/* 作弊码：战役页 / 自制战役页的「小工具」里弹出来 */}
       {app.nav.cheatsOpen && <CheatsView notify={app.notify} onClose={app.nav.closeCheats} />}

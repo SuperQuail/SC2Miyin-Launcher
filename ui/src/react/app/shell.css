@@ -348,43 +348,7 @@
   color: var(--on-surface-variant);
 }
 
-/* ---------- 提示 ---------- */
 
-.toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 40;
-  max-width: 420px;
-  padding: 13px 18px;
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  color: var(--on-surface);
-  box-shadow: var(--shadow-3);
-  border-left: 4px solid var(--accent);
-  font-size: 13.5px;
-  animation: toast-in 0.18s var(--ease);
-}
-
-.toast--warning {
-  background: color-mix(in srgb, var(--warning, #b26a00) 92%, transparent);
-  color: #fff;
-}
-
-.toast--success {
-  border-left-color: var(--success);
-}
-
-.toast--error {
-  border-left-color: var(--danger);
-}
-
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-}
 
 /* ---------- 右键菜单 ---------- */
 
@@ -450,7 +414,6 @@
 @media (prefers-reduced-motion: reduce) {
   .update-badge,
   .view,
-  .toast,
   .ctx {
     animation: none;
   }
