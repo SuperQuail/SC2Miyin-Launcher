@@ -745,7 +745,18 @@ impl Library {
             return Vec::new();
         };
 
-        let mounted_list = effective_mounted_mods(&variant);
+        // **只有当前启用的版本**才算挂载：没启用的版本一个模组都没铺进游戏，
+        // 界面上也不该显示成已挂载 —— 否则用户会以为它在生效（issue 反馈的正是这个）。
+        let is_active = self
+            .index()
+            .slots
+            .get(slot_slug)
+            .is_some_and(|slot| slot.active.as_deref() == Some(variant_id));
+        let mounted_list = if is_active {
+            effective_mounted_mods(&variant)
+        } else {
+            Vec::new()
+        };
         group_mods(&variant.payloads, &mounted_list)
     }
 
@@ -764,7 +775,13 @@ impl Library {
             let is_custom = CampaignType::from_slug(slug).is_some_and(|kind| kind.is_custom());
 
             for variant in &slot.variants {
-                let mounted_list = effective_mounted_mods(variant);
+                // 同上：没启用的版本不显示成"挂载"
+                let is_active = slot.active.as_deref() == Some(variant.id.as_str());
+                let mounted_list = if is_active {
+                    effective_mounted_mods(variant)
+                } else {
+                    Vec::new()
+                };
                 let declared = &variant.declared_mods;
 
                 for entry in group_mods(&variant.payloads, &mounted_list) {

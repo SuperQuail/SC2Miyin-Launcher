@@ -1647,13 +1647,25 @@ fn reveal_path(path: String) -> Result<(), String> {
     reveal_in_file_manager(&target)
 }
 
-/// Windows：用资源管理器选中目标。
+/// Windows：打开这个目录，或者**在它的文件夹里选中它**。
+///
+/// 两种目标要分开处理 —— 这是踩过的坑：对**目录**用 `/select,` 只是"在父目录里选中它"，
+/// 而**没加引号**的路径会被 explorer 当成"要打开的文件"，参数解析失败时它干脆回落到
+/// **「文档」文件夹**（用户看到的正是"打开了文档页面"）。
 #[cfg(windows)]
 fn reveal_in_file_manager(target: &Path) -> Result<(), String> {
-    // explorer 对 /select 的路径比较挑剔，统一用反斜杠
-    let argument = format!("/select,{}", target.display());
-    std::process::Command::new("explorer")
-        .arg(argument)
+    let is_dir = target.is_dir();
+    // 统一反斜杠 + **外层带引号**：explorer 的 /select, 认这一种写法
+    let quoted = format!("\"{}\"", target.display());
+    let mut command = std::process::Command::new("explorer");
+    if is_dir {
+        // 目录：直接打开它（"打开游戏目录"要的就是这个）
+        command.arg(quoted.clone());
+    } else {
+        // 文件：在它所在的文件夹里选中它
+        command.arg(format!("/select,{quoted}"));
+    }
+    command
         .spawn()
         .map(|_| ())
         .map_err(|error| format!("无法打开资源管理器：{error}"))

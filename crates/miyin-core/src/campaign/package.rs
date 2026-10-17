@@ -949,10 +949,7 @@ pub fn inspect(path: &Path) -> Result<PackageInspection> {
         keys.dedup();
 
         for key in &keys {
-            let present = payloads.iter().any(|payload| {
-                crate::library::mod_identity(payload).is_some_and(|found| &found.key == key)
-            });
-            if !present {
+            if !declared_mod_present(&payloads, key) {
                 issues.push(
                     HealthIssue::warning(
                         "MOD_MISSING",
@@ -1169,10 +1166,46 @@ fn clean(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+/// 包里有没有这个模组。
+///
+/// **两边都要归一化**：声明侧已经过 `normalize_mod_key`（去掉 `.SC2Mod`），
+/// 而 `mod_identity` 的 key 是目录里的真名（可能带后缀）。直接 `==` 会误报
+/// 「元数据声明依赖模组 X，但包里没有它」—— issue #36。
+fn declared_mod_present(payloads: &[Payload], key: &str) -> bool {
+    // 传进来的 key 可能已经是归一化的（正常调用路径），也可能是作者手写的原始名字（测试/诊断用）——
+    // 两边都过一遍，这个函数才对调用方无害。
+    let wanted = crate::library::normalize_mod_key(key);
+    payloads.iter().any(|payload| {
+        crate::library::mod_identity(payload)
+            .is_some_and(|found| crate::library::normalize_mod_key(&found.key) == wanted)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// issue #36 的复现：声明侧不带 `.SC2Mod`、实际侧带，两边必须认定为同一个模组。
+    #[test]
+    fn declared_mod_without_suffix_matches_payload_with_suffix() {
+        let payload = |source: &str| Payload {
+            source: source.to_string(),
+            target: PayloadTarget::Mirror {
+                path: source.to_string(),
+            },
+            expanded: true,
+            is_mod: true,
+        };
+        let payloads = vec![payload("Mods/zeratul-zealot-kit.SC2Mod/Base.SC2Data/x")];
+
+        // 作者写的是去掉后缀的名字 —— 必须认
+        assert!(declared_mod_present(&payloads, "zeratul-zealot-kit"));
+        // 带前缀 / 带后缀也认
+        assert!(declared_mod_present(&payloads, "Mods/zeratul-zealot-kit"));
+        // 真的没有的仍然要报
+        assert!(!declared_mod_present(&payloads, "another-mod"));
+    }
 
     #[test]
     fn rejects_traversal_and_absolute_entry_names() {

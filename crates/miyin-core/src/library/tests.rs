@@ -1203,6 +1203,32 @@ fn mods_are_grouped_by_folder_not_by_file() {
     assert_eq!(rows[1].parts, 1);
     assert!(!rows[1].mounted);
 }
+/// 没启用的战役版本，它的模组不该显示成"已挂载"（用户反馈的互相污染）。
+#[test]
+fn inactive_variant_reports_no_mounted_mods() {
+    let fixture = fixture();
+    let path = build_zip(
+        fixture.work.path(),
+        "with-mod.zip",
+        &[
+            (
+                "Reborn/metadata.txt",
+                "title=带模组\nauthor=A\ncampaign=WOL\nversion=1.0\n",
+            ),
+            ("Reborn/maps/a.SC2Map", "stub"),
+            ("Reborn/Mods/Kit.SC2Mod/Base.SC2Data/x", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &path, "wol", ImportMode::Rename).expect("import");
+    let rows = fixture.library.variant_mods("wol", &variant.id);
+    assert!(!rows.is_empty(), "这个包里确实带了模组");
+    assert!(
+        rows.iter().all(|row| !row.mounted),
+        "没启用的版本不该显示成已挂载：{rows:?}"
+    );
+}
+
 #[test]
 fn mod_import_dedupes_and_picks_versions() {
     use crate::library::mods::{self, ModImportAction, ModImportMode};
