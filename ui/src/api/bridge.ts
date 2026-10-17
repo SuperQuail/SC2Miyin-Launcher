@@ -18,6 +18,10 @@ import type {
   UpdateResult,
   GameModEntry,
   LibraryMod,
+  MergeAddition,
+  MergeChoice,
+  MergeConflict,
+  MergeStatus,
   ModComparison,
   ModImport,
   ModPreview,
@@ -57,6 +61,8 @@ const desktop: LauncherApi = {
   setInstallation: (path) => invoke<Installation>("set_installation", { path }),
   libraryRoot: () => invoke<string>("library_root"),
   listSlots: () => invoke<SlotView[]>("list_slots"),
+  mergeStatus: () => invoke<MergeStatus | null>("merge_status"),
+  mergeApply: (choices) => invoke<void>("merge_apply", { choices }),
   inspectPackage: (path) => invoke<PackageInspection>("inspect_package", { path }),
   saveIsolation: () => invoke<SaveIsolation>("save_isolation"),
   setSaveIsolation: (enabled) => invoke<SaveIsolation>("set_save_isolation", { enabled }),
@@ -477,6 +483,46 @@ function demoMods(): ModEntry[] {
   }));
 }
 
+/** 演示模式：假装程序旁边那份 data 与游戏目录同级那份有重合，好让合并对话框能演一遍。 */
+const demoMergeLocal = "D:\\Code\\Rust\\HSCL\\target\\debug\\data";
+const demoMergeTarget = "D:\\Game\\BLZ\\miyin_launcher_data";
+/** 演示里已经选过的：选完就当它并完了，下次查状态不再出现。 */
+const demoMerged: Record<string, MergeChoice> = {};
+
+/** 演示模式的合并状态：没得并可并、或都已经并完了就返回 null。 */
+function demoMergeStatus(): MergeStatus | null {
+  const conflicts: MergeConflict[] = [
+    {
+      slot: "custom",
+      variant: "scmr-8",
+      variant_name: "Starcraft Mass Recall",
+      local_bytes: 1_414_700_000,
+      target_bytes: 1_406_900_000,
+    },
+    {
+      slot: "hots",
+      variant: "hots-evolution-091",
+      variant_name: "虫群之心：进化重制",
+      local_bytes: 760_000_000,
+      target_bytes: 812_000_000,
+    },
+  ].filter((conflict) => !(conflict.slot + "/" + conflict.variant in demoMerged));
+
+  const additions: MergeAddition[] = [
+    { slot: "wol", variant: "wol-reborn-150", variant_name: "自由之翼：重生 v1.5.0", bytes: 1_402_000_000 },
+    { slot: "lotv", variant: "lotv-scroll", variant_name: "虚空之遗：残卷", bytes: 412_000_000 },
+  ];
+
+  if (conflicts.length === 0 && additions.length === 0) return null;
+  return {
+    local: demoMergeLocal,
+    target: demoMergeTarget,
+    additions,
+    conflicts,
+    keep_target: ["active.json", "installed.json", "dev", "backup"],
+  };
+}
+
 function delay<T>(value: T, ms = 220): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
@@ -488,6 +534,14 @@ const demo: LauncherApi = {
   setInstallation: () => delay(demoInstallation),
   libraryRoot: () => delay(DEMO_LIBRARY_ROOT),
   listSlots: () => delay(demoslots.map((slot) => ({ ...slot }))),
+  mergeStatus: () => delay(demoMergeStatus()),
+  mergeApply: (choices) =>
+    delay(
+      (() => {
+        // 记下结果：下次查状态时这些冲突就算并完了
+        for (const [key, choice] of Object.entries(choices)) demoMerged[key] = choice;
+      })(),
+    ),
 
   inspectPackage: (path) =>
     delay({

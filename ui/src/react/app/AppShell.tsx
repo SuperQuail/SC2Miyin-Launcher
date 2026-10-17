@@ -10,6 +10,7 @@ import type { CampaignsHost } from "../views/campaigns/host";
 import { CheatsView } from "../views/cheats/CheatsView";
 import { CustomView } from "../views/custom/CustomView";
 import { InstallView } from "../views/install/InstallView";
+import { MergeDialog } from "../views/merge/MergeDialog";
 import type { CustomHost } from "../views/custom/host";
 import { ModsView } from "../views/mods/ModsView";
 import type { ModsHost } from "../views/mods/useMods";
@@ -203,6 +204,18 @@ export function AppShell() {
           leaving={app.toast.leaving}
           lifeMs={TOAST_MS}
           onClose={app.dismiss}
+        />
+      )}
+
+      {/* 启动时发现另一份 data：不冲突的后端直接并，冲突的在这里让用户选 */}
+      {app.merge.status && (
+        <MergeDialog
+          status={app.merge.status}
+          choices={app.merge.choices}
+          applying={app.merge.applying}
+          onChoose={app.merge.setChoice}
+          onApply={() => void app.merge.apply()}
+          onLater={app.merge.dismiss}
         />
       )}
 

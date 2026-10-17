@@ -4,6 +4,7 @@ import { isDesktop } from "../../api/bridge";
 import { useBusy } from "./useBusy";
 import { useInstallation, type InstallationApi } from "./useInstallation";
 import { useLibrary, type LibraryApi } from "./useLibrary";
+import { useMerge, type MergeApi } from "./useMerge";
 import { useNavigation, type NavigationApi } from "./useNavigation";
 import { useNotify, type Notify, type Toast } from "./useNotify";
 import { useSaves, type SavesApi } from "./useSaves";
@@ -32,6 +33,8 @@ export interface AppState {
   loading: boolean;
   installation: InstallationApi;
   library: LibraryApi;
+  /** 启动时的数据合并（本地那份 -> 游戏目录那份）。 */
+  merge: MergeApi;
   saves: SavesApi;
   update: UpdateApi;
   theme: ThemeApi;
@@ -63,6 +66,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     applySlots: library.setSlots,
   });
   const saves = useSaves({ notify, busy: runBusy, refreshLibrary: library.refresh });
+  const merge = useMerge({ notify });
 
   const openSettings = useCallback(() => nav.setView("settings"), [nav.setView]);
   const update = useUpdate({ notify, onOpenSettings: openSettings });
@@ -77,6 +81,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     loading,
     installation,
     library,
+    merge,
     saves,
     update,
     theme,

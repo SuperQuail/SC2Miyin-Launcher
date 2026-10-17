@@ -141,6 +141,8 @@ export function useShellEffects(): { dragging: boolean } {
 
     void latest.current.installation.bootstrap();
 
+    // 启动时先问一句"是不是还有另一份 data 要并"；排在更新检查前面，它更靠近数据安全
+    const mergeTimer = setTimeout(() => void latest.current.merge.check(), 600);
     // **启动就自动扫描更新**，不需要用户手点；稍微延后，别和启动时的战役库读取抢时间
     const updateTimer = setTimeout(() => void latest.current.update.autoCheckUpdate(), 1200);
     // 可选工具默认静默安装：排在更新检查后面 —— 那更要紧
@@ -184,6 +186,7 @@ export function useShellEffects(): { dragging: boolean } {
       cancelled = true;
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("contextmenu", onContextMenu);
+      clearTimeout(mergeTimer);
       clearTimeout(updateTimer);
       clearTimeout(toolsTimer);
       stopWatching?.();

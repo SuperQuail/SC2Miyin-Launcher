@@ -604,8 +604,44 @@ export interface ModComparison {
   semantic_note: string | null;
 }
 
+/** 合并时一个版本冲突的三条出路。 */
+export type MergeChoice = "target" | "local" | "both";
+
+/** 本地那份与游戏目录那份都有的同一个版本。 */
+export interface MergeConflict {
+  slot: string;
+  variant: string;
+  variant_name: string;
+  local_bytes: number;
+  target_bytes: number;
+}
+
+/** 不冲突、直接并进游戏目录那份的版本。 */
+export interface MergeAddition {
+  slot: string;
+  variant: string;
+  variant_name: string;
+  bytes: number;
+}
+
+/** 启动时发现的另一份数据。没有可并的东西时后端返回 null。 */
+export interface MergeStatus {
+  /** 本地那份的路径（给人看）。 */
+  local: string;
+  /** 游戏目录那份的路径。 */
+  target: string;
+  additions: MergeAddition[];
+  conflicts: MergeConflict[];
+  /** 机器相关文件，一律以 target 为准（active.json / installed.json / dev / backup）。 */
+  keep_target: string[];
+}
+
 export interface LauncherApi {
   detectInstallation(): Promise<Installation | null>;
+  /** 启动时查一次有没有另一份数据要并；没有返回 null。 */
+  mergeStatus(): Promise<MergeStatus | null>;
+  /** 按 `<slot>/<variant>` 的选择应用合并；空对象 = 冲突全保留游戏目录那份。 */
+  mergeApply(choices: Record<string, MergeChoice>): Promise<void>;
   setInstallation(path: string): Promise<Installation>;
   /** 战役库根目录（软件同级的 data 目录）。 */
   libraryRoot(): Promise<string>;
