@@ -12,7 +12,6 @@ describe("webview 快捷键拦截", () => {
     expect(shouldBlock(key({ key: "+", ctrlKey: true }))).toBe(true);
     expect(shouldBlock(key({ key: "F12" }))).toBe(true);
     expect(shouldBlock(key({ key: "i", ctrlKey: true, shiftKey: true }))).toBe(true);
-    expect(shouldBlock(key({ key: "w", ctrlKey: true }))).toBe(true);
   });
 
   it("不误伤编辑与复制粘贴", () => {

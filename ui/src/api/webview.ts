@@ -25,9 +25,6 @@ const BLOCKED = new Set([
   "ctrl+=",
   "ctrl++",
   "ctrl+-", // 缩放
-  "ctrl+t",
-  "ctrl+n", // 新标签 / 新窗口
-  "ctrl+w", // 关窗口（窗口有自己那颗 ✕）
   "alt+arrowleft",
   "alt+arrowright", // 前进后退
   "f12",

@@ -1775,8 +1775,10 @@ fn base64_encode(input: &[u8]) -> String {
     out
 }
 
-/// 让 webview 不像浏览器：关掉 WebView2 自带的**浏览器加速键**（Ctrl+F/P/U/R、F5、缩放…）
-/// 与**原生右键菜单**。
+/// 让 webview 不像浏览器：关掉 WebView2 自带的**浏览器加速键**（Ctrl+F/P/U/R、F5、缩放…）。
+///
+/// **不碰右键菜单** —— 那是页面自己拦的（两个入口都有 `onContextMenu`，AGENTS §18.2），
+/// 在这里再关一遍是重复的一层。
 ///
 /// 为什么不用 Tauri 的接口：Tauri 2.11 没有把 wry 的 `with_browser_accelerator_keys` /
 /// `with_default_context_menus` 暴露出来（wry 0.55 内部有）；这里顺着 `with_webview`
@@ -1784,7 +1786,7 @@ fn base64_encode(input: &[u8]) -> String {
 /// 页面里的 keydown 拦截只盖得住一部分（窗口级组合键拦不住）。
 ///
 /// 关掉 ≠ 快捷键没了：要用的快捷键改走原生菜单 accelerators，或页面自己的 keydown
-/// （AGENTS §18.2）。两处都失败也不影响功能，只是浏览器味道回来一点。
+/// （AGENTS §18.2）。失败也不影响功能：页面那层还兜着（`ui/src/api/webview.ts`）。
 #[cfg(windows)]
 fn tame_webview(webview: &tauri::webview::PlatformWebview) {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
@@ -1798,9 +1800,6 @@ fn tame_webview(webview: &tauri::webview::PlatformWebview) {
         let Ok(settings) = core.Settings() else {
             return;
         };
-        if let Err(error) = settings.SetAreDefaultContextMenusEnabled(false) {
-            eprintln!("[miyin] 关 WebView2 原生右键菜单失败：{error}");
-        }
         match settings.cast::<ICoreWebView2Settings3>() {
             Ok(settings3) => {
                 if let Err(error) = settings3.SetAreBrowserAcceleratorKeysEnabled(false) {
