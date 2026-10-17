@@ -61,14 +61,6 @@ export function FileTree({
           }
           title={isEmpty ? "这个目录里没有文件（可能只有空壳子目录），所以没什么可勾的" : node.path}
           style={{ paddingLeft: 6 + depth * 14 }}
-          // 点文件名打开它；点目录行就是展开 / 收起
-          onClick={() => {
-            if (isDir) {
-              onToggleExpand(node.path);
-            } else if (node.entry) {
-              onOpen(node.entry);
-            }
-          }}
           onContextMenu={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -95,7 +87,6 @@ export function FileTree({
                 ? "整棵子树一起选（" + files.length + " 个文件" + (isEmpty ? "，这是个空目录" : "") + "）"
                 : "选它"
             }
-            onClick={(event) => event.stopPropagation()}
           >
             <Checkbox
               containerClassName="tcheck"
@@ -109,9 +100,20 @@ export function FileTree({
               <Tag>空</Tag>
             </Tooltip>
           )}
-          <span className={"tname" + (node.entry?.external ? " tname--ext" : "")} title={node.path}>
+          {/* 行本身只是布局容器；「打开 / 展开」这个动作由 Ring UI Button 承担（键盘可达） */}
+          <Button
+            className={"tname tname--btn" + (node.entry?.external ? " tname--ext" : "")}
+            title={node.path}
+            onClick={() => {
+              if (isDir) {
+                onToggleExpand(node.path);
+              } else if (node.entry) {
+                onOpen(node.entry);
+              }
+            }}
+          >
             {node.name}
-          </span>
+          </Button>
           {node.entry?.external && <Tag tagType={Tag.Type.WARNING}>外部</Tag>}
           <span className="tsize">
             {isDir && node.children.length > 0 ? formatBytes(bytesUnder(node)) : formatBytes(node.entry?.bytes ?? 0)}

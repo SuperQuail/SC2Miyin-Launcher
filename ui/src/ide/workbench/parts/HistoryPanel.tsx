@@ -84,12 +84,14 @@ export function HistoryPanel({
       </header>
       <div className="pbody pbody--flat logwrap">
         <ul className="tree">
-          <li className="trow" onClick={onPickWorktree}>
-            <Graph color={PALETTE[0]} head />
-            <span className="tver">未提交</span>
-            <span className="tmsg">工作区里勾选的 {picked.length} 个文件</span>
-            <span className="refs">{picked.length > 0 ? <Tag>未提交</Tag> : null}</span>
-            <span className="twhen">现在</span>
+          <li>
+            <Button className="trow" onClick={onPickWorktree}>
+              <Graph color={PALETTE[0]} head />
+              <span className="tver">未提交</span>
+              <span className="tmsg">工作区里勾选的 {picked.length} 个文件</span>
+              <span className="refs">{picked.length > 0 ? <Tag>未提交</Tag> : null}</span>
+              <span className="twhen">现在</span>
+            </Button>
           </li>
           {[...commits].reverse().map((item, index) => (
             <li
@@ -100,13 +102,17 @@ export function HistoryPanel({
                 event.stopPropagation();
                 onContextMenu(item, event.clientX, event.clientY);
               }}
-              onClick={() => onPick(item, [...commits].reverse()[index + 1])}
             >
-              <Graph color={PALETTE[index % PALETTE.length]} last={index === commits.length - 1} />
-              <span className="tver">{item.label ?? "#" + item.id}</span>
-              <span className="tmsg">{item.message || "（没写说明）"}</span>
-              <span className="refs">{index === 0 ? <Tag>最新</Tag> : null}</span>
-              <span className="twhen">{when(item.at)}</span>
+              <Button
+                className={"trow" + (logPicked === item.id ? " is-picked" : "")}
+                onClick={() => onPick(item, [...commits].reverse()[index + 1])}
+              >
+                <Graph color={PALETTE[index % PALETTE.length]} last={index === commits.length - 1} />
+                <span className="tver">{item.label ?? "#" + item.id}</span>
+                <span className="tmsg">{item.message || "（没写说明）"}</span>
+                <span className="refs">{index === 0 ? <Tag>最新</Tag> : null}</span>
+                <span className="twhen">{when(item.at)}</span>
+              </Button>
             </li>
           ))}
         </ul>
