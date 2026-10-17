@@ -3,7 +3,7 @@ import { useState, type ReactNode } from "react";
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
-import { Button, Field, Sheet, Toast, type ToastKind } from "../../ui";
+import { Button, Choice, Field, Progress, Sheet, Toast, type ToastKind } from "../../ui";
 
 /**
  * 开发者房间 · **用户侧**。
@@ -68,6 +68,8 @@ export function UserSidePage() {
   const [dismissed, setDismissed] = useState("");
   // Toast 演示：换 key 强制重播入场动画（同一条提示再点一次也要重播）
   const [toastKind, setToastKind] = useState<ToastKind | null>("success");
+  // Choice 演示：安装页那个「覆盖更新 / 重命名后导入」就是它
+  const [conflict, setConflict] = useState<"overwrite" | "rename">("overwrite");
   const [toastTick, setToastTick] = useState(0);
 
   return (
@@ -112,6 +114,41 @@ export function UserSidePage() {
         </div>
         <Field label="整行（wide）" wide hint="说明、备注这种长字段用它。">
           <textarea rows={2} defaultValue="" />
+        </Field>
+      </Card>
+
+      <Card
+        title="控件层 · Choice / Progress / 处理中按钮 / 属性行"
+        note="react/ui —— 单选得看得出是单选；进度条以前只活在 settings.css 里，别处要用就再手搓一条。"
+      >
+        <div className="room__col">
+          <Choice
+            label="库里已有这一版，怎么办"
+            value={conflict}
+            onChange={setConflict}
+            options={[
+              { value: "overwrite", label: "覆盖更新", hint: "沿用原目录名" },
+              { value: "rename", label: "重命名后导入", hint: "两个版本并存" },
+            ]}
+            hint="覆盖更新会替换掉旧版本的文件；重命名则两份都留着，各自启用互不影响。"
+          />
+          <Progress value={62} label="正在打包" detail="123 / 2331" />
+          <Progress value={null} label="不确定进度（没有事件流时用它）" />
+        </div>
+        <div className="room__row">
+          <Button variant="primary" loading>
+            安装中…
+          </Button>
+          <Button variant="outline" loading>
+            重新扫描
+          </Button>
+          <span className="room__note">loading = 转圈 + 禁用 + aria-busy</span>
+        </div>
+        <Field label="整合包名称" row>
+          <input defaultValue="Starcraft Mass Recall" />
+        </Field>
+        <Field label="版本" row hint="属性表那样：标签左、值右">
+          <input defaultValue="8.0" />
         </Field>
       </Card>
 

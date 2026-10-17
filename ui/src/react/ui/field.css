@@ -40,3 +40,14 @@
   font-style: normal;
   color: var(--on-surface-variant);
 }
+
+/* 标签左、控件右（安装页的属性表就是它） */
+.field--row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.field--row > .field__label {
+  margin: 0;
+}

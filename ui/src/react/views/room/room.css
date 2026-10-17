@@ -161,3 +161,17 @@
   height: 100%;
   border: 0;
 }
+
+/* 房间卡片里的竖排演示区（Choice + Progress 叠起来看） */
+.room__col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 520px;
+}
+
+.room__note {
+  align-self: center;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}

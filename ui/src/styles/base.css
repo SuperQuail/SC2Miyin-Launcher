@@ -262,3 +262,30 @@ textarea {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* ---------- 按钮的处理中状态（react/ui/Button 的 loading）---------- */
+.btn--loading {
+  position: relative;
+  cursor: progress;
+}
+.btn__spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 6px;
+  vertical-align: -0.08em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn__spinner {
+    animation-duration: 2.4s;
+  }
+}

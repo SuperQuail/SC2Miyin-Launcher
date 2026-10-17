@@ -77,4 +77,14 @@ describe("Field", () => {
     expect(label.querySelector(".field__error")).toBeNull();
     expect(label.querySelector(".field__hint")?.textContent).toBe("留空就用自动发现的");
   });
+
+  it("row：标签左、控件右，标签不丢", () => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(
+      createElement(Field, { label: "整合包名称", row: true, children: createElement("input", { defaultValue: "x" }) }),
+    );
+    const field = host.querySelector("label.field");
+    expect(field?.className).toContain("field--row");
+    expect(host.querySelector(".field__label")?.textContent).toBe("整合包名称");
+  });
 });

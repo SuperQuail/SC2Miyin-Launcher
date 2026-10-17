@@ -92,4 +92,12 @@ describe("Button", () => {
 
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  it("loading：禁用 + aria-busy + 转圈，文案还在", () => {
+    const button = renderButton({ loading: true, children: "导出中…" });
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.querySelector(".btn__spinner")).not.toBeNull();
+    expect(button.textContent).toContain("导出中…");
+  });
 });
