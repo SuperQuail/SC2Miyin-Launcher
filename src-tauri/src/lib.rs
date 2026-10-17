@@ -37,6 +37,8 @@ const NETWORK_FILE: &str = "network.json";
 
 struct AppState {
     installation: Mutex<Option<Installation>>,
+    /// 启动时算好的合并案（有冲突时才留给界面问）—— 见 library::merge。
+    merge_plan: Mutex<Option<miyin_core::library::merge::MergePlan>>,
     config_path: Mutex<Option<PathBuf>>,
     /// 战役库：存放玩家导入的各个版本（与游戏目录解耦）。
     library: Library,
@@ -80,6 +82,35 @@ impl AppState {
             eprintln!("[miyin] {}", data_root.note);
         }
 
+        // 程序旁边还留着一份旧的 data/，而游戏目录那份已经能用 —— 那就是合并的活：
+        // 不冲突的当场并进来，撞上的留给用户选（见 library::merge）。
+        let merge_plan = match &data_root.legacy {
+            Some(legacy) => {
+                let plan = miyin_core::library::merge::plan(legacy, &data_root.root).ok();
+                match plan {
+                    Some(plan) if !plan.is_empty() && plan.conflicts.is_empty() => {
+                        // 没有要问的：直接并
+                        match miyin_core::library::merge::apply(
+                            &data_root.root,
+                            &plan,
+                            &Default::default(),
+                        ) {
+                            Ok(report) => eprintln!(
+                                "[miyin] 已从 {} 并进 {} 个版本",
+                                legacy.display(),
+                                report.added + report.replaced + report.renamed
+                            ),
+                            Err(error) => eprintln!("[miyin] 合并失败：{error}"),
+                        }
+                        None
+                    }
+                    // 有冲突：留给界面问用户，先什么都不动
+                    other => other.filter(|plan| !plan.is_empty()),
+                }
+            }
+            None => None,
+        };
+
         // 网络设置与既有配置放同一目录
         let network_path = config_path
             .parent()
@@ -94,6 +125,7 @@ impl AppState {
             installation: Mutex::new(installation),
             config_path: Mutex::new(Some(config_path)),
             library: Library::new(data_root.root),
+            merge_plan: Mutex::new(merge_plan),
             network: Mutex::new(network),
             network_path,
             staged: Mutex::new(None),
@@ -1834,6 +1866,47 @@ fn tame_webview(webview: &tauri::webview::PlatformWebview) {
     }
 }
 
+/// 启动时发现的数据合并案（没有冲突就已并完，这时返回 null）。
+#[tauri::command(async)]
+fn merge_status(state: State<'_, AppState>) -> Option<miyin_core::library::merge::MergePlan> {
+    state.merge_plan.lock().ok().and_then(|plan| plan.clone())
+}
+
+/// 应用合并。`choices` 的 key 是 `"<slot>/<variant>"`，值是 `target` / `local` / `both`。
+#[tauri::command(async)]
+fn merge_apply(
+    choices: std::collections::HashMap<String, String>,
+    state: State<'_, AppState>,
+) -> Result<miyin_core::library::merge::MergeReport, String> {
+    use miyin_core::library::merge::MergeChoice;
+
+    let plan = state
+        .merge_plan
+        .lock()
+        .map_err(lock_error)?
+        .clone()
+        .ok_or("没有待处理的合并")?;
+
+    let parsed: std::collections::BTreeMap<String, MergeChoice> = choices
+        .into_iter()
+        .map(|(key, value)| {
+            let choice = match value.as_str() {
+                "local" => MergeChoice::Local,
+                "both" => MergeChoice::Both,
+                _ => MergeChoice::Target,
+            };
+            (key, choice)
+        })
+        .collect();
+
+    let report = miyin_core::library::merge::apply(&plan.target, &plan, &parsed)
+        .map_err(|error| error.to_string())?;
+    if let Ok(mut held) = state.merge_plan.lock() {
+        *held = None;
+    }
+    Ok(report)
+}
+
 /// 启动应用。
 pub fn run() {
     tauri::Builder::default()
@@ -1860,6 +1933,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             dev_scan,
+            merge_status,
+            merge_apply,
             dev_export,
             dev_pick_doc,
             dev_pick_export_path,

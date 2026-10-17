@@ -2500,3 +2500,192 @@ fn migration_never_touches_an_existing_new_root() {
         "旧数据既不该被覆盖也不该被删"
     );
 }
+
+/// 造一个只有索引和版本目录的库（合并只认这两样）。
+fn seed_library(root: &Path, slot: &str, variants: &[(&str, u64, usize)]) {
+    use crate::library::{Library, LibraryIndex};
+    let library = Library::new(root);
+    let mut index = LibraryIndex {
+        version: 1,
+        slots: Default::default(),
+        patches: Default::default(),
+        bindings: Default::default(),
+    };
+    let entry = index.slots.entry(slot.to_string()).or_default();
+    for (id, bytes, maps) in variants {
+        std::fs::create_dir_all(root.join("campaigns").join(slot).join(id)).expect("版本目录");
+        std::fs::write(
+            root.join("campaigns").join(slot).join(id).join("a.txt"),
+            b"x",
+        )
+        .expect("内容");
+        let mut record = crate::library::Variant {
+            id: id.to_string(),
+            name: id.to_string(),
+            ..Default::default()
+        };
+        record.size_bytes = *bytes;
+        record.map_count = *maps;
+        entry.variants.push(record);
+    }
+    library.save_index(&index).expect("写索引");
+}
+
+#[test]
+fn merge_plan_separates_additions_from_conflicts() {
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    // 本地：一个目标没有的（New），一个同 id 但体积不同的（Same）
+    seed_library(&local, "wol", &[("New", 100, 3), ("Same", 999, 5)]);
+    seed_library(&target, "wol", &[("Same", 100, 5)]);
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    assert_eq!(plan.additions.len(), 1);
+    assert_eq!(plan.additions[0].variant, "New");
+    assert_eq!(plan.conflicts.len(), 1, "同 id 体积不同 = 冲突");
+    assert_eq!(plan.conflicts[0].variant, "Same");
+    assert!(plan.keep_target.iter().any(|item| item == "active.json"));
+    assert!(!plan.is_empty());
+}
+
+#[test]
+fn merge_apply_moves_additions_and_keeps_both_on_demand() {
+    use std::collections::BTreeMap;
+
+    use crate::library::merge;
+
+    let base = tempfile::tempdir().expect("临时目录");
+    let local = base.path().join("local");
+    let target = base.path().join("target");
+    seed_library(&local, "wol", &[("New", 100, 3), ("Same", 999, 5)]);
+    seed_library(&target, "wol", &[("Same", 100, 5)]);
+
+    let plan = merge::plan(&local, &target).expect("算合并案");
+    let mut choices = BTreeMap::new();
+    choices.insert("wol/Same".to_string(), merge::MergeChoice::Both);
+    let report = merge::apply(&target, &plan, &choices).expect("执行合并");
+
+    assert_eq!(report.added, 1, "New 应该搬进来");
+    assert_eq!(report.renamed, 1, "Same 选择了都留");
+    assert!(target.join("campaigns").join("wol").join("New").is_dir());
+    assert!(
+        target.join("campaigns").join("wol").join("Same-2").is_dir(),
+        "都留 = 换个目录名"
+    );
+    assert!(
+        target.join("campaigns").join("wol").join("Same").is_dir(),
+        "原来那份还在"
+    );
+    assert!(
+        !local.join("campaigns").join("wol").join("New").exists(),
+        "搬走了"
+    );
+
+    // 索引里三条都在
+    let ids: Vec<String> = crate::library::Library::new(&target)
+        .index()
+        .slots
+        .get("wol")
+        .expect("槽位")
+        .variants
+        .iter()
+        .map(|item| item.id.clone())
+        .collect();
+    assert!(ids.contains(&"New".to_string()));
+    assert!(ids.contains(&"Same".to_string()));
+    assert!(ids.contains(&"Same-2".to_string()));
+}
+
+/// verifier 实测的那个坑：跨盘搬迁断在半路，新根留下**半份**（没有 library.json）。
+/// 以前 `root.exists()` 直接认它 → 索引读成空 → 界面上整个库消失。
+#[test]
+fn half_copied_root_is_not_trusted() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(legacy.join("campaigns").join("wol")).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"{\"slots\":{}}").expect("旧索引");
+
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    let root = base.path().join("BLZ").join(super::DATA_DIR_NAME);
+    std::fs::create_dir_all(root.join("campaigns")).expect("半份新根");
+    std::fs::write(root.join("campaigns").join("half.txt"), b"half").expect("半份内容");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+    assert!(plan.migrated, "半份不该被认成完整库：{}", plan.note);
+    assert!(
+        plan.root.join("library.json").is_file(),
+        "完整的那份要搬进来"
+    );
+    assert!(!legacy.exists(), "旧数据搬走了");
+    assert!(
+        plan.note.contains("没完成"),
+        "要说清上次没搬完：{}",
+        plan.note
+    );
+}
+
+/// 上一次留下 `<root>.partial`（搬到一半断电），下次启动要接着办完。
+#[test]
+fn partial_leftover_is_recovered_on_next_start() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(&legacy).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"{}").expect("旧索引");
+
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    let partial = super::partial_root(&base.path().join("BLZ").join(super::DATA_DIR_NAME));
+    std::fs::create_dir_all(&partial).expect("上次的中转目录");
+    std::fs::write(partial.join("junk.txt"), b"junk").expect("半份内容");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+    assert!(plan.migrated, "{}", plan.note);
+    assert!(plan.root.join("library.json").is_file());
+    assert!(
+        !super::partial_root(&plan.root).exists(),
+        "中转目录要清干净"
+    );
+}
+
+/// 新根路径上是个**文件** —— 既不是完整库也写不进去，必须退回旧根。
+#[test]
+fn a_file_blocking_the_new_root_falls_back() {
+    let base = tempfile::tempdir().expect("临时目录");
+    let exe_dir = base.path().join("launcher");
+    let legacy = exe_dir.join("data");
+    std::fs::create_dir_all(&legacy).expect("旧数据");
+    std::fs::write(legacy.join("library.json"), b"{}").expect("旧索引");
+
+    let installation = base.path().join("BLZ").join("StarCraft II");
+    std::fs::create_dir_all(&installation).expect("安装目录");
+    std::fs::write(
+        base.path().join("BLZ").join(super::DATA_DIR_NAME),
+        b"not a dir",
+    )
+    .expect("占位文件");
+
+    let plan = super::resolve_data_root(Some(&installation), &exe_dir.join("miyin-launcher.exe"));
+    // 挡路的文件会被挪到一边（.incomplete），然后正常把旧数据迁进来 —— 比"退回旧根"更好：
+    assert!(plan.migrated, "应该绕过挡路的文件并完成迁移：{}", plan.note);
+    assert_eq!(
+        plan.root,
+        base.path().join("BLZ").join(super::DATA_DIR_NAME)
+    );
+    assert!(plan.root.is_dir(), "现在是个目录了");
+    assert!(plan.root.join("library.json").is_file(), "旧数据搬进来了");
+    assert!(
+        plan.note.contains("没完成"),
+        "要说清发生了什么事：{}",
+        plan.note
+    );
+    assert!(
+        plan.root.join("library.json").is_file(),
+        "旧数据一个字节没动"
+    );
+}

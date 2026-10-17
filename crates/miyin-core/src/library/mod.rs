@@ -55,6 +55,7 @@ pub mod naming;
 
 pub use mods::{ModChanges, StandaloneMod};
 pub mod export;
+pub mod merge;
 pub mod patch;
 pub mod store;
 
@@ -1075,11 +1076,61 @@ pub struct DataRootPlan {
     pub note: String,
 }
 
-/// 决定数据根，并在需要时把旧数据搬过去。
+/// 一个数据根算不算「完整」—— 有 `library.json` 才算。
 ///
-/// **只在"新根不存在、旧根存在"时搬**；新根已经有东西就一律不动 —— 不覆盖、不合并，
-/// 只记一句说明（数据是用户的，宁可让他自己看一眼，也不要自作主张合两份）。
-/// 搬迁失败时**退回旧根继续用**：启动器不能因为搬不动就没了库。
+/// 为什么不能只看目录在不在：跨盘搬迁搬到一半断电，新根会留下**半份**目录。
+/// 把它当完整库用，界面上就是「库空了」，而完整的旧数据就在旁边（verifier 实测过）。
+fn is_complete(root: &Path) -> bool {
+    root.is_dir() && root.join("library.json").is_file()
+}
+
+/// 搬迁中转目录：先整个搬到这里，成了再改名过去 —— 改名是原子的。
+fn partial_root(root: &Path) -> PathBuf {
+    let mut name = root.as_os_str().to_os_string();
+    name.push(".partial");
+    PathBuf::from(name)
+}
+
+/// 给「半途而废」的那份找个不重名的落脚处（`<root>.incomplete`、`-2`…）。
+fn parked_root(root: &Path) -> PathBuf {
+    for n in 0..1000 {
+        let mut name = root.as_os_str().to_os_string();
+        name.push(if n == 0 {
+            ".incomplete".to_string()
+        } else {
+            format!(".incomplete-{n}")
+        });
+        let candidate = PathBuf::from(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    let mut name = root.as_os_str().to_os_string();
+    name.push(".incomplete-old");
+    PathBuf::from(name)
+}
+
+/// 能不能往这个根里写东西。写不了就别选它 —— 不然整个库都是坏的，
+/// 而 `C:/Program Files (x86)/…` 恰好是星际争霸的常见安装位置。
+fn is_writable(root: &Path) -> bool {
+    if std::fs::create_dir_all(root).is_err() {
+        return false;
+    }
+    let probe = root.join(".miyin-write-probe");
+    let ok = std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// 决定数据根，并在需要时把旧数据搬过来。
+///
+/// 三种「新根不作数」的情形都要退回去，不能硬用它：
+/// 1. 新根路径上是个**文件**；
+/// 2. 新根是**空目录 / 半份目录**（没有 `library.json`）—— 通常是上次跨盘搬迁断了；
+/// 3. 新根**写不进去**（`Program Files` 底下）。
+///
+/// 搬迁本身先落到 `<root>.partial`，完成后再**改名**进来 —— 改名是原子的，
+/// 所以中途断电只会留下一个 `.partial`，下一次启动会被认出来并重来一次。
 pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) -> DataRootPlan {
     let root = data_root(installation_root, executable);
     let legacy = default_root(executable);
@@ -1096,12 +1147,28 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
 
     let legacy = legacy_exists.then_some(legacy);
 
-    if root.exists() {
+    // 上次搬到一半留下的中转目录：连同这次的半份一起挪开，重来。
+    let partial = partial_root(&root);
+    let mut leftover: Option<PathBuf> = None;
+    if partial.is_dir() || (!is_complete(&root) && root.exists()) {
+        let parked = parked_root(&root);
+        let from = if partial.is_dir() {
+            partial.clone()
+        } else {
+            root.clone()
+        };
+        if crate::platform::move_path(&from, &parked).is_ok() {
+            leftover = Some(parked);
+        }
+    }
+
+    // 新根已经是完整库 —— 用它（旧数据一个字节都不动）
+    if is_complete(&root) {
         return DataRootPlan {
             root: root.clone(),
             note: if legacy.is_some() {
                 format!(
-                    "数据目录用 {}（程序旁边还有一份旧的 data/，没动它 —— 要合并请手动处理）",
+                    "数据目录用 {}（程序旁边还有一份旧的 data/，没动它）",
                     root.display()
                 )
             } else {
@@ -1112,25 +1179,58 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
         };
     }
 
-    let Some(legacy_path) = legacy.clone() else {
+    // 该有的兜底：新根写不进去，或者根本没有旧数据可搬
+    let note_prefix = leftover
+        .as_ref()
+        .map(|parked| format!("上次的搬迁没完成，半份留在 {}；", parked.display()))
+        .unwrap_or_default();
+
+    if !is_writable(&root) {
         return DataRootPlan {
-            root: root.clone(),
+            note: match &legacy {
+                Some(path) => format!(
+                    "{note_prefix}{} 写不进去，这次仍用 {}",
+                    root.display(),
+                    path.display()
+                ),
+                None => format!(
+                    "{note_prefix}{} 写不进去，暂时没有别的地方可放",
+                    root.display()
+                ),
+            },
+            root: legacy.unwrap_or(root),
             legacy: None,
             migrated: false,
-            note: format!("数据目录 {}", root.display()),
+        };
+    }
+
+    let Some(legacy_path) = legacy.clone() else {
+        return DataRootPlan {
+            note: format!("{note_prefix}数据目录 {}", root.display()),
+            root,
+            legacy: None,
+            migrated: false,
         };
     };
 
-    match crate::platform::move_path(&legacy_path, &root) {
+    // 先搬到 .partial，成了再改名进来
+    let partial = partial_root(&root);
+    let moved = crate::platform::move_path(&legacy_path, &partial)
+        .and_then(|()| crate::platform::move_path(&partial, &root));
+    match moved {
         Ok(()) => DataRootPlan {
-            note: format!("已把 {} 迁到 {}", legacy_path.display(), root.display()),
+            note: format!(
+                "{note_prefix}已把 {} 迁到 {}",
+                legacy_path.display(),
+                root.display()
+            ),
             root,
             legacy: Some(legacy_path),
             migrated: true,
         },
         Err(error) => DataRootPlan {
             note: format!(
-                "迁移数据目录失败（{error}），这次仍用 {}",
+                "{note_prefix}迁移数据目录失败（{error}），这次仍用 {}",
                 legacy_path.display()
             ),
             root: legacy_path.clone(),
@@ -1139,7 +1239,6 @@ pub fn resolve_data_root(installation_root: Option<&Path>, executable: &Path) ->
         },
     }
 }
-
 /// 由包内声明的资料片推断应该导入到哪个槽位。
 ///
 /// 规则本体在 [`CampaignType::main_slot`]，这里只是给调用方一个好找的入口。
