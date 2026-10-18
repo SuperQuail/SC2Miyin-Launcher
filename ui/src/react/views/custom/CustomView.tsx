@@ -7,6 +7,7 @@ import { DocViewer } from "../../components/DocViewer";
 import { VariantCard } from "../../components/VariantCard";
 import { copyText } from "../../lib/clipboard";
 import { Button, Sheet } from "../../ui";
+import { setParams, useRoute } from "../../lib/router";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
 import { SortableCard } from "../campaigns/SortableCard";
 import { useVariantOrder } from "../campaigns/useVariantOrder";
@@ -25,8 +26,8 @@ import "./custom.css";
  * 外壳只递数据（槽位 / 库根目录 / 读取中）和几个动作（见 `host.ts`）。
  */
 export function CustomView(host: CustomHost) {
-  /** 导入按钮的"该开文件对话框了"信号；每次 +1。 */
-  /** 正在看哪一部自制战役。 */
+  const route = useRoute();
+  /** 正在看哪一部自制战役（页内选择，这轮不进 URL）。 */
   const [opened, setOpened] = useState<string | null>(null);
   /** 正在读的说明文档。 */
   const [openedDoc, setOpenedDoc] = useState<DocInfo | null>(null);
@@ -38,6 +39,14 @@ export function CustomView(host: CustomHost) {
     // 只在挂载时跑一次：host 的回调每次渲染都是新的，不该进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * 这一页在 URL 里的位置就是 `slot=custom` —— 和战役页共用同一个字段
+   * （语义都是"开着哪一部"）。页内的变体选择这一轮仍留在页面里。
+   */
+  useEffect(() => {
+    if (route.slot !== "custom") setParams({ slot: "custom" });
+  }, [route.slot]);
 
   const customSlot = host.slots.find((slot) => slot.slug === "custom") ?? null;
   // 保住数组身份：顺序 hook 的依赖里有它，每次新建数组会让键盘监听反复重挂
