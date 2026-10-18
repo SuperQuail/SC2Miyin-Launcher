@@ -1692,28 +1692,56 @@ fn reveal_path(path: String) -> Result<(), String> {
 
 /// Windows：打开这个目录，或者**在它的文件夹里选中它**。
 ///
-/// 两种目标要分开处理 —— 这是踩过的坑：对**目录**用 `/select,` 只是"在父目录里选中它"，
-/// 而**没加引号**的路径会被 explorer 当成"要打开的文件"，参数解析失败时它干脆回落到
-/// **「文档」文件夹**（用户看到的正是"打开了文档页面"）。
+/// **不走 explorer 命令行** —— 那条路我赌错了两次（`/select,` 的参数解析、以及给 arg 手工加引号
+/// 会把引号字符本身传进去，于是 explorer 拿到无效参数、**静默回退到「文档」**）。
+/// 现在走 Shell API：目录用 `ShellExecuteW("open")`，文件用 `SHOpenFolderAndSelectItems`。
+/// 失败会**明确报错**，不会再悄悄打开一个不相干的地方。
 #[cfg(windows)]
 fn reveal_in_file_manager(target: &Path) -> Result<(), String> {
-    let is_dir = target.is_dir();
-    // 统一反斜杠 + **外层带引号**：explorer 的 /select, 认这一种写法
-    let quoted = format!("\"{}\"", target.display());
-    let mut command = std::process::Command::new("explorer");
-    if is_dir {
-        // 目录：直接打开它（"打开游戏目录"要的就是这个）
-        command.arg(quoted.clone());
-    } else {
-        // 文件：在它所在的文件夹里选中它
-        command.arg(format!("/select,{quoted}"));
-    }
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("无法打开资源管理器：{error}"))
-}
+    use windows::Win32::UI::Shell::{ILCreateFromPathW, SHOpenFolderAndSelectItems, ShellExecuteW};
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::PCWSTR;
 
+    fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        value.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let buffer = wide(target.as_os_str());
+
+    if target.is_dir() {
+        // 目录：等价于在资源管理器里双击它
+        // SAFETY: buffer 以 NUL 结尾、在调用期间存活；其余参数传 null 表示用默认值。
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                windows::core::w!("open"),
+                PCWSTR(buffer.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+        // 约定：返回值 > 32 才算成功
+        return if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!("无法打开目录：{}", target.display()))
+        };
+    }
+
+    // 文件：在它所在的文件夹里选中它
+    // SAFETY: pidl 由系统分配，用完立刻 CoTaskMemFree；SHOpenFolderAndSelectItems 期间 buffer 存活。
+    unsafe {
+        let pidl = ILCreateFromPathW(PCWSTR(buffer.as_ptr()));
+        if pidl.is_null() {
+            return Err(format!("无法定位这个文件：{}", target.display()));
+        }
+        let outcome = SHOpenFolderAndSelectItems(pidl, None, 0);
+        windows::Win32::System::Com::CoTaskMemFree(Some(pidl as *const _));
+        outcome.map_err(|error| format!("无法在资源管理器里选中它：{error}"))
+    }
+}
 /// 其它平台暂不支持。
 #[cfg(not(windows))]
 fn reveal_in_file_manager(_target: &Path) -> Result<(), String> {

@@ -30,4 +30,4 @@ tauri = "2.11.6"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
 # Interface::cast 从这个 crate 来；版本要跟 wry 0.55 用的一致（0.61）
-windows = { version = "0.61", features = ["Win32_System_Com"] }
+windows = { version = "0.61", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }

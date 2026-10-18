@@ -297,7 +297,11 @@ export function Workbench() {
       setStatus("路径已复制");
     },
     reveal: (node: TreeNode) => {
-      if (node.entry?.abs) void launcher.revealPath(node.entry.abs).catch(() => {});
+      if (!node.entry?.abs) return;
+      // 以前是 .catch(() => {}) —— 失败就什么都没发生，用户只能以为"点了没反应"。
+      void launcher
+        .revealPath(node.entry.abs)
+        .catch((error) => setStatus("打开失败：" + String(error)));
     },
     setCover: setCoverPath,
     setDoc: setDocPath,
