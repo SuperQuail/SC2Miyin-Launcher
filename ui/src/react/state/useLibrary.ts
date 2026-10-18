@@ -25,9 +25,9 @@ export interface LibraryApi {
   setSlots: (slots: SlotView[]) => void;
   /** 重新读取槽位。 */
   refresh: () => Promise<void>;
-  /** 被拖进窗口的压缩包路径；战役页取走后会清空。 */
-  droppedPackage: string | null;
-  setDroppedPackage: (value: string | null) => void;
+  /** 被拖进窗口的压缩包路径（一次可以拖好几个）；安装页取走后会清空。 */
+  droppedPackages: string[];
+  setDroppedPackages: (paths: string[]) => void;
   pendingActivation: PendingActivation | null;
   /** 请求启用 —— **先算预演，再让用户点头**。返回是否已经切好。 */
   requestActivation: (slot: string, variantId: string | null) => Promise<boolean>;
@@ -68,7 +68,7 @@ function rememberAcknowledged(slot: string): void {
 export function useLibrary(options: LibraryOptions): LibraryApi {
   const { notify, busy, setLoading } = options;
   const [slots, setSlots] = useState<SlotView[]>([]);
-  const [droppedPackage, setDroppedPackage] = useState<string | null>(null);
+  const [droppedPackages, setDroppedPackages] = useState<string[]>([]);
   const [pendingActivation, setPendingActivation] = useState<PendingActivation | null>(null);
 
   const refresh = useCallback(async () => {
@@ -181,8 +181,8 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
     slots,
     setSlots,
     refresh,
-    droppedPackage,
-    setDroppedPackage,
+    droppedPackages,
+    setDroppedPackages,
     pendingActivation,
     requestActivation,
     confirmActivation,

@@ -59,8 +59,9 @@ export function AppShell() {
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
     busy: app.busy,
-    droppedPackage: app.library.droppedPackage,
-    consumeDropped: () => app.library.setDroppedPackage(null),
+    // 战役页那个导入对话框还是单包（views/campaigns/host.ts 不在本次范围内）：拖进来的话给它第一个
+    droppedPackage: app.library.droppedPackages[0] ?? null,
+    consumeDropped: () => app.library.setDroppedPackages([]),
     notify: app.notify,
     reveal: app.installation.reveal,
     bootstrap: () => void app.installation.bootstrap(),
@@ -178,8 +179,8 @@ export function AppShell() {
               <InstallView
                 entry={app.nav.installEntry}
                 slots={app.library.slots}
-                droppedPackage={app.library.droppedPackage}
-                consumeDropped={() => app.library.setDroppedPackage(null)}
+                droppedPackages={app.library.droppedPackages}
+                consumeDropped={() => app.library.setDroppedPackages([])}
                 notify={app.notify}
                 onBack={() => app.nav.setView(app.nav.installReturn)}
                 onInstalled={(slug) => {

@@ -163,11 +163,12 @@ export function useShellEffects(): { dragging: boolean } {
               setDragging(false);
             } else if (payload.type === "drop") {
               setDragging(false);
-              const path = payload.paths[0];
-              if (!path) return;
+              // **一次全收下**：以前只取 paths[0]，拖进来 5 个也只装 1 个
+              const paths = payload.paths.filter((path) => path.trim().length > 0);
+              if (paths.length === 0) return;
               // 拖到哪个页面都行：直接进安装页 —— 以前是切回战役页，人在别处拖完还得自己退回去看
               latest.current.nav.openInstall();
-              latest.current.library.setDroppedPackage(path);
+              latest.current.library.setDroppedPackages(paths);
             }
           })
           .then((unlisten) => {
