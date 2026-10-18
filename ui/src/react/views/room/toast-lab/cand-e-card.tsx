@@ -16,7 +16,7 @@ export type CandEProps = {
   title: string;
   message: string;
   action?: { label: string; onClick: () => void };
-  /** 底部那条自动消失倒计时条：生产版有，故意留一个开关好对比 */
+  /** 底部那条自动消失倒计时条：正式版已经去掉了，留个开关好对比 */
   timer?: boolean;
   lifeMs?: number;
   /** 进房间就自动放这一条（`?toast=` 指定）；false 就一直躺着等按钮 */

@@ -3,7 +3,8 @@ import { useState, type ReactNode } from "react";
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
-import { Button, Choice, Field, Progress, Sheet, Toast, type ToastKind } from "../../ui";
+import { useAppState } from "../../state/AppState";
+import { Button, Choice, Field, Progress, Sheet } from "../../ui";
 import { ToastCandidates } from "./toast-lab/ToastCandidates";
 
 /**
@@ -67,11 +68,10 @@ export function UserSidePage() {
   const [backdropSheet, setBackdropSheet] = useState(false);
   const [demoText, setDemoText] = useState("演示文本");
   const [dismissed, setDismissed] = useState("");
-  // Toast 演示：换 key 强制重播入场动画（同一条提示再点一次也要重播）
-  const [toastKind, setToastKind] = useState<ToastKind | null>("success");
+  // 提示（正式版）演示：直接推真的 notify，走的就是生产那条路
+  const { notify } = useAppState();
   // Choice 演示：安装页那个「覆盖更新 / 重命名后导入」就是它
   const [conflict, setConflict] = useState<"overwrite" | "rename">("overwrite");
-  const [toastTick, setToastTick] = useState(0);
 
   return (
     <>
@@ -160,35 +160,48 @@ export function UserSidePage() {
       </Card>
 
       <Card
-        title="控件层 · Toast（现役那一版，别改）"
-        note="react/ui/Toast —— 生产在用的那个：四种语气、右下角滑入、淡出退场、自动消失倒计时条。这就是用户说「还是太奇怪了」的那条，摆在这里当对照。要换思路看下面那张卡。"
+        title="正式控件 · 提示（右下角那一叠）"
+        note="react/ui/Toast + state/useNotify —— 照着候选 C 做的正式版，位置在右下角。点下面这些按钮推的是真的 notify，走的就是生产那条路。"
       >
         <div className="room__row">
-          {(["success", "info", "warning", "error"] as ToastKind[]).map((kind) => (
-            <Button
-              key={kind}
-              variant={kind === "error" ? "danger" : "outline"}
-              onClick={() => {
-                setToastKind(kind);
-                setToastTick((tick) => tick + 1);
-              }}
-            >
-              {kind}
-            </Button>
-          ))}
+          <Button variant="outline" onClick={() => notify("success", "已启用 Starcraft Mass Recall 8.0")}>
+            成功
+          </Button>
+          <Button variant="danger" onClick={() => notify("error", "导入失败：包里没有找到地图文件")}>
+            失败
+          </Button>
+          <Button variant="outline" onClick={() => notify("warning", "先选一个整合包")}>
+            警告
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() =>
+              notify(
+                "info",
+                "导入「Starcraft Mass Recall 8.0」时发现库里已经有一个 7.4 —— 两个版本的注册 ID 相同，" +
+                  "覆盖更新会沿用原来的目录名并替换全部文件，重命名后导入则两份都留在库里各自启用。",
+              )
+            }
+          >
+            长文案
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              notify("success", "已启用 Starcraft Mass Recall 8.0");
+              notify("warning", "有 1 个版本未启用：库里还有 7.4");
+              notify("error", "导入失败：包里没有找到地图文件");
+              notify("info", "这条会顶掉最旧的那条 —— 同时最多 3 条");
+            }}
+          >
+            连推 4 条（看上限）
+          </Button>
         </div>
         <p className="room__card-note">
-          点一次看一次动画 —— 举高到 9 秒只是方便你看清倒计时条，生产里是 4.2 秒。
+          同时最多 3 条：第 4 条进来会挤掉最旧的（旧的往左上叠、压暗、只露一行字）；
+          只有最前那条有 ✕。鼠标压在那一叠上，整叠暂停消失，移开接着走。
+          切页（去战役页再回来）提示不丢 —— 它挂在 <code>AppShell</code> 上、不在 <code>.view</code> 里。
         </p>
-        {toastKind && (
-          <Toast
-            key={toastTick}
-            kind={toastKind}
-            message={"演示：" + toastKind + " 语气的提示，比如「已启用 Starcraft Mass Recall 8.0」"}
-            lifeMs={9000}
-            onClose={() => setToastKind(null)}
-          />
-        )}
       </Card>
 
       <ToastCandidates />

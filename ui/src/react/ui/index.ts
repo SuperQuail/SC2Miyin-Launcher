@@ -4,4 +4,4 @@ export { Choice, type ChoiceOption } from "./Choice";
 export { Field } from "./Field";
 export { Progress } from "./Progress";
 export { Sheet } from "./Sheet";
-export { Toast, type ToastKind, type ToastProps } from "./Toast";
+export { Toast, type ToastAction, type ToastItem, type ToastKind, type ToastProps } from "./Toast";

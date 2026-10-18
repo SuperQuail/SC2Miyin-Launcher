@@ -10,10 +10,11 @@ import { AUTO_MS } from "./types";
 import "./toast-lab.css";
 
 /**
- * **提示（Toast）样式候选** —— 房间里给用户挑的那一栏（AGENTS §17 的"至少三个版本"）。
+ * **备用控件 · 提示样式** —— 候选 C 已被生产采用（`react/ui/Toast.tsx`，右下角），
+ * 其余几个留在这里备用，将来想换思路可以从这里挑（AGENTS §17 的"至少出三个版本"）。
  *
- * 每个候选一张小卡：名字、抄谁、关键差别、一个「播一遍」按钮。
- * 想跳过按钮直接看：地址后面加 `?toast=<id>`（a / b / c / d / e），
+ * 每个候选一张小卡：名字、抄谁、关键差别；点卡片（或「播一遍」）重放一次。
+ * 想跳过点击直接看：地址后面加 `?toast=<id>`（a / b / c / d / e），
  * 进房间就自动放一遍 —— 截图脚本走的就是这条路（点按钮截图得先点，太啰嗦）。
  */
 
@@ -27,6 +28,8 @@ type Spec = {
   copy: string;
   place: string;
   diff: string[];
+  /** 已被生产采用 —— 卡片上打个记号，免得后来人以为还要挑 */
+  adopted?: boolean;
 };
 
 /** 卡片上的说明只用一种强调：\`**这样**\` 的部分加粗，其余原样。 */
@@ -65,12 +68,13 @@ const SPECS: Spec[] = [
     id: "c",
     name: "候选 C · Sonner 式堆叠",
     copy: "Sonner（shadcn 默认提示）",
-    place: "左下角 · 卡片贴得紧 · 超过一条往左上叠",
+    place: "已采用 · 右下角 · 超过一条往左上叠",
+    adopted: true,
     diff: [
-      "位置在**左下角**，和右下角的按钮彻底错开。",
       "同时来两条时**叠成一层**：最新的完整、上一条只露个头并压暗缩小（官方默认可见 3 条）。",
-      "官方还有一条没做进来：**鼠标悬停时整叠展开**（现在只做了悬停暂停计时）。",
-      "最前面那条有胶囊形动作按钮和 ✕，后面的只露一行标题。",
+      "官方还有一条没做进来：**鼠标悬停时整叠展开**（正式版只做了悬停暂停计时）。",
+      "最前面那条带 ✕（和可选的动作按钮），后面那几条只露一行字、摸不到。",
+      "**这一条已被采用**：`react/ui/Toast.tsx` 就是它，位置按用户意见从左下角改成了**右下角**。",
     ],
   },
   {
@@ -94,7 +98,7 @@ const SPECS: Spec[] = [
       "**位置照抄生产版**（右下角）—— 只想换长相、不想动位置就选它（Windows 通知实际也在右下角，但微软文档没写这条）。",
       "语气收在**图标徽章**上（浅色底 + 语气色图标），卡片跟随主题，不用反色。",
       "动作按钮是**实心主色、整行**，比现在的文字按钮显眼：撤销/查看这种要人真去点的用它。",
-      "留了一个**倒计时条开关**：生产版现在有那条，可以对比着看要不要留（antd / Element Plus 也都有这个东西，但默认是关的）。",
+      "留了一个**倒计时条开关**：正式版已经按用户意见**去掉了**那条，这里可以对比着看（antd / Element Plus 也都有这个东西，但默认是关的）。",
     ],
   },
 ];
@@ -110,9 +114,10 @@ export function ToastCandidates() {
 
   return (
     <section className="room__card">
-      <h3 className="room__card-title">提示样式候选 · 待用户挑一个</h3>
+      <h3 className="room__card-title">备用控件 · 提示样式</h3>
       <p className="room__card-note">
-        生产那个 Toast（<code>react/ui/Toast.tsx</code>）没动。这里是另外几种思路，各写各的，
+        <b>正式用的是候选 C</b>（右下角那一叠，见上面「正式控件 · 提示」那张卡和
+        <code>react/ui/Toast.tsx</code>）；下面这些留作备用，将来想换思路从这里挑。
         点卡片或「播一遍」重放一次：入场、停留、退场都会演到（演示时长 6~9 秒。
         地址后面加 <code>?toast=a|b|c|d|e</code> 可以进页面就自动放那一条，
         那种情况下演示时长给到 {AUTO_MS / 1000} 秒，方便慢慢看 / 截图）。
@@ -136,6 +141,7 @@ export function ToastCandidates() {
           >
             <div className="cand__head">
               <h4 className="cand__name">{spec.name}</h4>
+              {spec.adopted && <span className="cand__adopted">已采用</span>}
               <span className="cand__copy">抄 {spec.copy}</span>
               <span className="cand__place">{spec.place}</span>
             </div>

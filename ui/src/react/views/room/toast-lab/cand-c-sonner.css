@@ -1,8 +1,9 @@
-/* 候选 C · Sonner 式堆叠。栈底在左下角，往左上叠；颜色只走令牌。 */
+/* 候选 C · Sonner 式堆叠 —— **已采用**，所以这里按正式版摆：右下角。
+   颜色只走令牌。 */
 
 .sonnerstack {
   position: fixed;
-  left: 20px;
+  right: 20px;
   bottom: 20px;
   z-index: 64;
   display: flex;

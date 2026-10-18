@@ -3,7 +3,6 @@ import { Suspense, lazy, type ComponentType } from "react";
 import { BACKDROP } from "../../api/art";
 import { showContextMenu } from "../lib/contextMenu";
 import { useAppState } from "../state/AppState";
-import { TOAST_MS } from "../state/useNotify";
 import { Toast } from "../ui";
 import { CampaignsView } from "../views/campaigns/CampaignsView";
 import type { CampaignsHost } from "../views/campaigns/host";
@@ -199,15 +198,14 @@ export function AppShell() {
         )}
       </main>
 
-      {app.toast && (
-        <Toast
-          kind={app.toast.kind}
-          message={app.toast.message}
-          leaving={app.toast.leaving}
-          lifeMs={TOAST_MS}
-          onClose={app.dismiss}
-        />
-      )}
+      {/* 提示：挂在 .view **外面** —— 里面那个 view-in 动画会让 .view 变成
+          position: fixed 的包含块，提示会掉到屏幕外；切页时也不该丢 */}
+      <Toast
+        toasts={app.toasts}
+        onClose={app.dismiss}
+        onPause={app.pauseToasts}
+        onResume={app.resumeToasts}
+      />
 
       {/* 启动时发现另一份 data：不冲突的后端直接并，冲突的在这里让用户选 */}
       {app.merge.status && (

@@ -26,6 +26,16 @@
   font-weight: 600;
 }
 
+/* 已经被生产采用的那一条（`.cand__play` 的点按样式在 cand-a-m3.css 里，别重复定义） */
+.cand__adopted {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
 .cand__copy {
   font-size: 11.5px;
   font-weight: 600;

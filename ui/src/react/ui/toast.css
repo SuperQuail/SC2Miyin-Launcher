@@ -1,50 +1,55 @@
-/* 右下角提示：入场/退场动画 + 倒计时条。颜色全走令牌。 */
+/* 右下角那一叠提示：堆叠 + 进出场动画。颜色全走令牌。 */
 
-.toast {
+.toast-stack {
   position: fixed;
   right: 20px;
   bottom: 20px;
   z-index: 60;
   display: flex;
+  /* 栈底贴着屏幕角：最新那条（数组第一位）在最下面，旧的往左上叠 */
+  flex-direction: column-reverse;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  /* 卡片之间的空隙不该拦住底下的界面 */
+  pointer-events: none;
+}
+
+.toast {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
   align-items: flex-start;
   gap: 10px;
-  min-width: 260px;
-  max-width: min(420px, calc(100vw - 40px));
-  padding: 12px 36px 12px 14px;
+  padding: 12px 34px 12px 14px;
   border-radius: var(--radius-md);
-  background: var(--surface-2);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 38%), 0 0 0 1px color-mix(in srgb, var(--outline) 55%, transparent);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
   color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  animation: toast-in 0.24s var(--ease);
+}
+
+/* 叠在后面的那几条：压暗、缩一点、只露一行（Sonner 的做法）。
+   间距用**正的** —— 负 margin 在 column-reverse 里跟"往上叠"是反方向的，
+   试过 -40px，第二条直接躲到第一条背后去了。 */
+.toast:not(:first-child) {
+  margin-bottom: 10px;
+  margin-right: 12px;
+  scale: 0.97;
+  opacity: 0.8;
+}
+
+.toast:not(:first-child) .toast__message {
+  white-space: nowrap;
   overflow: hidden;
-  animation: toast-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1);
-  transform-origin: right bottom;
+  text-overflow: ellipsis;
 }
 
-/* 左边缘那条语气色 —— 比整块染色克制，和 HMCL 的卡片语言一致 */
-.toast::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--accent);
-}
-
-.toast--success::before {
-  background: var(--success);
-}
-.toast--warning::before {
-  background: var(--warning);
-}
-.toast--error::before {
-  background: var(--danger);
-}
-
+/* 语气收在图标上 —— 不整块染色，也没有左边那条竖条 */
 .toast__icon {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   margin-top: 1px;
   color: var(--accent);
 }
@@ -58,8 +63,8 @@
   color: var(--danger);
 }
 .toast__icon svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -69,9 +74,31 @@
 
 .toast__message {
   margin: 0;
+  min-width: 0;
   font-size: 13px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+  /* 最前那条最多 3 行；后面那几条被上面那条规则压成 1 行 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+.toast__action {
+  flex: none;
+  align-self: center;
+  margin-left: 2px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-softer);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.toast__action:hover {
+  background: var(--accent-soft);
 }
 
 .toast__close {
@@ -81,83 +108,47 @@
   width: 20px;
   height: 20px;
   padding: 0;
-  border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: none;
   color: var(--on-surface-variant);
-  opacity: 0.7;
+  opacity: 0.65;
 }
 .toast__close:hover {
   opacity: 1;
   background: color-mix(in srgb, var(--on-surface) 10%, transparent);
 }
 .toast__close svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
 }
 
-/* 倒计时条：从满到空，时长和外壳的自动消失一致 */
-.toast__life {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  height: 2px;
-  width: 100%;
-  background: var(--accent);
-  opacity: 0.45;
-  transform-origin: left;
-  animation: toast-life var(--toast-life, 4200ms) linear forwards;
-}
-.toast--success .toast__life {
-  background: var(--success);
-}
-.toast--warning .toast__life {
-  background: var(--warning);
-}
-.toast--error .toast__life {
-  background: var(--danger);
-}
-
 /* 退场：外壳先置 leaving，等动画放完再卸载 */
 .toast--leaving {
-  animation: toast-out 0.18s ease-in forwards;
+  animation: toast-out 0.2s ease-in forwards;
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translate(16px, 8px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    translate: 0 18px;
+    scale: 0.97;
   }
 }
 
 @keyframes toast-out {
   to {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-}
-
-@keyframes toast-life {
-  from {
-    transform: scaleX(1);
-  }
-  to {
-    transform: scaleX(0);
+    translate: 0 10px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .toast,
-  .toast--leaving,
-  .toast__life {
+  .toast--leaving {
     animation-duration: 1ms;
   }
 }
