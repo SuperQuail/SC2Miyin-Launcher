@@ -29,6 +29,20 @@ export function useCampaigns(host: CampaignsHost) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * 打开某个战役 —— **同时写进 hash**。
+   *
+   * 为什么必须写：切到安装页会把 CampaignsView 卸载掉，"打开了哪个战役"是组件内的 state，
+   * 回来重新挂载就变回 null 了 —— 用户装完包会掉回主界面（他就报的这个）。挂载时本来就会读
+   * `#slot=`，只是从来没人写；写上之后切页/刷新都能回到同一个战役里。
+   */
+  const openSlot = useCallback((slug: string | null) => {
+    setOpened(slug);
+    if (typeof window === "undefined") return;
+    const url = slug ? "#slot=" + slug : location.pathname + location.search;
+    window.history.replaceState(null, "", url);
+  }, []);
+
   const guard = useCallback(async (key: NonNullable<CampaignsBusy>, action: () => Promise<unknown>) => {
     setBusy(key);
     try {
@@ -38,7 +52,7 @@ export function useCampaigns(host: CampaignsHost) {
     }
   }, []);
 
-  return { opened, setOpened, importMode, setImportMode, busy, guard };
+  return { opened, setOpened: openSlot, importMode, setImportMode, busy, guard };
 }
 
 /** 列表里那些「原版战役」（自制战役有自己的页签）。 */
