@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { slotArt } from "../../../api/art";
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
 import type { ImportMode, ImportPreview, SlotView } from "../../../api/types";
-import { Button, Choice, Progress } from "../../ui";
+import { Button, Choice, Field, Progress } from "../../ui";
 import "./install.css";
 
-/** 清单里的一行：一个待安装的包。 */
+/** 一个待安装的包（一行 = 单包那张卡片 / 清单里的一行）。 */
 interface Row {
   /** 行自己的编号 —— 同一个文件被添加两次也算两行，别拿 path 当身份。 */
   id: number;
@@ -17,7 +18,7 @@ interface Row {
   error: string | null;
   /** 装到哪部战役（可改；认不出归属的包就靠它）。 */
   target: string;
-  /** 这一行自己的结果 —— 一个失败不影响别的行。 */
+  /** 自己这一份的结果 —— 一个失败不影响别的包。 */
   state: "idle" | "ok" | "failed";
   failure: string | null;
 }
@@ -27,14 +28,34 @@ function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
+/** 归属判定的可信度档位（AGENTS §14.7：包内声明 = 确定；镜像路径 / 地图依赖 = 较可靠；文件名前缀 = 猜的）。 */
+type Tier = "exact" | "reliable" | "guess" | null;
+
+function tierOf(preview: ImportPreview | null): Tier {
+  if (!preview) return null;
+  const evidence = preview.inspection.identification?.evidence ?? null;
+  if (preview.source === "metadata" || evidence === "metadata") return "exact";
+  return evidence === "map_name_prefix" ? "guess" : "reliable";
+}
+
+function tierText(tier: Tier): string {
+  return tier === "exact"
+    ? "确定（包内自己声明）"
+    : tier === "reliable"
+      ? "较可靠（镜像路径 / 地图依赖）"
+      : tier === "guess"
+        ? "猜的（文件名前缀）"
+        : "";
+}
+
 /**
  * 安装整合包（独立一页）。
  *
- * 布局照 HMCL 的「安装整合包」。**一次可以拖好几个包**：逐个预检排成清单，
- * 每行一个包、各自选归属，底下「全部安装」逐行跑 —— 一个失败不中止整批。
+ * 一次可以拖好几个包，**两种形态共用同一套预检与安装逻辑**（`install()` 一个入口）：
+ * - 只有 1 个包：居中那张卡片 —— 封面 + 左标签右值的属性表，和以前一样；
+ * - 2 个及以上：清单，每行一个包、各自选归属，底下「全部安装」逐行跑，一个失败不中止整批。
  *
- * **归属判定的可信度**照旧摆明（AGENTS §14.7）：包内声明 = 确定；
- * 镜像路径 / 地图依赖 = 较可靠；文件名前缀 = 猜的。不许把推断说成确定的。
+ * **归属判定的可信度**两处都照旧摆明（AGENTS §14.7）—— 不许把推断说成确定的。
  */
 export function InstallView({
   entry = "campaign",
@@ -56,17 +77,22 @@ export function InstallView({
   onInstalled: (slot: string) => void;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
-  /** 行的编号来源（同一个文件可以加两次）。 */
-  const [rowSeq, setRowSeq] = useState(0);
+  /**
+   * 行的编号来源（同一个文件可以加两次）。
+   *
+   * 用 ref 而不是 state：同一拍里连加两个包（连点两次「添加包」）时，
+   * state 里那个值还没更新，两行会拿到同一个编号 —— 于是 patch() 一次改两行。
+   */
+  const rowSeq = useRef(0);
   const [mode, setMode] = useState<ImportMode>("overwrite");
-  /** 整批共用一个冲突选择；没有冲突的批次不显示它。 */
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [busy, setBusy] = useState(false);
 
   /** 新的一行。 */
-  function makeRow(path: string, id: number): Row {
-    return { id, path, preview: null, error: null, target: "", state: "idle", failure: null };
+  function makeRow(path: string): Row {
+    rowSeq.current += 1;
+    return { id: rowSeq.current, path, preview: null, error: null, target: "", state: "idle", failure: null };
   }
 
   /** 补一行 / 改一行。 */
@@ -74,22 +100,24 @@ export function InstallView({
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...changes } : row)));
   }
 
-  /** 逐个预检（不写任何文件）；一个包认不出来不影响别的包。 */
+  /** 预检一个包（不写任何文件）。 */
+  async function inspect(row: Row): Promise<void> {
+    try {
+      const preview = await api.prepareImport(row.path, entry);
+      patch(row.id, { preview, target: preview.slot ?? "" });
+    } catch (error) {
+      patch(row.id, { error: errorText(error) });
+    }
+  }
+
+  /** 逐个预检；一个包认不出来不影响别的包。 */
   async function inspectAll(paths: string[]): Promise<void> {
-    const fresh = paths.map((path, index) => makeRow(path, rowSeq + index + 1));
-    setRowSeq(rowSeq + paths.length);
+    const fresh = paths.map((path) => makeRow(path));
     setRows(fresh);
     setMode("overwrite");
     setChecking(true);
     try {
-      for (const row of fresh) {
-        try {
-          const preview = await api.prepareImport(row.path, entry);
-          patch(row.id, { preview, target: preview.slot ?? "" });
-        } catch (error) {
-          patch(row.id, { error: errorText(error) });
-        }
-      }
+      for (const row of fresh) await inspect(row);
     } finally {
       setChecking(false);
     }
@@ -107,15 +135,11 @@ export function InstallView({
   async function add(): Promise<void> {
     const path = await api.pickPackage();
     if (!path) return;
-    const row = makeRow(path, rowSeq + 1);
-    setRowSeq(rowSeq + 1);
+    const row = makeRow(path);
     setRows((current) => [...current, row]);
     setChecking(true);
     try {
-      const preview = await api.prepareImport(path, entry);
-      patch(row.id, { preview, target: preview.slot ?? "" });
-    } catch (error) {
-      patch(row.id, { error: errorText(error) });
+      await inspect(row);
     } finally {
       setChecking(false);
     }
@@ -130,12 +154,12 @@ export function InstallView({
   const anyConflict = rows.some((row) => row.preview?.conflict);
 
   /**
-   * 全部安装。
+   * 安装 —— **两种形态唯一的入口**。
    *
-   * **每一行独立成败**：一个包失败只记在它自己那一行，后面的照装 ——
+   * **每份独立成败**：一个包失败只记在它自己那一行，后面的照装 ——
    * 拖进来一批却因为第三个包坏了就全停下，是最烦人的那种。
    */
-  async function installAll(): Promise<void> {
+  async function install(): Promise<void> {
     const queue = rows.filter((row) => row.state !== "ok");
     if (queue.length === 0) {
       notify("warning", "先选一个整合包");
@@ -194,9 +218,11 @@ export function InstallView({
       notify("warning", "已安装 " + installed + " 个，失败 " + failures.length + " 个：" + failures.join("；"));
     }
 
-    // 全成功才回来源页（老行为）；有失败就留在这一页，用户能看见是哪几行红了再重试
+    // 全成功才回来源页（老行为）；有失败就留在这一页，用户能看见哪一份红了再重试
     if (installed > 0 && failures.length === 0) onInstalled(lastSlot);
   }
+
+  const single = rows.length === 1 ? rows[0] : null;
 
   return (
     <div className="install">
@@ -219,7 +245,24 @@ export function InstallView({
         </button>
       )}
 
-      {rows.length > 0 && (
+      {/* 只有一个包：居中属性表（用户选的「A · 对齐 HMCL」那版） */}
+      {single && (
+        <SingleCard
+          row={single}
+          slots={slots}
+          mode={mode}
+          busy={busy}
+          checking={checking}
+          installable={installable.length > 0}
+          onMode={setMode}
+          onTarget={(target) => patch(single.id, { target })}
+          onReplace={() => remove(single.id)}
+          onInstall={() => void install()}
+        />
+      )}
+
+      {/* 两个及以上：清单 */}
+      {rows.length >= 2 && (
         <section className="install__card">
           <div className="install__rows">
             <div className="install__list-head">
@@ -230,23 +273,11 @@ export function InstallView({
               {checking && <span className="install__hint">正在逐个预检…</span>}
             </div>
 
-            {anyConflict && (
-              <div className="install__conflict">
-                <Choice<ImportMode>
-                  label="库里已经有同名的版本，整批按哪种方式处理？"
-                  value={mode}
-                  onChange={setMode}
-                  options={[
-                    { value: "overwrite", label: "覆盖更新", hint: "沿用原目录名，旧版被替换掉" },
-                    { value: "rename", label: "重命名后导入", hint: "两个版本并存，各自启用" },
-                  ]}
-                />
-              </div>
-            )}
+            {anyConflict && <ConflictChoice mode={mode} onMode={setMode} batch />}
 
             <div className="install__list">
               {rows.map((row) => (
-                <InstallRow
+                <BatchRow
                   key={row.id}
                   row={row}
                   slots={slots}
@@ -277,9 +308,9 @@ export function InstallView({
               size="lg"
               loading={busy}
               disabled={installable.length === 0}
-              onClick={() => void installAll()}
+              onClick={() => void install()}
             >
-              {rows.length === 1 ? "安装" : "全部安装（" + installable.length + "）"}
+              全部安装（{installable.length}）
             </Button>
           </footer>
         </section>
@@ -288,8 +319,186 @@ export function InstallView({
   );
 }
 
+/** 冲突怎么处理（单包那张表里、清单顶上共用同一条）。 */
+function ConflictChoice({
+  mode,
+  onMode,
+  batch = false,
+}: {
+  mode: ImportMode;
+  onMode: (mode: ImportMode) => void;
+  /** 清单上写「整批」，单包里不用。 */
+  batch?: boolean;
+}) {
+  return (
+    <div className="install__conflict">
+      <Choice<ImportMode>
+        label={batch ? "库里已经有同名的版本，整批按哪种方式处理？" : "库里已经有同名的版本"}
+        value={mode}
+        onChange={onMode}
+        options={[
+          { value: "overwrite", label: "覆盖更新", hint: "沿用原目录名，旧版被替换掉" },
+          { value: "rename", label: "重命名后导入", hint: "两个版本并存，各自启用" },
+        ]}
+      />
+    </div>
+  );
+}
+
+/** 归属下拉（两种形态共用）。 */
+function TargetSelect({
+  row,
+  slots,
+  busy,
+  onTarget,
+}: {
+  row: Row;
+  slots: SlotView[];
+  busy: boolean;
+  onTarget: (target: string) => void;
+}) {
+  const name = row.preview?.inspection.name ?? fileName(row.path);
+  return (
+    <select
+      className="install__row-select"
+      value={row.target}
+      disabled={busy || row.state === "ok"}
+      onChange={(event) => onTarget(event.target.value)}
+      aria-label={"装到哪部战役：" + name}
+    >
+      <option value="">（选一部战役）</option>
+      {slots.map((slot) => (
+        <option key={slot.slug} value={slot.slug}>
+          {slot.display_name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** 只有一个包时那张卡片：封面 + 居中的属性表。 */
+function SingleCard({
+  row,
+  slots,
+  mode,
+  busy,
+  checking,
+  installable,
+  onMode,
+  onTarget,
+  onReplace,
+  onInstall,
+}: {
+  row: Row;
+  slots: SlotView[];
+  mode: ImportMode;
+  busy: boolean;
+  checking: boolean;
+  installable: boolean;
+  onMode: (mode: ImportMode) => void;
+  onTarget: (target: string) => void;
+  onReplace: () => void;
+  onInstall: () => void;
+}) {
+  const inspection = row.preview?.inspection ?? null;
+  const tier = tierOf(row.preview);
+  const conflict = row.preview?.conflict ?? null;
+  const cover = inspection
+    ? (inspection.cover ?? slotArt(row.preview?.slot ?? row.target ?? "wol"))
+    : null;
+  const slotName = row.target
+    ? (slots.find((slot) => slot.slug === row.target)?.display_name ?? row.target)
+    : null;
+
+  return (
+    <section className="install__card">
+      {cover && (
+        <div className="install__cover" style={{ backgroundImage: "url(" + cover + ")" }}>
+          <span className="install__cover-scrim" />
+        </div>
+      )}
+
+      <div className="install__rows">
+        {!inspection ? (
+          row.error ? (
+            <p className="install__row-bad">✗ 读不了这个包：{row.error}</p>
+          ) : (
+            <p className="install__hint">{checking ? "正在预检…" : "正在读这个包…"}</p>
+          )
+        ) : (
+          <>
+            <Field label="游戏实例名称" row hint="装到哪部战役名下；决定包里的地图落到哪个战役目录">
+              <TargetSelect row={row} slots={slots} busy={busy} onTarget={onTarget} />
+            </Field>
+
+            <Field label="整合包名称" row>
+              <span className="install__value">{inspection.name ?? fileName(row.path)}</span>
+            </Field>
+
+            <Field label="版本" row>
+              <span className="install__value">
+                {inspection.version ?? "（包内没写）"}
+                <span className="install__tag">{inspection.kind === "patch" ? "补丁包" : "战役包"}</span>
+              </span>
+            </Field>
+
+            <Field label="作者" row>
+              <span className="install__value">{inspection.author ?? "未知"}</span>
+            </Field>
+
+            <Field label="归属战役" row>
+              <span className="install__value">
+                {slotName ?? "认不出来，上面自己选一个"}
+                {tier && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
+              </span>
+            </Field>
+
+            {inspection.identification && (
+              <p className="install__why">
+                可信度：{tierText(tier)} —— 依据：{inspection.identification.detail}。
+                {tier !== "exact" && "这不是确定的，认错了把上面那行改掉就行。"}
+              </p>
+            )}
+
+            <Field label="包里有什么" row>
+              <span className="install__value">
+                {inspection.map_count} 张地图 · {inspection.mod_count} 个模组
+                {inspection.mod_count > 0 && (
+                  <span className="install__hint">（模组是地图的依赖，安装时会一起挂上）</span>
+                )}
+              </span>
+            </Field>
+
+            {conflict && (
+              <>
+                <p className="install__why">
+                  库里已有「{conflict.existing_name}
+                  {conflict.existing_version ?? ""}」，这一份是 {conflict.incoming_version ?? "未标版本"}。
+                </p>
+                <ConflictChoice mode={mode} onMode={onMode} />
+              </>
+            )}
+          </>
+        )}
+
+        {row.state === "ok" && <span className="install__row-good">✓ 已安装</span>}
+        {row.state === "failed" && <span className="install__row-bad">✗ 失败：{row.failure}</span>}
+      </div>
+
+      <footer className="install__foot">
+        <Button variant="text" disabled={busy} onClick={onReplace}>
+          换一个包
+        </Button>
+        <Button variant="primary" size="lg" loading={busy} disabled={!installable} onClick={onInstall}>
+          安装
+        </Button>
+      </footer>
+    </section>
+  );
+}
+
 /** 清单里的一行。 */
-function InstallRow({
+function BatchRow({
   row,
   slots,
   busy,
@@ -303,24 +512,8 @@ function InstallRow({
   onRemove: () => void;
 }) {
   const inspection = row.preview?.inspection ?? null;
-  const identification = inspection?.identification ?? null;
-  const evidence = identification?.evidence ?? null;
-  const tier: "exact" | "reliable" | "guess" | null =
-    row.preview === null
-      ? null
-      : row.preview.source === "metadata" || evidence === "metadata"
-        ? "exact"
-        : evidence === "map_name_prefix"
-          ? "guess"
-          : "reliable";
-  const tierText =
-    tier === "exact"
-      ? "确定（包内自己声明）"
-      : tier === "reliable"
-        ? "较可靠（镜像路径 / 地图依赖）"
-        : tier === "guess"
-          ? "猜的（文件名前缀）"
-          : "";
+  const tier = tierOf(row.preview);
+  const tierLabel = tierText(tier);
   const conflict = row.preview?.conflict ?? null;
   const slotName = row.target ? (slots.find((slot) => slot.slug === row.target)?.display_name ?? row.target) : null;
 
@@ -345,11 +538,11 @@ function InstallRow({
             </span>
             <span className="install__row-meta">
               归属：{slotName ?? "认不出来 —— 右边自己选一部"}
-              {tierText && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
+              {tierLabel && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
             </span>
-            {identification && (
+            {inspection?.identification && (
               <span className="install__row-why">
-                可信度：{tierText} —— 依据：{identification.detail}。
+                可信度：{tierLabel} —— 依据：{inspection.identification.detail}。
                 {tier !== "exact" && "这不是确定的，认错了把右边的归属改掉就行。"}
               </span>
             )}
@@ -367,20 +560,7 @@ function InstallRow({
       </div>
 
       <div className="install__row-side">
-        <select
-          className="install__row-select"
-          value={row.target}
-          disabled={busy || row.state === "ok"}
-          onChange={(event) => onTarget(event.target.value)}
-          aria-label={"装到哪部战役：" + (inspection?.name ?? fileName(row.path))}
-        >
-          <option value="">（选一部战役）</option>
-          {slots.map((slot) => (
-            <option key={slot.slug} value={slot.slug}>
-              {slot.display_name}
-            </option>
-          ))}
-        </select>
+        <TargetSelect row={row} slots={slots} busy={busy} onTarget={onTarget} />
         {row.state !== "ok" && (
           <Button variant="text" disabled={busy} onClick={onRemove}>
             移除

@@ -239,10 +239,10 @@ describe("批量安装", () => {
     prepareImport.mockImplementation(async (path) => preview(path, "hots", "包" + path, true));
     importPackageWith.mockResolvedValue(variant);
 
-    await mount(["a.zip"]);
+    await mount(["a.zip", "b.zip"]);
     const choices = [...document.querySelectorAll("input[type=radio]")].map((input) => (input as HTMLInputElement).value);
     expect(choices).toEqual(["overwrite", "rename"]);
-    expect(document.body.textContent).toContain("冲突");
+    expect(document.querySelectorAll(".install__row .install__tag--warn")).toHaveLength(2);
 
     // 切成"重命名后导入"，整批按这个跑
     const rename = [...document.querySelectorAll<HTMLInputElement>("input[type=radio]")].find(
@@ -253,6 +253,7 @@ describe("批量安装", () => {
     });
     await clickPrimary();
     expect(importPackageWith).toHaveBeenCalledWith("a.zip", "hots", "rename");
+    expect(importPackageWith).toHaveBeenCalledWith("b.zip", "hots", "rename");
   });
 
   it("同一个文件进来两次是两行，各行独立（不能拿路径当身份）", async () => {
@@ -277,5 +278,84 @@ describe("批量安装", () => {
     await clickPrimary();
     expect(notify).toHaveBeenCalledWith("success", "已安装：一个包");
     expect(onInstalled).toHaveBeenCalledWith("hots");
+  });
+
+  it("单个包：冲突选择也在这张表里", async () => {
+    prepareImport.mockImplementation(async (path) => preview(path, "hots", "一个包", true));
+    importPackageWith.mockResolvedValue(variant);
+
+    await mount(["one.zip"]);
+    expect(document.body.textContent).toContain("库里已经有同名的版本");
+    const rename = [...document.querySelectorAll<HTMLInputElement>("input[type=radio]")].find(
+      (input) => input.value === "rename",
+    );
+    await act(async () => {
+      rename?.click();
+    });
+    await clickPrimary();
+    expect(importPackageWith).toHaveBeenCalledWith("one.zip", "hots", "rename");
+  });
+});
+
+describe("两种形态（同一套预检与安装逻辑，两种壳）", () => {
+  beforeEach(() => {
+    prepareImport.mockImplementation(async (path) => preview(path, "hots", "包" + path));
+    importPackageWith.mockResolvedValue(variant);
+  });
+
+  it("一个包：带封面的居中属性表（不是清单）", async () => {
+    await mount(["one.zip"]);
+
+    expect(document.querySelector(".install__cover"), "要有封面").not.toBeNull();
+    expect(document.querySelectorAll(".install__rows .field--row").length, "属性表一行行排着").toBeGreaterThanOrEqual(5);
+    expect(document.body.textContent).toContain("游戏实例名称");
+    expect(document.body.textContent).toContain("整合包名称");
+    expect(document.body.textContent).toContain("归属战役");
+    expect(document.querySelectorAll(".install__row"), "单包不该是清单").toHaveLength(0);
+    expect(document.querySelector(".install__foot .btn-primary")?.textContent).toBe("安装");
+    expect(document.querySelector(".install__foot .btn-text")?.textContent).toBe("换一个包");
+  });
+
+  it("同一拍里连加两个包：两行各自独立（编号不能撞）", async () => {
+    pickPackage.mockResolvedValue("picked.zip");
+    await mount([]);
+    const drop = document.querySelector<HTMLButtonElement>(".install__drop");
+    await act(async () => {
+      drop?.click();
+      drop?.click(); // 同一拍里两次：编号用 state 的话两行会撞在一起
+    });
+    await flush();
+
+    expect(document.querySelectorAll(".install__row")).toHaveLength(2);
+    // 移除只删掉自己那一行
+    const remove = document.querySelector<HTMLButtonElement>(".install__row-side button");
+    await act(async () => {
+      remove?.click();
+    });
+    await flush();
+    expect(document.querySelectorAll(".install__row")).toHaveLength(0);
+    expect(document.querySelector(".install__cover")).not.toBeNull();
+  });
+
+  it("两个及以上：清单（没有封面，主按钮是全部安装）", async () => {
+    await mount(["a.zip", "b.zip"]);
+
+    expect(document.querySelectorAll(".install__row")).toHaveLength(2);
+    expect(document.querySelector(".install__cover"), "清单不摆封面").toBeNull();
+    expect(document.querySelector(".install__foot .btn-primary")?.textContent).toBe("全部安装（2）");
+  });
+
+  it("从两个删回一个：切回属性表", async () => {
+    await mount(["a.zip", "b.zip"]);
+
+    const remove = document.querySelector<HTMLButtonElement>(".install__row-side button");
+    await act(async () => {
+      remove?.click();
+    });
+    await flush();
+
+    expect(document.querySelectorAll(".install__row")).toHaveLength(0);
+    expect(document.querySelector(".install__cover"), "删回一个就该是属性表").not.toBeNull();
+    expect(document.querySelector(".install__foot .btn-primary")?.textContent).toBe("安装");
   });
 });
