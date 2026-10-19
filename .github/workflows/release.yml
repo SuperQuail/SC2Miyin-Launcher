@@ -49,10 +49,15 @@ jobs:
           $stage = "SC2Miyin-Launcher-$version-win64"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字
-          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin Launcher.exe"
-          Copy-Item 'target/release/miyin-cli.exe' "$stage/"
           Copy-Item 'docs/使用说明.txt' "$stage/"
           Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
+          # CLI 单独打一个包 —— 只有开发者用，别塞进普通用户下载的主包
+          $cli = "SC2Miyin-Launcher-$version-cli-win64"
+          New-Item -ItemType Directory -Path $cli -Force | Out-Null
+          Copy-Item 'target/release/miyin-cli.exe' "$cli/"
+          Compress-Archive -Path "$cli/*" -DestinationPath "$cli.zip" -Force
+          "CLI_ASSET=$cli.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
           $mb = [math]::Round((Get-Item "$stage.zip").Length / 1MB, 2)
           Write-Host "打包完成: $stage.zip ($mb MB)"
           "ASSET=$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -65,7 +70,9 @@ jobs:
       - name: 附到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.CLI_ASSET }}
           # 自动按 PR / commit 归类生成说明，再拼上人工写的发行说明
           generate_release_notes: true
           body_path: docs/release-notes/${{ github.ref_name }}.md
