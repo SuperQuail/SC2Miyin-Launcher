@@ -36,7 +36,10 @@ jobs:
 
       - name: 构建 release
         # release 必须带 custom-protocol，否则不会把 ui/dist 内嵌进二进制
-        run: cargo build --release -p miyin-launcher --features custom-protocol
+        run: |
+          cargo build --release -p miyin-launcher --features custom-protocol
+          # CLI 给别的工具链用，一起发出去
+          cargo build --release -p miyin-cli
 
       - name: 打包绿色版
         shell: pwsh
@@ -47,6 +50,7 @@ jobs:
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字
           Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin Launcher.exe"
+          Copy-Item 'target/release/miyin-cli.exe' "$stage/"
           Copy-Item 'docs/使用说明.txt' "$stage/"
           Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
           $mb = [math]::Round((Get-Item "$stage.zip").Length / 1MB, 2)
