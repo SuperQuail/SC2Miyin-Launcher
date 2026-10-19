@@ -15,6 +15,7 @@
 
 ```bash
 cargo build -p miyin-cli                      # 产物：target/debug/miyin-cli.exe
+cargo build --release -p miyin-cli            # 发出去的：target/release/miyin-cli.exe（dist/ 里也有一份）
 
 # 一个包：stdout 是一个对象
 target/debug/miyin-cli inspect "D:/包/枪兵之翼.zip"

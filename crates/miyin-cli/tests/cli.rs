@@ -326,3 +326,16 @@ fn pretty_flag_only_changes_whitespace() {
     assert!(pretty_text.lines().count() > 1);
     assert_eq!(stdout_json(&compact), stdout_json(&pretty));
 }
+
+/// 目录不是「文件找不到」—— 已解开的库版本要给出能照着做的提示，而不是让人以为路径打错了。
+#[test]
+fn directory_is_reported_as_directory_not_missing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let output = cli(&["inspect", dir.path().to_str().expect("utf-8 路径")]);
+    let stderr = String::from_utf8(output.stderr.clone()).expect("stderr 应当是 UTF-8");
+
+    assert_eq!(code(&output), 2, "目录算参数错，不是包坏了");
+    assert!(stderr.contains("目录"), "要说清这是个目录：{stderr}");
+    assert!(output.stdout.is_empty(), "stdout 不许混进非 JSON");
+}

@@ -146,6 +146,14 @@ fn require_file(path: &Path) -> CliResult<()> {
     if path.is_file() {
         return Ok(());
     }
+    // 已解开的目录不是"文件找不到" —— 说清楚，否则调用方会以为路径打错了。
+    // shortcut: 只给提示，不自己去打包目录；需要检查未打包的版本就用界面，或先压成 zip。
+    if path.is_dir() {
+        return Err(CliError(format!(
+            "这是一个目录，不是打包好的文件：{}\n库里的版本目录请先打包成 zip/7z/rar 再检查。",
+            path.display()
+        )));
+    }
     Err(CliError(format!("找不到这个文件：{}", path.display())))
 }
 
