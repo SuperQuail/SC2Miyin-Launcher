@@ -43,14 +43,17 @@ pub struct ReleaseInfo {
 impl ReleaseInfo {
     /// 挑出适合当前平台的包：优先 `*-win64.zip`。
     pub fn platform_asset(&self) -> Option<&ReleaseAsset> {
-        self.assets
-            .iter()
-            .find(|asset| asset.name.ends_with("-win64.zip"))
-            .or_else(|| {
-                self.assets
-                    .iter()
-                    .find(|asset| asset.name.ends_with(".zip"))
-            })
+        // **只认启动器那个包**。CLI 是给开发者的单独附件，也以 .zip 结尾；
+        // 以前只按 "-win64.zip" 挑，CLI 排在列表前面时就会被当成更新包下下来 ——
+        // 解包后拿 miyin-cli.exe 顶替启动器，用户直接打不开（真事故，a9 踩过）。
+        let launcher = |asset: &&ReleaseAsset| {
+            asset.name.ends_with("-win64.zip") && !asset.name.contains("-cli")
+        };
+        self.assets.iter().find(launcher).or_else(|| {
+            self.assets
+                .iter()
+                .find(|asset| asset.name.ends_with(".zip") && !asset.name.contains("-cli"))
+        })
     }
 }
 
@@ -452,6 +455,39 @@ fn sha256_file(path: &std::path::Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn asset(name: &str, size: u64) -> ReleaseAsset {
+        ReleaseAsset {
+            name: name.to_string(),
+            size,
+            download_url: format!("https://example.invalid/{name}"),
+            sha256: None,
+        }
+    }
+
+    #[test]
+    fn the_cli_attachment_is_never_chosen() {
+        // a9 真事故：CLI 附件也以 -win64.zip 结尾，排在前面时被当成更新包下下来，
+        // 解包后拿 miyin-cli.exe 顶替启动器 —— 用户直接打不开。
+        let mut info = release("0.1.0a10", true);
+        info.assets = vec![
+            asset("SC2Miyin-Launcher-0.1.0a10-cli-win64.zip", 1),
+            asset("SC2Miyin-Launcher-0.1.0a10-win64.zip", 2),
+        ];
+        assert_eq!(
+            info.platform_asset().expect("应当挑到主包").name,
+            "SC2Miyin-Launcher-0.1.0a10-win64.zip",
+            "CLI 排在前面时也不许选它"
+        );
+
+        // 只有 CLI 时宁可不更新，也不能拿它顶替启动器
+        let mut only_cli = release("0.1.0a10", true);
+        only_cli.assets = vec![asset("SC2Miyin-Launcher-0.1.0a10-cli-win64.zip", 1)];
+        assert!(
+            only_cli.platform_asset().is_none(),
+            "宁可不更新也不能装 CLI"
+        );
+    }
 
     fn release(version: &str, prerelease: bool) -> ReleaseInfo {
         ReleaseInfo {

@@ -52,7 +52,7 @@ jobs:
           Copy-Item 'docs/使用说明.txt' "$stage/"
           Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
           # CLI 单独打一个包 —— 只有开发者用，别塞进普通用户下载的主包
-          $cli = "SC2Miyin-Launcher-$version-cli-win64"
+          $cli = "miyin-cli-$version"
           New-Item -ItemType Directory -Path $cli -Force | Out-Null
           Copy-Item 'target/release/miyin-cli.exe' "$cli/"
           Compress-Archive -Path "$cli/*" -DestinationPath "$cli.zip" -Force
