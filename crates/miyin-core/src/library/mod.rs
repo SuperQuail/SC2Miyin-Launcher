@@ -47,6 +47,7 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
 }
 
 pub mod activation;
+pub mod compat;
 pub mod compose;
 pub mod install;
 pub mod known;

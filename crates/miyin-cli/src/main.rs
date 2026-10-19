@@ -21,6 +21,7 @@ use serde::Serialize;
 use miyin_core::campaign::identify::{CampaignEvidence, Identification};
 use miyin_core::campaign::metadata::{CampaignType, PackageKind};
 use miyin_core::campaign::package::{PackageInspection, Payload, PayloadTarget, inspect};
+use miyin_core::library::compat;
 use miyin_core::library::compose::{Placement, payload_target_path};
 
 /// 参数错 / 路径不存在。
@@ -39,6 +40,8 @@ const USAGE: &str = "\
   miyin-cli identify <包路径>          输出归属判定（认不出来就如实说不知道）
   miyin-cli placements <包路径> [--slot <slug>]
                                        输出每个载荷在游戏目录内的相对路径
+  miyin-cli compat <包路径>            对比「按我们的约定装」与「按枢纽（CCM）装」
+                                       各自有哪些文件会被游戏认出来
 
 选项：
   --pretty       缩进输出 JSON（默认紧凑）
@@ -117,7 +120,7 @@ fn run(args: &[String]) -> CliResult<u8> {
 
     let Some(command) = command else {
         return Err(CliError(
-            "没有给命令（inspect / identify / placements）".to_string(),
+            "没有给命令（inspect / identify / placements / compat）".to_string(),
         ));
     };
 
@@ -125,6 +128,7 @@ fn run(args: &[String]) -> CliResult<u8> {
         "inspect" => inspect_command(&paths, pretty),
         "identify" => identify_command(&paths, pretty),
         "placements" => placements_command(&paths, slot.as_deref(), pretty),
+        "compat" => compat_command(&paths, pretty),
         other => Err(CliError(format!("不认识命令：{other}"))),
     }
 }
@@ -242,10 +246,6 @@ fn placements_command(paths: &[PathBuf], slot: Option<&str>, pretty: bool) -> Cl
     require_file(path)?;
 
     let inspection = inspect_package(path)?;
-    let file_stem = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default();
 
     // 槽位：--slot 优先（手动指定永远最高优先级，见 AGENTS.md 14.8），
     // 其次用包内声明的归属，都没有就只能请调用方指定 —— 不猜
@@ -267,13 +267,11 @@ fn placements_command(paths: &[PathBuf], slot: Option<&str>, pretty: bool) -> Cl
         )));
     };
 
-    // 自制战役要用版本目录名当 Maps/CustomCampaigns/ 下面那层；
-    // 还没入库的包就用建议的安装目录名顶上
-    let folder = inspection
-        .suggested_dir_name
-        .clone()
-        .unwrap_or_else(|| file_stem.clone());
-    let placement = Placement::of(campaign_type.slug(), &folder, campaign_type.sub_directory());
+    let placement = Placement::of(
+        campaign_type.slug(),
+        &variant_folder(path, &inspection),
+        campaign_type.sub_directory(),
+    );
 
     let payloads = expand_payloads(&inspection.payloads, &placement);
     let outside = payloads.iter().filter(|item| item.target.is_none()).count();
@@ -305,6 +303,53 @@ fn placements_command(paths: &[PathBuf], slot: Option<&str>, pretty: bool) -> Cl
         EXIT_BROKEN
     } else {
         EXIT_OK
+    })
+}
+
+/// 两套安装约定的兼容性对比：按我们装 vs 按枢纽（CCM）装，各自哪些文件会被认出来。
+///
+/// 落点规则不在这里 —— 在 `miyin_core::library::compat`（界面以后也要显示同一份）。
+fn compat_command(paths: &[PathBuf], pretty: bool) -> CliResult<u8> {
+    let path = single_path(paths, "compat")?;
+    require_file(path)?;
+
+    let inspection = inspect_package(path)?;
+    // broken 的包连载荷都没有，算兼容性是空谈 —— 沿用 inspect 的退出码 1，别报"两套全认"
+    if inspection.has_blocking_issue() {
+        eprintln!(
+            "{}：这个包有无法运行的问题，先看 inspect 的 issues",
+            path.display()
+        );
+        return Ok(EXIT_BROKEN);
+    }
+
+    // 认不出归属时 compat 照算两套落点，但 slot 如实留 null（不假装认得）
+    let report = compat::analyze(&inspection, &variant_folder(path, &inspection));
+
+    for warning in &report.summary.warnings {
+        eprintln!("{}: {warning}", path.display());
+    }
+    eprintln!(
+        "按我们的约定：{}/{} 可识别；按枢纽：{}/{}",
+        report.summary.ours.recognized,
+        report.summary.total,
+        report.summary.nexus.recognized,
+        report.summary.total,
+    );
+
+    let missed = report.summary.ours.missed + report.summary.nexus.missed;
+    emit(&report, pretty)?;
+    Ok(if missed > 0 { EXIT_BROKEN } else { EXIT_OK })
+}
+
+/// 版本目录名：自制战役靠它当 Maps/CustomCampaigns/ 下面那层。
+///
+/// 还没入库的包用建议的安装目录名，取不到再退回压缩包文件名。
+fn variant_folder(path: &Path, inspection: &PackageInspection) -> String {
+    inspection.suggested_dir_name.clone().unwrap_or_else(|| {
+        path.file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default()
     })
 }
 

@@ -6,8 +6,8 @@
 看的就是界面上那套东西 —— 同一个 `miyin_core::campaign::package::inspect()`，
 所以**字段名与界面同源，一个不改**。改了这里就等于改契约，请同步本文档。
 
-> 只做三条命令（`inspect` / `identify` / `placements`）。
-> 参数解析是手写的 —— 为三条命令引 clap 不划算。
+> 只做四条命令（`inspect` / `identify` / `placements` / `compat`）。
+> 参数解析是手写的 —— 为四条命令引 clap 不划算。
 
 ---
 
@@ -28,6 +28,9 @@ target/debug/miyin-cli identify x.zip
 
 # 每个载荷会落到游戏目录的哪里
 target/debug/miyin-cli placements x.zip --slot lotv --pretty
+
+# 按我们的约定 vs 按枢纽（CCM）：哪些文件游戏认，哪些不认
+target/debug/miyin-cli compat x.zip --pretty
 ```
 
 直接拿来判断（例：只看能不能装）：
@@ -210,12 +213,93 @@ JSON 里如实写 `"slug": null`。这不是"失败"，是结论（见 §4）。
 
 ---
 
-## 6. 退出码
+## 6. `compat <包路径>`
+
+同一个包，**两套安装约定各算一遍落点**，并逐文件标出**游戏会不会认**。
+
+为什么需要：纸面上两边都说「兼容 CCM」，但**落点约定并不一样** ——
+我们按包内声明的 `campaign` 把官方改版放进 `Maps/Campaign/…`，
+而枢纽（CCM）那一套**不看声明**，一律当自制战役塞进 `Maps/CustomCampaigns/<名字>/`。
+同一个包两边算出来的路径不同，能不能被游戏认出来也就可能不同。
+
+### 两套约定到底是什么
+
+| | **ours**（弥音） | **nexus**（枢纽 / CCM） |
+| --- | --- | --- |
+| 官方改版（`campaign=wol`…） | `Maps/Campaign[/子目录]/` | `Maps/CustomCampaigns/<名字>/` |
+| 自制战役（`campaign=custom`） | `Maps/CustomCampaigns/<名字>/` | 同左 |
+| 模组（`.SC2Mod`） | `Mods/<名字>` | 同左 |
+| 镜像载荷（包内写死了 `Maps/` 或 `Mods/`） | 按包内路径 | 同左 |
+
+两套都走**同一份**落点规则（`library::compose` 的 `Placement` 与 `payload_target_path`），
+只是喂进去的 placement 不同 —— 落点规则没有第二套实现，见 `docs/package-format.md` §1.4 与 AGENTS.md §14.5。
+
+### `recognized` 是什么
+
+**落点是不是在游戏会扫描的目录里**：`Maps/Campaign/**`、`Maps/CustomCampaigns/**`、`Mods/**`。
+不在（被摆进 `Maps/` 下别的目录、`SC2Data/`、`Interfaces/` 之类）就是 `false`。
+判据**只看目录**，不看文件本身能不能跑。
+
+别和写盘闸门搞混：闸门放行的是「安装目录里任意位置」（AGENTS.md §10.5），那是**允许写**的边界；
+这里是**游戏认不认**的边界。包能装进去 ≠ 游戏看得到。
+
+```json
+{
+  "slot": "lotv",
+  "files": [
+    {
+      "source": "paiur01.SC2Map",
+      "kind": "map",
+      "ours":  { "target": "Maps/Campaign/void/paiur01.SC2Map",
+                 "recognized": true,
+                 "why": "两套约定的落点不同，但都在游戏扫描的目录里" },
+      "nexus": { "target": "Maps/CustomCampaigns/Reborn/paiur01.SC2Map",
+                 "recognized": true,
+                 "why": "两套约定的落点不同，但都在游戏扫描的目录里" }
+    },
+    {
+      "source": "X.SC2Mod",
+      "kind": "mod",
+      "ours":  { "target": "Mods/X.SC2Mod", "recognized": true, "why": "" },
+      "nexus": { "target": "Mods/X.SC2Mod", "recognized": true, "why": "" }
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "ours":  { "recognized": 2, "missed": 0 },
+    "nexus": { "recognized": 2, "missed": 0 },
+    "warnings": ["这个包声明成 lotv：枢纽那套不看声明，会把它当自制战役装进 Maps/CustomCampaigns/"]
+  }
+}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `slot` | 我们认出来的归属槽位；**认不出来就是 `null`**（照样给两套落点，但不假装认得） |
+| `files` | 逐个载荷一行，`source` 是包内相对内容根的路径 |
+| `files[].kind` | `mirror` / `mod` / `map` —— 载荷落点类型 |
+| `files[].ours`、`files[].nexus` | 两套约定下各自的 `target` / `recognized` / `why` |
+| `why` | **只在 `recognized: false` 或两套结果不同时**才给；其余是空串 |
+| `summary.total` | 载荷总数（等于 `files` 的长度） |
+| `summary.ours` / `summary.nexus` | `recognized` 与 `missed` 两个计数 |
+| `summary.warnings` | 值得提一句的地方：认不出归属、官方改版会被枢纽当自制战役、哪一套有文件认不出来 |
+
+**退出码**：`0` 两套都全认；`1` 有文件不会被认（或包本身就 broken，这时 stdout 是空的）；`2` 参数错。
+
+stderr 上有同一份汇总，方便人直接看：
+
+```text
+C:/包/枪兵之翼.zip: 这个包声明成 wol：枢纽那套不看声明，会把它当自制战役装进 Maps/CustomCampaigns/
+按我们的约定：31/31 可识别；按枢纽：31/31
+```
+
+---
+## 7. 退出码
 
 | 码 | 含义 | 什么时候 |
 | --- | --- | --- |
-| `0` | 全部可安装 | 每个包的 `issues` 里都没有 `broken` |
-| `1` | 有 broken 级问题 | 至少一个包 `installable: false`（含"存在但读不了"的包） |
+| `0` | 全部可安装 / 两套约定都全认 | 每个包的 `issues` 里都没有 `broken`；`compat` 时两套都没有 `recognized: false` |
+| `1` | 有 broken 级问题 / 有文件不会被认 | 至少一个包 `installable: false`（含"存在但读不了"的包）；或 `compat` 里有文件落进游戏扫描不到的目录 |
 | `2` | 参数错 / 读不了 | 命令或选项不认识、**路径不存在**、`--slot` 认不出、`placements` 定不了槽位 |
 
 注意"包在、但读不了"是 `1` 而不是 `2` —— 那种情况核心会给出一条 `NOT_AN_ARCHIVE`
@@ -237,7 +321,7 @@ JSON 里如实写 `"slug": null`。这不是"失败"，是结论（见 §4）。
 
 ---
 
-## 7. 一个可直接复制的完整例子
+## 8. 一个可直接复制的完整例子
 
 ```bash
 cd "D:/Code/Rust/HSCL"
@@ -252,6 +336,10 @@ CLI=target/debug/miyin-cli.exe
 
 # 3) 落点预演：会往游戏目录写什么？（记得看 exit code）
 "$CLI" placements "D:/包/枪兵之翼.zip" --pretty
+echo "exit=$?"
+
+# 4) 兼容性：按枢纽那套装，这个包有几个文件游戏认不出来？
+"$CLI" compat "D:/包/枪兵之翼.zip" --pretty
 echo "exit=$?"
 ```
 
@@ -272,11 +360,11 @@ print(report["name"], report["suggested_slot"], report["map_count"], "张地图"
 
 ---
 
-## 8. 边界与已知取舍
+## 9. 边界与已知取舍
 
-- **只读**：三条命令都不写盘、不改包，也不会改动战役库。
-- **`identify` / `placements` 只收一个包**。要批量就 `inspect` 多个，
-  或自己循环（`placements` 的输出依赖 `--slot`，混着传容易看串）。
+- **只读**：四条命令都不写盘、不改包，也不会改动战役库。
+- **`identify` / `placements` / `compat` 只收一个包**。要批量就 `inspect` 多个，
+  或自己循环（`placements` 与 `compat` 的输出依赖包自己的归属，混着传容易看串）。
 - **`placements` 的 `folder` 用包内建议的目录名**（`suggested_dir_name`）。
   包还没入库时，这正是它**将要**用的那层目录名；已入库的版本目录名可能与它不同 ——
   真正铺盘时的落点以库里那份为准（`compose`）。
@@ -284,9 +372,9 @@ print(report["name"], report["suggested_slot"], report["map_count"], "张地图"
   非 zip 的容器（7z / rar）要借系统解压器，那是另一回事：可能得整体解一遍。
 - **非 zip 的容器**（7z / rar / tar）交给系统 `tar`（见
   `docs/package-format.md`）；系统上没有可用解压器时就是 `NOT_AN_ARCHIVE`。
-- 这是 v1：只有三条命令。要加命令之前先想清楚别的 agent 是不是真的需要它。
+- 这是 v1：只有四条命令。要加命令之前先想清楚别的 agent 是不是真的需要它。
 
-## 9. 已知不一致：CLI 预测的是**今天**的规则
+## 10. 已知不一致：CLI 预测的是**今天**的规则
 
 `inspect` / `placements` 反映的是**当前这版核心**怎么解析这个包。库里**已经导入过**的旧记录
 是按当时那版规则算的落点 —— 两者可能不一样（真实例子：某个 10 月 9 日导入的包把 `evolution/`

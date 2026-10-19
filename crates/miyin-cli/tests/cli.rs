@@ -339,3 +339,171 @@ fn directory_is_reported_as_directory_not_missing() {
     assert!(stderr.contains("目录"), "要说清这是个目录：{stderr}");
     assert!(output.stdout.is_empty(), "stdout 不许混进非 JSON");
 }
+
+/// 官方改版：两套落点不同（我们的进 Maps/Campaign，枢纽的进 CustomCampaigns），
+/// 都认得出来 -> 退出 0；模组两边都进 Mods/。
+#[test]
+fn compat_official_revision_differs_but_both_recognized() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "reborn.zip",
+        &[
+            ("metadata.txt", b"title=Reborn\ncampaign=LOTV\n".as_slice()),
+            // 包根**不能**出现 Mods/ —— 那会让整包按游戏目录镜像落盘
+            // （package::mirrors_game_root），maps/ 就变成 Maps/maps/ 了
+            ("paiur01.SC2Map", b"stub".as_slice()),
+            ("X.SC2Mod", b"stub".as_slice()),
+        ],
+    );
+
+    let output = cli(&["compat", archive.to_str().expect("utf-8 路径")]);
+    let report = stdout_json(&output);
+
+    assert_eq!(
+        code(&output),
+        0,
+        "两套都全认 -> 0；stderr：{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(report["slot"], "lotv");
+    assert_eq!(report["summary"]["total"], 2);
+    assert_eq!(report["summary"]["ours"]["missed"], 0);
+    assert_eq!(report["summary"]["nexus"]["missed"], 0);
+
+    let files = report["files"].as_array().expect("files 是数组");
+    let map = files
+        .iter()
+        .find(|file| file["source"] == "paiur01.SC2Map")
+        .expect("应当有这张地图");
+    assert_eq!(map["ours"]["target"], "Maps/Campaign/void/paiur01.SC2Map");
+    assert_eq!(
+        map["nexus"]["target"], "Maps/CustomCampaigns/Reborn/paiur01.SC2Map",
+        "枢纽那套不看声明，一律当自制战役"
+    );
+    assert_eq!(map["ours"]["recognized"], true);
+    assert_eq!(map["nexus"]["recognized"], true);
+    assert_eq!(
+        map["ours"]["why"],
+        "两套约定的落点不同，但都在游戏扫描的目录里"
+    );
+
+    let module = files
+        .iter()
+        .find(|file| file["source"] == "X.SC2Mod")
+        .expect("应当有这个模组");
+    assert_eq!(module["ours"]["target"], module["nexus"]["target"]);
+    assert_eq!(module["ours"]["why"], "");
+
+    assert!(
+        report["summary"]["warnings"]
+            .as_array()
+            .expect("warnings 是数组")
+            .iter()
+            .any(|warning| warning
+                .as_str()
+                .expect("warning 是字符串")
+                .contains("枢纽那套不看声明")),
+        "官方改版被枢纽当自制战役，必须提一句：{}",
+        report["summary"]["warnings"]
+    );
+}
+
+/// 镜像包把地图摆在游戏扫描不到的目录里 -> 两套都不认，退出 1。
+#[test]
+fn compat_stray_path_is_missed_and_exits_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "stray.zip",
+        &[
+            ("metadata.txt", b"title=Stray\ncampaign=WOL\n".as_slice()),
+            (
+                "Maps/Starcraft Mass Recall/Terran01.SC2Map",
+                b"stub".as_slice(),
+            ),
+        ],
+    );
+
+    let output = cli(&["compat", archive.to_str().expect("utf-8 路径")]);
+    let report = stdout_json(&output);
+
+    assert_eq!(code(&output), 1, "有文件不会被认 -> 1");
+    let file = &report["files"][0];
+    assert_eq!(
+        file["ours"]["target"], file["nexus"]["target"],
+        "镜像载荷两套落点相同"
+    );
+    assert_eq!(file["ours"]["recognized"], false);
+    assert_eq!(file["nexus"]["recognized"], false);
+    assert!(
+        file["ours"]["why"]
+            .as_str()
+            .expect("why 是字符串")
+            .contains("不在游戏扫描的目录里"),
+        "不认时要给一句 why：{}",
+        file["ours"]["why"]
+    );
+    assert_eq!(report["summary"]["ours"]["missed"], 1);
+}
+
+/// 认不出归属：slot 为 null，照样给两套落点，不崩、也不报错。
+#[test]
+fn compat_unknown_campaign_reports_null_slot() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "mystery.zip",
+        &[("maps/abc.SC2Map", b"stub".as_slice())],
+    );
+
+    let output = cli(&["compat", archive.to_str().expect("utf-8 路径")]);
+    let report = stdout_json(&output);
+
+    assert_eq!(code(&output), 0, "落点都在扫描目录里 -> 0");
+    assert!(report["slot"].is_null(), "认不出就是 null");
+    assert_eq!(report["files"].as_array().expect("files").len(), 1);
+    assert!(
+        report["summary"]["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|warning| warning.as_str().expect("字符串").contains("认不出")),
+        "要如实提醒认不出：{}",
+        report["summary"]["warnings"]
+    );
+}
+
+/// 坏包（没有载荷）走 broken 那条路：退出 1、stdout 干净 ——
+/// 不许报一份"两套都不认"的空报告。
+#[test]
+fn compat_broken_package_exits_one_without_json() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "empty.zip",
+        &[("readme.txt", b"nothing".as_slice())],
+    );
+
+    let output = cli(&["compat", archive.to_str().expect("utf-8 路径")]);
+
+    assert_eq!(code(&output), 1);
+    assert!(output.stdout.is_empty(), "坏包不该给一份空报告");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("无法运行"));
+}
+
+/// compat 只要一个包路径，多给是参数错。
+#[test]
+fn compat_rejects_extra_paths() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "a.zip",
+        &[("metadata.txt", b"title=A\ncampaign=WOL\n".as_slice())],
+    );
+    let path = archive.to_str().expect("utf-8 路径");
+
+    let output = cli(&["compat", path, path]);
+    assert_eq!(code(&output), 2);
+    assert!(output.stdout.is_empty());
+}
