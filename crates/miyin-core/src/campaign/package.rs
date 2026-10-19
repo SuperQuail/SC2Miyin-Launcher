@@ -291,6 +291,34 @@ fn collect_map_declarations(
     declarations
 }
 
+/// `Maps/` 后面是不是游戏会扫描的分类目录。
+///
+/// 平坦的 `maps/01.SC2Map` 是**作者的分类习惯**（不是镜像）：真当镜像摆到
+/// `Maps/01.SC2Map` 游戏根本不扫，地图就白装了 —— 那种要交给拍平逻辑。
+fn looks_like_game_category(rest: &[&str]) -> bool {
+    rest.first().is_some_and(|first| {
+        first.eq_ignore_ascii_case("campaign") || first.eq_ignore_ascii_case("customcampaigns")
+    })
+}
+
+/// 游戏根下的三个规范目录名 —— **大小写不敏感**，返回规范拼写。
+///
+/// Windows 的文件系统不分大小写：包里的 `maps/x.SC2Map` 和 `Maps/x.SC2Map` 落盘之后
+/// 是同一个地方。以前按区分大小写比较，小写 `maps/` 认不出来，会被当成「普通分类目录」
+/// 原样塞进 `Maps/` 底下，变成 `Maps/maps/x.SC2Map` —— 游戏就找不到这些地图了。
+fn canonical_game_dir(name: &str) -> Option<&'static str> {
+    if name.eq_ignore_ascii_case("maps") {
+        return Some("Maps");
+    }
+    if name.eq_ignore_ascii_case("mods") {
+        return Some("Mods");
+    }
+    if name.eq_ignore_ascii_case("interfaces") {
+        return Some("Interfaces");
+    }
+    None
+}
+
 /// 包内是否直接就是游戏目录镜像（顶层出现 `Maps` 或 `Mods`）。
 fn has_mirror_root(entries: &[Entry]) -> bool {
     entries.iter().any(|entry| {
@@ -299,11 +327,11 @@ fn has_mirror_root(entries: &[Entry]) -> bool {
             .components()
             .next()
             .map(|first| {
-                // 与 `payload_target` 一致：只认规范拼写。
+                // 与 `payload_target` 一致，但**不区分大小写**：`maps/` 在 Windows 上就是 `Maps/`。
                 // Interfaces 也算 —— 白名单早就放行它，但这里一直不认，
                 // 结果是界面 Mod 装不进去（v3 要补的第一个缺口）。
                 let name = first.as_os_str().to_string_lossy();
-                name == "Maps" || name == "Mods" || name == "Interfaces"
+                canonical_game_dir(&name).is_some()
             })
             .unwrap_or(false)
     })
@@ -444,7 +472,8 @@ fn is_under(candidate: &Path, root: &str) -> bool {
 fn mirrors_game_root(entries: &[Entry]) -> bool {
     entries.iter().any(|entry| {
         let path = entry.relative.to_string_lossy().replace('\\', "/");
-        path.len() > 4 && path.starts_with("Mods/")
+        let first = path.split('/').next().unwrap_or_default();
+        path.len() > 4 && canonical_game_dir(first) == Some("Mods")
     })
 }
 
@@ -457,16 +486,31 @@ fn mirrors_game_root(entries: &[Entry]) -> bool {
 /// 结果 `Mods/Alenger/1钢铁.SC2Mod` 变成 `Mods/1钢铁.SC2Mod` ——
 /// **`Alenger/` 这一层没了**，地图里声明的 `Mods\Alenger\…` 自然找不到。
 ///
-/// 只认**规范拼写**：游戏目录就叫 `Maps` / `Mods`，而包作者拿小写 `maps/`
-/// 当普通分类目录用的情况很常见，一律按镜像处理会把它们误送到游戏根下。
+/// **大小写不敏感**：Windows 上 `maps/` 就是 `Maps/`，落盘之后没有区别 ——
+/// 用户在 Windows 上放 `maps/Campaign/…`，装完必须长成 `Maps/Campaign/…`。
+/// 认出来之后用**规范拼写**拼接，盘上的目录名始终是游戏认的那个。
+///
+/// `Maps` 还要求后面跟着游戏扫描的分类（`Campaign` / `CustomCampaigns`）：
+/// 平坦的 `maps/01.SC2Map` 是作者的分类习惯，交给拍平逻辑才对。
 fn game_relative(source: &str) -> Option<String> {
     let normalised = source.replace('\\', "/");
     let parts: Vec<&str> = normalised.split('/').collect();
 
     for (index, part) in parts.iter().enumerate() {
-        if *part == "Maps" || *part == "Mods" || *part == "Interfaces" {
-            return Some(parts[index..].join("/"));
+        let Some(canonical) = canonical_game_dir(part) else {
+            continue;
+        };
+        let rest = &parts[index + 1..];
+        // 只有**大小写不对**的写法才需要额外证据：`maps/` 既可能是镜像也可能是分类习惯。
+        // 规范拼写 `Maps/` 一律当镜像 —— 复刻战役那种 `Maps/Starcraft Mass Recall/…`
+        // 必须原样保留（它的启动器地图按相对 Maps/ 的路径联动关卡，拍平就废了）。
+        let non_canonical = *part != canonical;
+        if non_canonical && canonical == "Maps" && !looks_like_game_category(rest) {
+            continue;
         }
+        let mut out: Vec<String> = rest.iter().map(|p| p.to_string()).collect();
+        out.insert(0, canonical.to_string());
+        return Some(out.join("/"));
     }
 
     None
@@ -1596,6 +1640,43 @@ mod payload_tests {
         assert_eq!(
             crate::library::compose::payload_target_path(
                 &payloads[0].target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/01.SC2Map")
+        );
+    }
+    #[test]
+    fn a_lowercase_maps_folder_is_the_same_as_maps() {
+        // 用户报的那个：包里的文件夹叫 maps，Windows 上它就是 Maps。
+        // 以前按大小写敏感比，认不出来，整包被塞成 Maps/maps/…，游戏找不到地图。
+        let entries = vec![
+            entry("metadata.txt", false),
+            entry("maps/Campaign/void/01.SC2Map", false),
+        ];
+        let payloads = collect_payloads(&entries, "");
+        assert_eq!(payloads.len(), 1);
+        assert_eq!(
+            crate::library::compose::payload_target_path(
+                &payloads[0].target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/01.SC2Map"),
+            "小写 maps/ 要当 Maps/ 用，而且不许再套一层 maps"
+        );
+
+        // 但平坦的 maps/01 仍然是作者的分类习惯 —— 照旧拍平到能扫到的位置，
+        // 别为了修大小写把这类包送进 Maps 根目录。
+        let flat = vec![entry("metadata.txt", false), entry("maps/01.SC2Map", false)];
+        let flat_payloads = collect_payloads(&flat, "");
+        assert_eq!(
+            crate::library::compose::payload_target_path(
+                &flat_payloads[0].target,
                 &crate::library::compose::Placement::Campaign {
                     sub: Some("void".into())
                 },
