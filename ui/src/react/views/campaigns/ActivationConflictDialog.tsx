@@ -11,19 +11,26 @@ const SHOWN = 5;
  * 版式照合并对话框（`views/merge/MergeDialog`）：一个 Sheet + 一段说明 + 一份清单 +
  * 两个按钮。**这里不做任何写盘动作** —— 用户点「用新战役的」之后才轮到启用流程。
  *
- * 「保持另一个」= 什么都不做：关掉它，现在生效的还是另一个战役（不是回滚、不是撤销）。
+ * 两个按钮直接写战役名：用户要的就是「启用 A」还是「启用 B」，不要再转述一遍。
+ * 「启用另一个」= 什么都不做：关掉它，现在生效的还是那个战役（不是回滚、不是撤销）。
  */
 export function ActivationConflictDialog({
   conflicts,
+  newCampaign,
+  otherCampaign,
   busy,
   onUseNew,
   onKeepOther,
 }: {
   conflicts: ActivationConflict[];
+  /** 正在启用的那个（显示在人看得懂的按钮上）。 */
+  newCampaign: string;
+  /** 已经启用、跟它撞车的那个。 */
+  otherCampaign: string;
   busy: boolean;
-  /** 用新战役的：继续启用（会覆盖对方）。 */
+  /** 启用新战役：继续（会用它的文件覆盖对方）。 */
   onUseNew: () => void;
-  /** 保持另一个：取消，什么都不改。 */
+  /** 启用另一个：什么都不改，关掉对话框。 */
   onKeepOther: () => void;
 }) {
   const shown = conflicts.slice(0, SHOWN);
@@ -31,22 +38,21 @@ export function ActivationConflictDialog({
 
   return (
     <Sheet
-      title="这个战役会覆盖另一个战役的文件"
+      title={newCampaign + " 和 " + otherCampaign + " 冲突"}
       onClose={onKeepOther}
       actions={
         <>
           <Button disabled={busy} onClick={onKeepOther}>
-            保持另一个
+            启用 {otherCampaign}
           </Button>
           <Button variant="primary" loading={busy} onClick={onUseNew}>
-            用新战役的
+            启用 {newCampaign}
           </Button>
         </>
       }
     >
       <p className="sheet__text">
-        两个战役都要往游戏目录的同一个位置写东西。继续启用会用这一份覆盖掉另一个 ——
-        先确认要哪个。
+        它们都要往游戏目录写同一批文件（{conflicts.length} 个）。同一时间只能生效一个，选哪个？
       </p>
 
       <section className="conflict__section">
@@ -67,7 +73,7 @@ export function ActivationConflictDialog({
       </section>
 
       <p className="conflict__foot">
-        「保持另一个」什么都不改：现在生效的还是另一个战役，游戏目录一个字节都不动。
+        选 {otherCampaign}：什么都不改。选 {newCampaign}：它的文件会盖掉对方的，对方会有一部分失效。
       </p>
     </Sheet>
   );

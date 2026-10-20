@@ -226,14 +226,23 @@ export function AppShell() {
       )}
 
       {/* 启用时会覆盖另一个已启用战役：先问一句。**这个框出现时一个字节都还没写盘** */}
-      {app.library.pendingConflict && (
-        <ActivationConflictDialog
-          conflicts={app.library.pendingConflict.conflicts}
-          busy={app.busy}
-          onUseNew={() => void app.library.confirmConflict()}
-          onKeepOther={app.library.cancelConflict}
-        />
-      )}
+      {app.library.pendingConflict &&
+        (() => {
+          const pending = app.library.pendingConflict;
+          const slot = app.library.slots.find((item) => item.slug === pending.slot);
+          const variant = slot?.variants.find((item) => item.id === pending.variantId);
+          const other = pending.conflicts[0];
+          return (
+            <ActivationConflictDialog
+              conflicts={pending.conflicts}
+              newCampaign={variant?.name ?? slot?.display_name ?? pending.slot}
+              otherCampaign={other ? other.slot_name + " · " + other.variant_name : ""}
+              busy={app.busy}
+              onUseNew={() => void app.library.confirmConflict()}
+              onKeepOther={app.library.cancelConflict}
+            />
+          );
+        })()}
 
       {/* 作弊码：战役页 / 自制战役页的「小工具」里弹出来 */}
       {app.nav.cheatsOpen && <CheatsView notify={app.notify} onClose={app.nav.closeCheats} />}

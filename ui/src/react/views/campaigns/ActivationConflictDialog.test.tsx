@@ -42,6 +42,8 @@ async function mount(conflicts: ActivationConflict[], busy = false) {
     root.render(
       createElement(ActivationConflictDialog, {
         conflicts,
+        newCampaign: "虫群之心 · 进化重制",
+        otherCampaign: "自由之翼 · 重生",
         busy,
         onUseNew,
         onKeepOther,
@@ -61,8 +63,9 @@ describe("启用冲突对话框", () => {
   it("标题说清后果，并列出冲突条数与前 5 条", async () => {
     await mount(Array.from({ length: 7 }, (_, index) => conflict(index)));
 
+    // 标题直接点名两个战役 —— 不写「这个」「另一个」这种没有指代对象的说法
     expect(document.querySelector(".sheet__title")?.textContent).toBe(
-      "这个战役会覆盖另一个战役的文件",
+      "虫群之心 · 进化重制 和 自由之翼 · 重生 冲突",
     );
     expect(document.querySelector(".conflict__head")?.textContent).toContain("7 个");
     expect(document.querySelectorAll(".conflict__item")).toHaveLength(5);
@@ -80,12 +83,12 @@ describe("启用冲突对话框", () => {
     expect(document.querySelector(".conflict__more")).toBeNull();
   });
 
-  it("两个按钮各自接到回调（用新战役的 / 保持另一个）", async () => {
+  it("两个按钮各自写着战役名、各自接到回调", async () => {
     const { onUseNew, onKeepOther } = await mount([conflict(0)]);
     const buttons = [...document.querySelectorAll<HTMLButtonElement>(".sheet__actions button")];
     const labels = buttons.map((button) => button.textContent);
 
-    expect(labels).toEqual(["保持另一个", "用新战役的"]);
+    expect(labels).toEqual(["启用 自由之翼 · 重生", "启用 虫群之心 · 进化重制"]);
 
     await act(async () => {
       buttons[1].click();
