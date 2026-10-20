@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { SaveBackup, SaveIsolation, SlotView } from "../../../api/types";
+import type { SaveBackup, SaveIsolation, SaveTarget } from "../../../api/types";
 import { SavesView } from "./SavesView";
 
 /**
@@ -15,15 +15,11 @@ import { SavesView } from "./SavesView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const slots: SlotView[] = ["wol", "hots", "custom"].map((slug) => ({
-  slug,
-  display_name: slug === "wol" ? "自由之翼" : slug === "hots" ? "虫群之心" : "自制战役",
-  sub_directory: null,
-  variants: [],
-  active: null,
-  active_name: null,
-  notice: null,
-}));
+const targets: SaveTarget[] = [
+  { key: "wol", label: "自由之翼" },
+  { key: "hots", label: "虫群之心" },
+  { key: "custom", label: "自制战役" },
+];
 
 const groups: SaveBackup[] = [
   { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
@@ -55,7 +51,7 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
   await act(async () => {
     root.render(
       createElement(SavesView, {
-        slots,
+        targets,
         isolation: overrides?.isolation ?? isolation,
         groups: overrides?.groups ?? groups,
         banks: { files: [{ name: "ENS.SC2Bank", bytes: 611_000 }], bytes: 1_842_000, missing: false },

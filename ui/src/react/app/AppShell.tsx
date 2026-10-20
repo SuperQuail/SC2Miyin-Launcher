@@ -201,7 +201,7 @@ export function AppShell() {
             {view === "mods" && <ModsView {...modsHost} />}
             {view === "saves" && (
               <SavesView
-                slots={app.library.slots}
+                targets={app.saves.saveTargets}
                 isolation={app.saves.saveIsolation}
                 groups={app.saves.saveBackups}
                 banks={app.saves.saves}

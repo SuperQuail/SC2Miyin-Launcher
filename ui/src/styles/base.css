@@ -289,3 +289,40 @@ textarea {
     animation-duration: 2.4s;
   }
 }
+
+
+/* ---------- 页面壳（设置页 / 存档页共用）----------
+ *
+ * 版式原语，不属于某个页面：page 管页宽与间距，card panel 是那种不透明的面板
+ * （背景壁纸不会透过来），panel__head 是「标题 + 右上操作」那一行。
+ * 之前写在 settings.css 里，别的页面要用就只能 import 别人的样式文件。
+ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.panel {
+  padding: 20px 24px 22px;
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.panel__actions {
+  display: flex;
+  gap: 6px;
+}

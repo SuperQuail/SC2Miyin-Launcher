@@ -1,81 +1,39 @@
-/* 存档页（views/saves）。颜色只走 tokens.css，和其他页面一样压在壁纸上。 */
+/* 存档页（views/saves）。版式壳在 base.css（page / card panel / panel__head），这里只写组列表。 */
 
-.saves {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: var(--content-max);
-  margin: 0 auto;
-}
-
-.saves__head,
-.saves__card,
-.saves__empty {
-  padding: 20px 24px;
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
-  border: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
-  backdrop-filter: blur(14px) saturate(1.15);
-}
-
-.saves__eyebrow {
-  margin: 0 0 6px;
-  font-size: 12.5px;
-  color: var(--on-surface-variant);
-}
-
-.saves__title {
-  margin: 0 0 10px;
-  font-size: 20px;
-}
-
-.saves__text {
-  max-width: 680px;
-  margin: 0 0 8px;
+.saves__lede {
+  max-width: 660px;
+  margin: 0 0 14px;
   font-size: 13px;
   line-height: 1.7;
   color: var(--on-surface-variant);
 }
 
-.saves__status {
+.saves__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
+}
+
+.saves__fact {
+  display: flex;
+  gap: 12px;
   font-size: 12.5px;
+}
+
+.saves__fact dt {
+  flex: none;
+  width: 84px;
   color: var(--on-surface-variant);
 }
 
-.saves__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.saves__empty-title {
-  margin: 0 0 6px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.saves__empty-text {
+.saves__fact dd {
   margin: 0;
-  max-width: 620px;
-  font-size: 12.5px;
-  line-height: 1.7;
-  color: var(--on-surface-variant);
+  min-width: 0;
+  word-break: break-all;
 }
 
-.saves__list-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.saves__list-title {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.saves__list-count {
+.saves__count {
   font-size: 12px;
   color: var(--on-surface-variant);
 }
@@ -89,50 +47,82 @@
   list-style: none;
 }
 
+/* 一行三格：信息（吃掉剩余宽度）/ 归属 / 操作。列宽固定，别让内容自己挤 */
 .saves__row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 16px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--outline) 52%, transparent);
-  border-left-width: 3px;
+  gap: 18px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
   border-radius: var(--radius-md);
   background: var(--surface-2);
 }
 
 .saves__row--active {
-  border-left-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
-.saves__row-main {
+.saves__info {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
-.saves__row-name {
-  display: inline-flex;
+.saves__name {
+  display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13.5px;
   font-weight: 600;
 }
 
-.saves__row-meta {
+.saves__meta {
   font-size: 11.5px;
   color: var(--on-surface-variant);
-  word-break: break-all;
+}
+
+.saves__assign {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.saves__assign-label {
+  font-size: 12px;
+  color: var(--on-surface-variant);
 }
 
 .saves__select {
-  max-width: 168px;
+  max-width: 240px;
+  padding: 5px 8px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12.5px;
 }
 
-.saves__row-actions {
+.saves__ops {
   display: flex;
   gap: 6px;
+}
+
+.saves__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.saves__empty-sub {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
 }
 
 .saves__foot {

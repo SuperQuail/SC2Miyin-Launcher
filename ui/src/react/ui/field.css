@@ -51,3 +51,10 @@
 .field--row > .field__label {
   margin: 0;
 }
+
+/* row 是两列网格：提示/错误必须落在第 2 列，否则它会跑到标签底下，
+   把整行撑成两行、右侧控件又顶在第一行 —— 看起来就是歪的 */
+.field--row > .field__hint,
+.field--row > .field__error {
+  grid-column: 2;
+}
