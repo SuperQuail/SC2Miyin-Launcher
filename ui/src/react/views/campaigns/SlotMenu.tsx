@@ -9,6 +9,7 @@ import { Button, Field, Sheet } from "../../ui";
 import { CustomCampaignPanel } from "./CustomCampaignPanel";
 import { DocViewer } from "../../components/DocViewer";
 import { ImportDialog } from "./ImportDialog";
+import { ActivationPreviewDialog } from "./ActivationPreviewDialog";
 import { SortableCard } from "./SortableCard";
 import { useVariantOrder } from "./useVariantOrder";
 import { VariantCard } from "../../components/VariantCard";
@@ -772,61 +773,15 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
           />
         )}
 
-        {/* 铺盘前的预演：会动哪些文件，先给人看一眼 */}
+        {/* 铺盘前的预演：会动哪些文件，先给人看一眼（自制战役页共用这一块） */}
         {host.pendingActivation && host.pendingActivation.slot === slot.slug && (
-          <Sheet
-            title={"启用「" + host.pendingActivation.variantId + "」会改动这些"}
-            onClose={host.cancelActivation}
-            actions={
-              <>
-                <Button onClick={host.cancelActivation}>取消</Button>
-                <Button variant="primary" disabled={host.busy} onClick={() => void host.confirmActivation()}>
-                  继续，写进游戏目录
-                </Button>
-              </>
-            }
-          >
-            <ul className="plist">
-              {host.pendingActivation.preview.add.length > 0 && (
-                <li className="pitem">
-                  <span className="pitem__name">新增</span>
-                  <span className="tag">{host.pendingActivation.preview.add.length} 项</span>
-                </li>
-              )}
-              {host.pendingActivation.preview.overwrite.length > 0 && (
-                <li className="pitem">
-                  <span className="pitem__name">覆盖（会先备份原文件）</span>
-                  <span className="tag">{host.pendingActivation.preview.overwrite.length} 项</span>
-                </li>
-              )}
-              {host.pendingActivation.preview.takeover.length > 0 && (
-                <li className="pitem">
-                  <span className="pitem__name">接管别人的文件</span>
-                  <span className="tag">{host.pendingActivation.preview.takeover.length} 项</span>
-                </li>
-              )}
-              {host.pendingActivation.preview.delete.length > 0 && (
-                <li className="pitem">
-                  <span className="pitem__name">删掉上次装的</span>
-                  <span className="tag">{host.pendingActivation.preview.delete.length} 项</span>
-                </li>
-              )}
-            </ul>
-            <p className="sheet__text">
-              要往游戏目录写 {(host.pendingActivation.preview.bytes / 1024 / 1024).toFixed(1)} MB。
-              被覆盖的文件会先挪进 data/backup，切回原版时原样还原。
-            </p>
-            {host.pendingActivation.preview.overwrite.length > 0 && (
-              <details className="sheet__note">
-                <summary>看覆盖了哪些（前 20 个）</summary>
-                {host.pendingActivation.preview.overwrite.slice(0, 20).map((item) => (
-                  <p key={item.target} className="hint">
-                    {item.target}
-                  </p>
-                ))}
-              </details>
-            )}
-          </Sheet>
+          <ActivationPreviewDialog
+            variantId={host.pendingActivation.variantId}
+            preview={host.pendingActivation.preview}
+            busy={host.busy}
+            onConfirm={() => void host.confirmActivation()}
+            onCancel={host.cancelActivation}
+          />
         )}
 
         {/* 删版本：先确认 */}

@@ -4,6 +4,7 @@ import { BACKDROP } from "../../api/art";
 import { showContextMenu } from "../lib/contextMenu";
 import { useAppState } from "../state/AppState";
 import { Toast } from "../ui";
+import { ActivationConflictDialog } from "../views/campaigns/ActivationConflictDialog";
 import { CampaignsView } from "../views/campaigns/CampaignsView";
 import type { CampaignsHost } from "../views/campaigns/host";
 import { CheatsView } from "../views/cheats/CheatsView";
@@ -83,10 +84,15 @@ export function AppShell() {
     slots: app.library.slots,
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
+    busy: app.busy,
     notify: app.notify,
     bootstrap: () => void app.installation.bootstrap(),
     refresh: () => void app.library.refresh(),
     activate: app.library.requestActivation,
+    // 自制战役页也要那两道确认（预演 / 冲突）—— 以前这里没有，点了启用像没反应
+    pendingActivation: app.library.pendingActivation,
+    confirmActivation: app.library.confirmActivation,
+    cancelActivation: app.library.cancelActivation,
     removeVariant: app.library.removeVariant,
     showMenu: showContextMenu,
     openCheats: app.nav.openCheats,
@@ -216,6 +222,16 @@ export function AppShell() {
           onChoose={app.merge.setChoice}
           onApply={() => void app.merge.apply()}
           onLater={app.merge.dismiss}
+        />
+      )}
+
+      {/* 启用时会覆盖另一个已启用战役：先问一句。**这个框出现时一个字节都还没写盘** */}
+      {app.library.pendingConflict && (
+        <ActivationConflictDialog
+          conflicts={app.library.pendingConflict.conflicts}
+          busy={app.busy}
+          onUseNew={() => void app.library.confirmConflict()}
+          onKeepOther={app.library.cancelConflict}
         />
       )}
 

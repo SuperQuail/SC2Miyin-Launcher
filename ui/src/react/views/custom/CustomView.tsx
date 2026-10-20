@@ -8,6 +8,7 @@ import { VariantCard } from "../../components/VariantCard";
 import { copyText } from "../../lib/clipboard";
 import { Button, Sheet } from "../../ui";
 import { setParams, useRoute } from "../../lib/router";
+import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
 import { SortableCard } from "../campaigns/SortableCard";
 import { useVariantOrder } from "../campaigns/useVariantOrder";
@@ -263,6 +264,17 @@ export function CustomView(host: CustomHost) {
           />
         )}
       </div>
+
+      {/* 铺盘前的预演：和战役页共用同一个对话框（以前这里从来没渲染，点了像没反应） */}
+      {host.pendingActivation && host.pendingActivation.slot === "custom" && (
+        <ActivationPreviewDialog
+          variantId={host.pendingActivation.variantId}
+          preview={host.pendingActivation.preview}
+          busy={host.busy}
+          onConfirm={() => void host.confirmActivation()}
+          onCancel={host.cancelActivation}
+        />
+      )}
 
       {/* 删版本：先确认 */}
       {confirming && (

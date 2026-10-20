@@ -529,6 +529,34 @@ function delay<T>(value: T, ms = 220): Promise<T> {
 
 let counter = 0;
 
+/**
+ * 演示模式：假装启用「虫群之心：进化重制」会和自由之翼当前启用的那一版抢位置 ——
+ * 好让"启用冲突"对话框在浏览器里也能真跑（桌面壳里真冲突才出现）。
+ */
+function demoActivationConflicts(slot: string, variantId: string): ActivationConflict[] {
+  const wol = demoslots.find((item) => item.slug === "wol");
+  const hots = demoslots.find((item) => item.slug === "hots");
+  const owner = wol?.variants.find((item) => item.id === wol.active) ?? wol?.variants[0] ?? null;
+  if (slot !== "hots" || !owner) return [];
+  if (!hots?.variants.some((item) => item.id === variantId)) return [];
+
+  return [
+    "Mods/Alenger.SC2Mod",
+    "Mods/RebornData.SC2Mod",
+    "Maps/Campaign/01.SC2Map",
+    "Maps/Campaign/02.SC2Map",
+    "Maps/Campaign/03.SC2Map",
+    "Maps/Campaign/04.SC2Map",
+    "Maps/Campaign/05.SC2Map",
+  ].map((target) => ({
+    target,
+    slot: "wol",
+    slot_name: "自由之翼",
+    variant: owner.id,
+    variant_name: owner.name,
+  }));
+}
+
 const demo: LauncherApi = {
   detectInstallation: () => delay(demoInstallation as Installation | null),
   setInstallation: () => delay(demoInstallation),
@@ -586,7 +614,23 @@ const demo: LauncherApi = {
   restoreSaves: async () => {
     throw new Error("演示模式没有备份可还原");
   },
-  previewActivation: async () => null,
+  // 演示模式也给一份预演：真后端只要版本里有载荷就会算出来。返回 null 会让
+  // "启用 → 预演确认"这一步在演示里永远被跳过，看不出真实手感。
+  previewActivation: () =>
+    delay({
+      add: [
+        {
+          target: "Maps/Campaign/demo.SC2Map",
+          existing_bytes: 0,
+          incoming_bytes: 961_100,
+          owner: null,
+        },
+      ],
+      overwrite: [],
+      takeover: [],
+      delete: [],
+      bytes: 961_100,
+    } satisfies Preview),
   activateVariant: (slot, variantId) =>
     delay(
       (() => {
@@ -1025,3 +1069,33 @@ const demo: LauncherApi = {
 
 /** 当前可用的后端实现。 */
 export const api: LauncherApi = isDesktop ? desktop : demo;
+
+/** 启用前查到的冲突：这个战役要写、但已经被**另一个已启用**的战役占着。 */
+export interface ActivationConflict {
+  /** 相对游戏根目录，`/` 分隔。 */
+  target: string;
+  /** 占着它的那个战役槽位。 */
+  slot: string;
+  /** 槽位显示名（后端已经映射好了）。 */
+  slot_name: string;
+  /** 那个战役当前启用的版本 id。 */
+  variant: string;
+  variant_name: string;
+}
+
+/**
+ * 启用前查一次：这次会不会覆盖**别的已启用战役**的文件。
+ *
+ * **只读** —— 后端那条命令一个字节都不写，界面必须在写盘之前调它。
+ * 单独导出、没塞进 `LauncherApi`：共享类型文件（api/types.ts）不在本轮范围里，
+ * 为一个只读检查多开一张接口表不值得。
+ */
+export async function activationConflicts(
+  slot: string,
+  variantId: string,
+): Promise<ActivationConflict[]> {
+  if (isDesktop) {
+    return invoke<ActivationConflict[]>("activation_conflicts", { slot, variantId });
+  }
+  return delay(demoActivationConflicts(slot, variantId));
+}

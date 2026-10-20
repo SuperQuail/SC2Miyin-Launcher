@@ -342,6 +342,20 @@ fn preview_activation(
         .map_err(|error| error.to_string())
 }
 
+/// 启用前的冲突检查：要写的目标里有哪些正被**另一个已启用战役**占着。
+///
+/// **只读**，一个字节都不写 —— 界面必须等用户在这之后点头，才轮到 `activate_variant`。
+#[tauri::command(async)]
+fn activation_conflicts(
+    slot: String,
+    variant_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::library::ActiveConflict>, String> {
+    let installation = require_installation(&state)?;
+    library::conflicts(&state.library, &installation, &slot, &variant_id)
+        .map_err(|error| error.to_string())
+}
+
 /// 开发者页：扫游戏目录 + 用户自己加的目录。
 ///
 /// 只读。越界（不在游戏目录里）不作拒绝，标成 `external` 交给界面提示。
@@ -1982,6 +1996,7 @@ pub fn run() {
             list_save_backups,
             sc2_running,
             preview_activation,
+            activation_conflicts,
             dev_pick_directory,
             dev_read_file,
             detect_installation,

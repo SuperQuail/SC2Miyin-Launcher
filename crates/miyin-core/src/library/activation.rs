@@ -7,6 +7,8 @@
 //! 这样战役和独立模组走的是**同一条写盘路径**，不会再出现
 //! 「两边各写一份清单、互相不知道对方放了什么」那种事。
 
+use serde::Serialize;
+
 use crate::error::{Error, Result};
 use crate::sc2::Installation;
 
@@ -161,4 +163,110 @@ pub fn preview(
     // 用迁移版：老清单里的东西也要认得出来，否则预演会漏报"接管"
     let manifest = Manifest::load_migrating(library.root(), installation);
     manifest.preview(installation, &plan)
+}
+/// 一条「本战役要写、但已经被另一个**已启用**的战役占着」的目标。
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct ActiveConflict {
+    /// 相对游戏根目录，`/` 分隔。
+    pub target: String,
+    /// 占着它的那个战役槽位。
+    pub slot: String,
+    /// 槽位显示名（界面直接念，不用自己再映射一遍）。
+    pub slot_name: String,
+    /// 那个战役当前启用的版本 id。
+    pub variant: String,
+    /// 版本显示名。
+    pub variant_name: String,
+}
+
+/// 两个目标路径是不是同一个位置。
+///
+/// **按平台规则**：Windows 的文件系统不区分大小写（`Mods/Foo.SC2Mod` 与
+/// `mods/foo.sc2mod` 是同一个位置），别的平台区分。只折 ASCII 大小写 ——
+/// 地图 / 模组名都是 ASCII，非 ASCII 大小写在 Windows 上依赖区域设置，不值得为此加复杂度。
+pub(crate) fn same_path(a: &str, b: &str) -> bool {
+    if cfg!(windows) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
+    }
+}
+
+/// 槽位的显示名；认不出来就退回 slug。
+fn slot_label(slug: &str) -> String {
+    crate::campaign::metadata::CampaignType::from_slug(slug)
+        .map(|kind| kind.display_name())
+        .unwrap_or_else(|| slug.to_string())
+}
+
+/// 某个槽位里某个版本的显示名；找不到就退回 id。
+fn variant_label(index: &super::LibraryIndex, slot: &str, variant: &str) -> String {
+    index
+        .slots
+        .get(slot)
+        .and_then(|entry| entry.variants.iter().find(|item| item.id == variant))
+        .map(|item| item.name.clone())
+        .unwrap_or_else(|| variant.to_string())
+}
+
+/// **只读**：启用这个版本会覆盖哪些**别的已启用战役**的东西。
+///
+/// 判三件事（这三条错一条，用户就会看到假警告、或者在真冲突时被静默覆盖）：
+/// 1. **只跟已启用的比** —— 数据源是安装清单（`installed.json`；老库的 `active.json`
+///    会先迁过来），也就是"真的已经铺在游戏目录里的"。没启用的版本不占任何位置。
+/// 2. **同一个战役自己上次留下的不算冲突** —— 换版本 / 重新启用同一版只是重铺自己的东西。
+/// 3. 路径按**平台大小写规则**比较（见 [`same_path`]）。
+///
+/// 和 `preview` 共用 `plan_for` 与同一份清单，所以"预演说会撞、实际却没撞"这种分叉不会有。
+/// 调用方（界面）必须在**写盘之前**调它 —— 它一个字节都不写。
+pub fn conflicts(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    variant_id: &str,
+) -> Result<Vec<ActiveConflict>> {
+    let kind = require_slot(slot_slug)?;
+    let index = library.index();
+    let variant = index
+        .slots
+        .get(slot_slug)
+        .and_then(|slot| slot.variants.iter().find(|item| item.id == variant_id))
+        .cloned()
+        .ok_or_else(|| Error::CampaignNotFound(variant_id.to_string()))?;
+
+    let plan = plan_for(library, slot_slug, &variant, &kind)?;
+    let manifest = Manifest::load_migrating(library.root(), installation);
+
+    let mut found: Vec<ActiveConflict> = Vec::new();
+    for item in &plan.items {
+        for installed in &manifest.files {
+            // 独立模组不算"另一个战役"：它在模组页自己管启停
+            let Owner::Campaign {
+                slot,
+                variant: owner_variant,
+            } = &installed.owner
+            else {
+                continue;
+            };
+            // 自己这个槽位上次留下的东西：重铺一遍而已
+            if slot == slot_slug {
+                continue;
+            }
+            if !same_path(&installed.target, &item.target) {
+                continue;
+            }
+            found.push(ActiveConflict {
+                target: item.target.clone(),
+                slot: slot.clone(),
+                slot_name: slot_label(slot),
+                variant: owner_variant.clone(),
+                variant_name: variant_label(&index, slot, owner_variant),
+            });
+        }
+    }
+
+    // 同一条目标可能被多个人记着（历史遗留），去重后按路径排序 —— 界面才好稳定显示
+    found.sort();
+    found.dedup();
+    Ok(found)
 }

@@ -63,7 +63,7 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
-pub use activation::{activate, deactivate, preview};
+pub use activation::{ActiveConflict, activate, conflicts, deactivate, preview};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
 pub use store::{
     Replaced, VariantChanges, find_target_for_package, import, remove_variant, replace_variant,
