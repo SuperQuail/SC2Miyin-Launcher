@@ -15,6 +15,7 @@ import type { CustomHost } from "../views/custom/host";
 import { ModsView } from "../views/mods/ModsView";
 import type { ModsHost } from "../views/mods/useMods";
 import { RoomView } from "../views/room/RoomView";
+import { SavesView } from "../views/saves/SavesView";
 import { SettingsView, type SettingsViewProps } from "../views/settings/SettingsView";
 import { UpdateNotice } from "../views/update/UpdateNotice";
 import { ContextMenu } from "./ContextMenu";
@@ -198,6 +199,20 @@ export function AppShell() {
             )}
             {view === "custom" && <CustomView {...customHost} />}
             {view === "mods" && <ModsView {...modsHost} />}
+            {view === "saves" && (
+              <SavesView
+                slots={app.library.slots}
+                isolation={app.saves.saveIsolation}
+                groups={app.saves.saveBackups}
+                banks={app.saves.saves}
+                busy={app.busy}
+                onSwitch={(name) => void app.saves.switchSaveProfile(name)}
+                onAssign={(name, slot) => void app.saves.assignSaveProfile(name, slot)}
+                onSaveInto={(name) => void app.saves.saveIntoProfile(name)}
+                onRefresh={() => void app.saves.refreshSaves()}
+                onOpenSettings={() => app.nav.setView("settings")}
+              />
+            )}
             {view === "settings" && <SettingsView {...settingsProps} />}
             {view === "room" && <RoomView onBack={() => app.nav.setView("settings")} />}
           </div>

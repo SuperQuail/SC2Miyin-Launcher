@@ -73,6 +73,7 @@ const desktop: LauncherApi = {
   backupSaves: (label) => invoke<string>("backup_saves", { label }),
   listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
   restoreSaves: (name) => invoke<string>("restore_saves", { name }),
+  saveIntoProfile: (name) => invoke<SaveIsolation>("save_into_profile", { name }),
 
   /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
   previewActivation: (slot, variantId) =>
@@ -530,6 +531,78 @@ function delay<T>(value: T, ms = 220): Promise<T> {
 let counter = 0;
 
 /**
+ * 演示模式的存档隔离模型（内存里那份）。
+ *
+ * 只为了把存档页跑起来：开关、组列表、改归属、切换、存回都真的会动这份内存数据；
+ * "官方战役组继承当前存档 / 自制战役是空组"也照着后端语义模拟了一遍，
+ * 好让验收里那三条在浏览器里看得见（**内容**是假的，目录和文件都是编的）。
+ */
+const demoSaveGroups: SaveBackup[] = [
+  { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
+];
+const demoSavesState: SaveIsolation = {
+  enabled: true,
+  active: "原版-1790000000",
+  assignments: {},
+};
+/** 游戏里这份 Banks 现在长什么样（切组会换）。 */
+let demoBanks: SaveSet = {
+  files: [
+    { name: "ENS.SC2Bank", bytes: 611_000 },
+    { name: "Liberty.SC2Bank", bytes: 620_000 },
+    { name: "Swarm.SC2Bank", bytes: 611_000 },
+  ],
+  bytes: 1_842_000,
+  missing: false,
+};
+
+function demoIsolation(): SaveIsolation {
+  return { ...demoSavesState, assignments: { ...demoSavesState.assignments } };
+}
+
+/** 按组的体积 / 文件数编一份"Banks 长这样"—— 演示模式只求自洽。 */
+function demoBanksOf(group: SaveBackup): SaveSet {
+  const each = group.files > 0 ? Math.round(group.bytes / group.files) : 0;
+  return {
+    files: Array.from({ length: group.files }, (_, index) => ({
+      name: "Bank" + (index + 1) + ".SC2Bank",
+      bytes: each,
+    })),
+    bytes: group.bytes,
+    missing: false,
+  };
+}
+
+/** 演示模式里模拟 `ensure_for_slot`：官方战役继承当前存档，自制战役是空组。 */
+function demoEnsureSaves(slot: string, label: string): void {
+  if (!demoSavesState.enabled) return;
+  const assigned = Object.entries(demoSavesState.assignments).find(([, value]) => value === slot)?.[0];
+  if (assigned) {
+    demoSavesState.active = assigned;
+    const group = demoSaveGroups.find((item) => item.name === assigned);
+    if (group) demoBanks = demoBanksOf(group);
+    return;
+  }
+  const fresh = !slotIsCustom(slot);
+  const name = label + "-" + (1790000200 + demoSaveGroups.length);
+  demoSaveGroups.push({
+    name,
+    label,
+    bytes: fresh ? demoBanks.bytes : 0,
+    files: fresh ? demoBanks.files.length : 0,
+  });
+  demoSavesState.assignments[name] = slot;
+  demoSavesState.active = name;
+  if (fresh) demoBanks = { ...demoBanks };
+  else demoBanks = { files: [], bytes: 0, missing: false };
+}
+
+/** 自制战役槽位（各自独立，不继承当前存档）。 */
+function slotIsCustom(slot: string): boolean {
+  return slot === "custom";
+}
+
+/**
  * 演示模式：假装启用「虫群之心：进化重制」会和自由之翼当前启用的那一版抢位置 ——
  * 好让"启用冲突"对话框在浏览器里也能真跑（桌面壳里真冲突才出现）。
  */
@@ -601,19 +674,47 @@ const demo: LauncherApi = {
       issues: [],
     } satisfies PackageInspection),
 
-  saveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
-  setSaveIsolation: async () => ({ enabled: false, active: null, assignments: {} }),
-  saveCurrentSaves: async () => ({ enabled: false, active: null, assignments: {} }),
-  switchSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
-  assignSaveProfile: async () => ({ enabled: false, active: null, assignments: {} }),
-  listSaves: async () => ({ files: [], bytes: 0, missing: true }),
-  backupSaves: async () => {
-    throw new Error("演示模式没有存档可备份");
+  saveIsolation: async () => demoIsolation(),
+  setSaveIsolation: async (enabled) => {
+    demoSavesState.enabled = enabled;
+    return demoIsolation();
   },
-  listSaveBackups: async () => [],
-  restoreSaves: async () => {
-    throw new Error("演示模式没有备份可还原");
+  saveCurrentSaves: async () => demoIsolation(),
+  switchSaveProfile: async (name) => {
+    const group = demoSaveGroups.find((item) => item.name === name);
+    demoSavesState.active = name;
+    if (group) demoBanks = demoBanksOf(group);
+    return demoIsolation();
   },
+  assignSaveProfile: async (name, slot) => {
+    if (slot) {
+      // 一个战役只占一个组：先把别的组身上这个归属摘掉
+      for (const key of Object.keys(demoSavesState.assignments)) {
+        if (demoSavesState.assignments[key] === slot) delete demoSavesState.assignments[key];
+      }
+      demoSavesState.assignments[name] = slot;
+    } else {
+      delete demoSavesState.assignments[name];
+    }
+    return demoIsolation();
+  },
+  saveIntoProfile: async (name) => {
+    const group = demoSaveGroups.find((item) => item.name === name);
+    if (group) {
+      group.bytes = demoBanks.bytes;
+      group.files = demoBanks.files.length;
+    }
+    demoSavesState.active = name;
+    return demoIsolation();
+  },
+  listSaves: async () => demoBanks,
+  backupSaves: async (label) => {
+    const name = label + "-" + (1790000300 + demoSaveGroups.length);
+    demoSaveGroups.push({ name, label, bytes: demoBanks.bytes, files: demoBanks.files.length });
+    return name;
+  },
+  listSaveBackups: async () => demoSaveGroups.map((item) => ({ ...item })),
+  restoreSaves: async () => "",
   // 演示模式也给一份预演：真后端只要版本里有载荷就会算出来。返回 null 会让
   // "启用 → 预演确认"这一步在演示里永远被跳过，看不出真实手感。
   previewActivation: () =>
@@ -639,6 +740,9 @@ const demo: LauncherApi = {
           target.active = variantId;
           const found = target.variants.find((item) => item.id === variantId);
           target.active_name = found ? found.name : null;
+          // 启用战役时存档跟着走（模拟后端的 ensure_for_slot）：
+          // 官方战役继承当前这份，自制战役开一个空组
+          if (variantId !== null) demoEnsureSaves(slot, target.display_name);
         }
         return [] as string[];
       })(),

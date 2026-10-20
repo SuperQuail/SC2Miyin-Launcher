@@ -675,6 +675,8 @@ export interface LauncherApi {
 
   /** 还原一份备份；还原前会先把现在的存档另存一份，返回那份的名字。 */
   restoreSaves(name: string): Promise<string>;
+  /** 把游戏里这份存档存进**指定的组**（存档页的「设为当前」），并把它记为当前组。 */
+  saveIntoProfile(name: string): Promise<SaveIsolation>;
 
   /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
 

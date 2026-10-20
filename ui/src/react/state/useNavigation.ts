@@ -1,8 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { isDevMode } from "../lib/devMode";
-import { back, navigate, useRoute } from "../lib/router";
-import type { ViewId } from "./flags";
+import { back, navigate, useRoute, type ViewId } from "../lib/router";
 import type { Notify } from "./useNotify";
 
 export interface NavigationApi {

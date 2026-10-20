@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { MIYIN } from "../../api/art";
 import { api } from "../../api/bridge";
 import { useAppState } from "../state/AppState";
-import type { ViewId } from "../state/flags";
+import type { ViewId } from "../lib/router";
 import { RESOURCE_SITE } from "../state/useSiteLinks";
 
 const TABS: { id: ViewId; label: string }[] = [
@@ -12,6 +12,8 @@ const TABS: { id: ViewId; label: string }[] = [
   // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
   { id: "custom", label: "自制战役" },
   { id: "mods", label: "模组" },
+  // 存档单独一页：各组存档的归属 / 切换 / 存回，和"按战役隔离"的开关分开放
+  { id: "saves", label: "存档" },
   { id: "settings", label: "设置" },
 ];
 

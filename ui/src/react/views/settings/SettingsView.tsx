@@ -196,7 +196,7 @@ export function SettingsView(props: SettingsViewProps) {
           </p>
         ) : null}
 
-        {/* 按战役隔离：默认关着，打开时会把当前进度收成「原版」 */}
+        {/* 按战役隔离：**默认开着**。开关只留在这里，存档页只管组的管理。 */}
         <div className="isolation">
           <label className="isolation__switch">
             <input
@@ -208,9 +208,10 @@ export function SettingsView(props: SettingsViewProps) {
             <span>按战役隔离存档</span>
           </label>
           <p className="hint">
-            打开之后，每个战役用自己的一份存档 —— 换战役不会把上一部的进度冲掉。
-            <strong>打开这一刻，现在这份会存成「原版」</strong>，不会被谁顶掉。
-            关掉只是不再自动切，已经存下的组都留着。
+            <strong>默认开启</strong>：每个战役用自己的一份存档，换战役不会把上一部的进度冲掉。
+            升级上来的第一份进度会同时收进「原版」和当前启用的那个战役 —— 谁也不会被顶掉。
+            关掉之后启动器不再动 Banks，已经存下的组都留着。
+            组的管理（改归属 / 切换 / 存回）在顶栏的「存档」页。
           </p>
         </div>
 

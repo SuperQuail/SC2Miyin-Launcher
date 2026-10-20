@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { viewFromSearch, wantsRoom, type ViewId } from "../state/flags";
+import { viewFromSearch, wantsRoom, type ViewId as FlagsViewId } from "../state/flags";
 import { isDevMode } from "./devMode";
 
 /**
@@ -15,6 +15,14 @@ import { isDevMode } from "./devMode";
  * - 刷新 / 深链：URL 还在，读一遍就还原
  * - 浏览器后退：页面级跳转走 push，页内改动走 replace
  */
+/**
+ * 能进 URL 的页面 = flags 那几页（含 room）+ 这一轮新加的**存档页**。
+ *
+ * flags 那边管的是"页签 / 启动开关"那套老集合（它自己的解析也只认那一套）；
+ * 这里在它之上扩一个 —— 以后加页面只动这一行 + 自己的视图。
+ */
+export type ViewId = FlagsViewId | "saves";
+
 export type Route = { view: ViewId } & Record<string, string>;
 
 /** 解析 location。`devMode` 传进来而不是现读 —— 纯函数才好测。 */
@@ -26,7 +34,8 @@ export function parseRoute(search: string, hash: string, devMode: boolean): Rout
   }
   // 进房间的两条入口都要开发者模式：?view=room 是新写法，#room 留着兼容（截图脚本在用）
   const room = params.get("view") === "room" || wantsRoom(hash, devMode);
-  route.view = room && devMode ? "room" : viewFromSearch(search);
+  const explicit = params.get("view");
+  route.view = room && devMode ? "room" : explicit === "saves" ? "saves" : viewFromSearch(search);
   return route;
 }
 

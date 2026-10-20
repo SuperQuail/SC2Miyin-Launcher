@@ -199,10 +199,14 @@ pub fn restore(banks: &Path, library_root: &Path, name: &str) -> Result<String> 
 
 /// 隔离状态。存在 `<data>/saves/state.json`。
 ///
-/// **默认关**：不开的时候启动器一个字节都不碰 Banks，切换战役也不动存档。
-/// 打开的那一刻，当前这份 Banks 会被收成名叫「原版」的组 —— 用户原有的进度
-/// 不会被谁顶掉。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// **默认开**（2026-10 用户要求）：一上来就按战役分开管，换战役不会把上一部的进度冲掉。
+/// 关掉之后启动器不再动 Banks，已经存下的组一个都不删。
+///
+/// **老用户升级也不会丢进度**：没有 state.json 时 `enabled = true` 但 `active = None`，
+/// 而任何一次切组 / 存回之前都会先 `save_active` —— 也就是先把游戏里这份收成「原版」。
+/// 所以第一次启用某个战役时，「原版」和那个战役组会**同时**有这份进度（刻意的：
+/// 谁也没被顶掉，用户之后自己决定留哪份）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Isolation {
     pub enabled: bool,
     /// 现在游戏里这份 Banks 属于哪个组。没有组名表示还没归过档。
@@ -210,6 +214,16 @@ pub struct Isolation {
     /// 组 -> 战役槽位。**反查**得到"这个战役用哪份存档"。
     #[serde(default)]
     pub assignments: BTreeMap<String, String>,
+}
+
+impl Default for Isolation {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            active: None,
+            assignments: BTreeMap::new(),
+        }
+    }
 }
 
 /// 「原版」组的名字。打开隔离时第一份就是它。
@@ -253,6 +267,24 @@ pub fn set_isolation(root: &Path, banks: &Path, enabled: bool) -> Result<Isolati
     Ok(state)
 }
 
+/// 把一个组的内容换成**现在游戏里这份**（覆盖式）。
+///
+/// 先清掉旧内容再铺 —— 否则被删掉的档会留在组里，两份混在一起。
+fn save_into_dir(banks: &Path, dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    let set = snapshot(banks)?;
+    for file in &set.files {
+        std::fs::copy(banks.join(&file.name), dir.join(&file.name))?;
+    }
+    Ok(())
+}
+
 /// 把**现在游戏里这份** Banks 存回它所属的组。没归过档就先归到「原版」。
 pub fn save_active(root: &Path, banks: &Path) -> Result<Isolation> {
     let mut state = isolation(root)?;
@@ -265,20 +297,26 @@ pub fn save_active(root: &Path, banks: &Path) -> Result<Isolation> {
         }
     };
 
-    // 覆盖式存回：先清掉旧内容再铺，否则被删掉的档会留在组里
-    let dir = self::root(root).join(&name);
-    std::fs::create_dir_all(&dir)?;
-    for entry in std::fs::read_dir(&dir)? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            std::fs::remove_file(entry.path())?;
-        }
-    }
-    let set = snapshot(banks)?;
-    for file in &set.files {
-        std::fs::copy(banks.join(&file.name), dir.join(&file.name))?;
+    save_into_dir(banks, &self::root(root).join(&name))?;
+    write_isolation(root, &state)?;
+    Ok(state)
+}
+
+/// 把**现在游戏里这份** Banks 存进**指定的组**，并把它记为当前组。
+///
+/// 和 `save_active` 的区别：那个只会存回"当前组"，这个由用户点名 ——
+/// 存档页上的「设为当前（把游戏里这份存回它）」就是它。
+pub fn save_into(root: &Path, banks: &Path, name: &str) -> Result<Isolation> {
+    let dir = self::root(root).join(name);
+    if !dir.is_dir() {
+        return Err(crate::error::Error::PackageRejected(format!(
+            "没有这个存档组：{name}"
+        )));
     }
 
+    let mut state = isolation(root)?;
+    state.active = Some(name.to_string());
+    save_into_dir(banks, &dir)?;
     write_isolation(root, &state)?;
     Ok(state)
 }
@@ -295,9 +333,14 @@ pub fn switch(root: &Path, banks: &Path, name: &str) -> Result<Isolation> {
         )));
     }
 
-    // 现在这份先回自己的组（没有 active 就是第一次，直接归档）
+    // 现在这份先回自己的组。
+    //
+    // **没归过档也要先收成「原版」** —— 隔离默认开启之后，老用户升级第一次切组
+    // 走的就是这条路；少收这一步，那段进度就只剩 restore() 里那份「还原前」
+    // 安全备份，界面上找不到「原版」组，用户会以为进度没了。
+    // 只有 Banks 完全是空的时候才跳过（没东西可存）。
     let mut state = isolation(root)?;
-    if state.active.is_some() || snapshot(banks)?.files.is_empty() {
+    if state.active.is_some() || !snapshot(banks)?.files.is_empty() {
         state = save_active(root, banks)?;
     }
 
@@ -347,10 +390,32 @@ pub fn profile_for_original(root: &Path) -> Result<Option<String>> {
     }
 }
 
+/// 建一个空组，返回组名。
+fn fresh_group(root: &Path, label: &str) -> Result<String> {
+    let name = dir_name(label);
+    std::fs::create_dir_all(self::root(root).join(&name))?;
+    Ok(name)
+}
+
+/// 这个槽位是不是自制战役。
+///
+/// 自制战役是**各自独立**的：没有记录时不该继承当前这份存档。
+fn is_custom(slot: &str) -> bool {
+    matches!(
+        crate::campaign::metadata::CampaignType::from_slug(slot),
+        Some(crate::campaign::metadata::CampaignType::Custom)
+    )
+}
+
 /// 启用某个战役之前调它：隔离开着就切到该战役的存档组。
 ///
-/// 没有组就**新建一个空的并指派给它** —— 这个战役从零开始，原版进度不受影响。
-/// 返回切到了哪个组（没开隔离返回 `None`）。
+/// 没有记录时的默认归属（2026-10 用户要求「没有记录就归当前启用的战役」）：
+/// - **官方战役**：把**现在游戏里这份 Banks** 收成它的组。切组前 `save_active` 会先把
+///   这份收进「原版」，所以「原版」和这个战役组会**同时**有这份进度 —— 刻意的
+///   （用户之前那段进度两头都在，谁也没被顶掉）。还没玩过（Banks 空）就退化成空组。
+/// - **自制战役**：新建空组。它们各自独立管理，不继承当前存档。
+///
+/// 已经有组就照旧切过去。返回切到了哪个组（没开隔离返回 `None`）。
 pub fn ensure_for_slot(
     root: &Path,
     banks: &Path,
@@ -367,9 +432,16 @@ pub fn ensure_for_slot(
         return Ok(Some(name));
     }
 
-    // 新建一个空组，名字带上战役名，然后指派
-    let name = dir_name(label);
-    std::fs::create_dir_all(self::root(root).join(&name))?;
+    let name = if is_custom(slot) {
+        fresh_group(root, label)?
+    } else {
+        // 官方战役：接着当前这份进度往下玩（Banks 还没东西时没得接，给个空组）
+        match backup(banks, root, label) {
+            Ok(name) => name,
+            Err(_) => fresh_group(root, label)?,
+        }
+    };
+
     assign(root, &name, Some(slot))?;
     switch(root, banks, &name)?;
     Ok(Some(name))
@@ -433,13 +505,22 @@ mod tests {
     }
 
     #[test]
-    fn isolation_starts_off_and_stores_the_current_progress_first() {
+    fn isolation_defaults_to_enabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let library = tmp.path().join("data");
+
+        // 没有 state.json 时：默认**开着**，但还没归过档
+        let state = isolation(&library).expect("读");
+        assert!(state.enabled, "没有 state.json 时默认就是开着的");
+        assert!(state.active.is_none(), "还没归过档");
+    }
+
+    #[test]
+    fn opening_isolation_stores_the_current_progress_first() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "原版.SC2Bank", "playthrough");
-
-        assert!(!isolation(&library).expect("读").enabled, "默认必须是关的");
 
         let state = set_isolation(&library, &banks, true).expect("打开");
         assert!(state.enabled);
@@ -453,21 +534,92 @@ mod tests {
     }
 
     #[test]
+    fn official_slot_without_record_inherits_the_current_saves() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let banks = tmp.path().join("Banks");
+        let library = tmp.path().join("data");
+        write(&banks, "进度.SC2Bank", "玩到第三章");
+
+        // 没有记录时启用官方战役：当前这份收成它的组（不是空组）
+        let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
+            .expect("切换")
+            .expect("默认开着就该切");
+        assert!(profile.contains("自由之翼"), "组名带战役名：{profile}");
+
+        let group = snapshot(&root(&library).join(&profile)).expect("快照");
+        assert_eq!(group.files.len(), 1, "新组不该是空的：{group:?}");
+        assert_eq!(
+            std::fs::read_to_string(root(&library).join(&profile).join("进度.SC2Bank"))
+                .expect("读"),
+            "玩到第三章",
+            "没有记录时默认归当前启用的战役"
+        );
+
+        // 「原版」组照旧保留，而且是同一份 —— 刻意的：谁也没被顶掉
+        let original = backups(&library)
+            .expect("列")
+            .into_iter()
+            .find(|item| item.label == ORIGINAL)
+            .expect("原版组要留着");
+        assert_eq!(
+            std::fs::read_to_string(root(&library).join(&original.name).join("进度.SC2Bank"))
+                .expect("读"),
+            "玩到第三章",
+            "老用户升级后第一份进度不能被当成空组切走"
+        );
+    }
+
+    #[test]
+    fn custom_slot_without_record_gets_an_empty_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let banks = tmp.path().join("Banks");
+        let library = tmp.path().join("data");
+        write(&banks, "进度.SC2Bank", "原版进度");
+
+        // 自制战役各自独立：没有记录时**不继承**当前存档
+        let profile = ensure_for_slot(&library, &banks, "custom", "自制战役")
+            .expect("切换")
+            .expect("默认开着就该切");
+        assert!(
+            snapshot(&banks).expect("快照").files.is_empty(),
+            "自制战役该从零开始"
+        );
+        assert!(
+            snapshot(&root(&library).join(&profile))
+                .expect("快照")
+                .files
+                .is_empty(),
+            "组本身也是空的"
+        );
+
+        // 原来那份还在「原版」里
+        let original = backups(&library)
+            .expect("列")
+            .into_iter()
+            .find(|item| item.label == ORIGINAL)
+            .expect("原版组要留着");
+        assert_eq!(
+            std::fs::read_to_string(root(&library).join(&original.name).join("进度.SC2Bank"))
+                .expect("读"),
+            "原版进度"
+        );
+    }
+
+    #[test]
     fn switching_swaps_the_saves_and_remembers_where_we_were() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "原版第一章");
-        set_isolation(&library, &banks, true).expect("打开");
 
-        // 给某个战役新建一个空组
+        // 官方战役第一次启用：接着当前这份进度（见上一个用例）
         let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
             .expect("切换")
             .expect("开了隔离就该切");
         assert!(profile.contains("自由之翼"), "组名带战役名：{profile}");
-        assert!(
-            snapshot(&banks).expect("快照").files.is_empty(),
-            "新战役从零开始"
+        assert_eq!(
+            std::fs::read_to_string(banks.join("进度.SC2Bank")).expect("读"),
+            "原版第一章"
         );
         assert_eq!(
             profile_for(&library, "wol").expect("查"),
@@ -528,11 +680,42 @@ mod tests {
     }
 
     #[test]
+    fn saving_into_a_named_group_targets_that_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let banks = tmp.path().join("Banks");
+        let library = tmp.path().join("data");
+        write(&banks, "进度.SC2Bank", "原版");
+        let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
+            .expect("切换")
+            .expect("默认开着就该切");
+
+        // 现在游戏里换成另一份内容，把它存进那个组
+        write(&banks, "进度.SC2Bank", "最新进度");
+        write(&banks, "新档.SC2Bank", "新");
+        let state = save_into(&library, &banks, &profile).expect("存进去");
+        assert_eq!(state.active.as_deref(), Some(profile.as_str()));
+        assert_eq!(
+            std::fs::read_to_string(root(&library).join(&profile).join("进度.SC2Bank"))
+                .expect("读"),
+            "最新进度"
+        );
+        assert!(
+            root(&library).join(&profile).join("新档.SC2Bank").is_file(),
+            "新文件也要进去"
+        );
+
+        // 不存在的组要报错，别悄悄建一个
+        assert!(save_into(&library, &banks, "没有这个组").is_err());
+    }
+
+    #[test]
     fn nothing_happens_while_isolation_is_off() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "原版");
+        // 现在默认是开着的：这个用例要测"关掉之后"，就显式关一下
+        set_isolation(&library, &banks, false).expect("关掉");
 
         assert_eq!(
             ensure_for_slot(&library, &banks, "wol", "自由之翼").expect("调"),

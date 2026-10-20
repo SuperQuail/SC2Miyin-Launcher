@@ -281,6 +281,18 @@ fn assign_save_profile(
     library_saves::assign(state.library.root(), &name, slot.as_deref()).map_err(|e| e.to_string())
 }
 
+/// 把现在游戏里这份存档存进**指定的组**（存档页的「设为当前」）。
+///
+/// 和 `save_current_saves` 的区别：那个只存回"当前组"，这个由用户点名。
+#[tauri::command(async)]
+fn save_into_profile(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<library_saves::Isolation, String> {
+    let banks = banks_root(&state)?;
+    library_saves::save_into(state.library.root(), &banks, &name).map_err(|e| e.to_string())
+}
+
 /// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
 #[tauri::command(async)]
 fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
@@ -1989,6 +2001,7 @@ pub fn run() {
             save_isolation,
             set_save_isolation,
             save_current_saves,
+            save_into_profile,
             switch_save_profile,
             assign_save_profile,
             backup_saves,

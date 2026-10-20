@@ -16,6 +16,11 @@ describe("parseRoute", () => {
     expect(parseRoute("?view=install&entry=custom", "", false)).toEqual({ view: "install", entry: "custom" });
   });
 
+  it("存档页也是能进 URL 的页面", () => {
+    expect(parseRoute("?view=saves", "", false)).toEqual({ view: "saves" });
+    expect(routeSearch({ view: "saves" })).toBe("?view=saves");
+  });
+
   it("没写 view 就是战役页；认不出来的 view 也回落（不许猜）", () => {
     expect(parseRoute("", "", false).view).toBe("campaigns");
     expect(parseRoute("?view=whatever", "", false).view).toBe("campaigns");

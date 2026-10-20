@@ -27,6 +27,8 @@ export interface SavesApi {
   saveCurrentSaves: () => Promise<void>;
   switchSaveProfile: (name: string) => Promise<void>;
   assignSaveProfile: (name: string, slot: string | null) => Promise<void>;
+  /** 把游戏里这份存档存进指定的组（存档页的「设为当前」）。 */
+  saveIntoProfile: (name: string) => Promise<void>;
   backupSaves: (label: string) => Promise<void>;
   restoreSaves: (name: string) => Promise<void>;
 }
@@ -36,8 +38,10 @@ export function useSaves(options: SavesOptions): SavesApi {
   const [installedCampaigns, setInstalledCampaigns] = useState<InstalledCampaign[]>([]);
   const [saves, setSaves] = useState<SaveSet | null>(null);
   const [saveBackups, setSaveBackups] = useState<SaveBackup[]>([]);
+  // 后端现在**默认开着**（老用户升级也不丢进度，见 saves.rs）：初始值跟着来，
+  // 免得刷新的一瞬间界面先闪一下"关着"。
   const [saveIsolation, setSaveIsolation] = useState<SaveIsolation>({
-    enabled: false,
+    enabled: true,
     active: null,
     assignments: {},
   });
@@ -81,7 +85,12 @@ export function useSaves(options: SavesOptions): SavesApi {
     }
   }, [notify]);
 
-  /** 打开 / 关掉隔离。打开时后端会把现在这份 Banks 收成「原版」。 */
+  /**
+   * 打开 / 关掉隔离。
+   *
+   * **默认就是开着的**；关掉之后不再动 Banks，已经存下的组都留着。
+   * 打开的一刻后端会把现在这份 Banks 收成「原版」。
+   */
   const toggleSaveIsolation = useCallback(
     (enabled: boolean) =>
       busy(async () => {
@@ -90,7 +99,9 @@ export function useSaves(options: SavesOptions): SavesApi {
           await refreshSaves();
           notify(
             "success",
-            enabled ? "存档隔离已打开 —— 当前进度存成了「原版」" : "存档隔离已关掉（已有的组都留着）",
+            enabled
+              ? "存档隔离已打开 —— 当前进度存成了「原版」"
+              : "存档隔离已关掉：不再动 Banks，已有的组都留着",
           );
         } catch (error) {
           notify("error", errorText(error));
@@ -142,6 +153,21 @@ export function useSaves(options: SavesOptions): SavesApi {
     [notify],
   );
 
+  /** 把游戏里这份存档存进指定的组（并把它记为当前组）。 */
+  const saveIntoProfile = useCallback(
+    (name: string) =>
+      busy(async () => {
+        try {
+          setSaveIsolation(await api.saveIntoProfile(name));
+          await refreshSaves();
+          notify("success", "现在这份存档已存进「" + name + "」");
+        } catch (error) {
+          notify("error", errorText(error));
+        }
+      }),
+    [busy, notify, refreshSaves],
+  );
+
   /** 备份现在的存档。label 一般填战役名。 */
   const backupSaves = useCallback(
     (label: string) =>
@@ -184,6 +210,7 @@ export function useSaves(options: SavesOptions): SavesApi {
     saveCurrentSaves,
     switchSaveProfile,
     assignSaveProfile,
+    saveIntoProfile,
     backupSaves,
     restoreSaves,
   };
