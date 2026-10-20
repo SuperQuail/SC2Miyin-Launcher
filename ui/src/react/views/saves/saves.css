@@ -131,3 +131,91 @@
   line-height: 1.7;
   color: var(--on-surface-variant);
 }
+
+/* 组名是可点的：点开看这个组里有哪些存档 */
+.saves__name-btn {
+  padding: 0;
+  border: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--on-surface) 35%, transparent);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.saves__name-btn:hover {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.savedetail__lede {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.savedetail__empty,
+.savedetail__error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.savedetail__error {
+  color: var(--danger);
+}
+
+.savedetail__list {
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.savedetail__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--outline) 50%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.savedetail__name {
+  font-size: 12.5px;
+  word-break: break-all;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.savedetail__size {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.savedetail__move {
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.savedetail__foot {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}

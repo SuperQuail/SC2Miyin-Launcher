@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 
 import { api } from "../../api/bridge";
 import { errorText } from "../../api/errors";
-import type { InstalledCampaign, SaveBackup, SaveIsolation, SaveSet } from "../../api/types";
+import type { InstalledCampaign, SaveBackup, SaveFile, SaveIsolation, SaveSet, SaveTarget } from "../../api/types";
 import type { Notify } from "./useNotify";
 
 export interface SavesOptions {
@@ -21,6 +21,8 @@ export interface SavesApi {
   /** 存档（issue #20）：现在这份 + 已经备份的那些。 */
   saves: SaveSet | null;
   saveBackups: SaveBackup[];
+  /** 归属下拉的候选：官方战役 + 每部自制战役（键由后端算，界面不要自己拼）。 */
+  saveTargets: SaveTarget[];
   saveIsolation: SaveIsolation;
   refreshSaves: () => Promise<void>;
   toggleSaveIsolation: (enabled: boolean) => Promise<void>;
@@ -31,6 +33,10 @@ export interface SavesApi {
   saveIntoProfile: (name: string) => Promise<void>;
   backupSaves: (label: string) => Promise<void>;
   restoreSaves: (name: string) => Promise<void>;
+  /** 列出一个组里的存档文件（打开组详情时用）。 */
+  groupFiles: (name: string) => Promise<SaveFile[]>;
+  /** 把组里的一份存档挪到另一个组。 */
+  moveSave: (from: string, file: string, to: string, toLabel?: string) => Promise<void>;
 }
 
 export function useSaves(options: SavesOptions): SavesApi {
@@ -38,6 +44,7 @@ export function useSaves(options: SavesOptions): SavesApi {
   const [installedCampaigns, setInstalledCampaigns] = useState<InstalledCampaign[]>([]);
   const [saves, setSaves] = useState<SaveSet | null>(null);
   const [saveBackups, setSaveBackups] = useState<SaveBackup[]>([]);
+  const [saveTargets, setSaveTargets] = useState<SaveTarget[]>([]);
   // 后端现在**默认开着**（老用户升级也不丢进度，见 saves.rs）：初始值跟着来，
   // 免得刷新的一瞬间界面先闪一下"关着"。
   const [saveIsolation, setSaveIsolation] = useState<SaveIsolation>({
@@ -79,6 +86,7 @@ export function useSaves(options: SavesOptions): SavesApi {
     try {
       setSaves(await api.listSaves());
       setSaveBackups(await api.listSaveBackups());
+      setSaveTargets(await api.savesTargets());
       setSaveIsolation(await api.saveIsolation());
     } catch (error) {
       notify("error", errorText(error));
@@ -168,6 +176,37 @@ export function useSaves(options: SavesOptions): SavesApi {
     [busy, notify, refreshSaves],
   );
 
+  /** 列出一个组里的存档文件（打开组详情时用）。读失败给空数组并说一声。 */
+  const groupFiles = useCallback(
+    (name: string) =>
+      busy(async () => {
+        try {
+          return await api.saveGroupFiles(name);
+        } catch (error) {
+          notify("error", errorText(error));
+          return [];
+        }
+      }),
+    [busy, notify],
+  );
+
+  /** 把组里的一份存档挪到另一个组 —— 也就是改这一份归属的战役。 */
+  const moveSave = useCallback(
+    (from: string, file: string, to: string, toLabel?: string) =>
+      busy(async () => {
+        try {
+          await api.moveSaveFile(from, file, to);
+          await refreshSaves();
+          // 组目录名对用户没意义，优先用显示名
+          notify("success", "「" + file + "」已挪到「" + (toLabel ?? to) + "」");
+        } catch (error) {
+          // 同名不覆盖：后端会回一条「「X」里已经有同名存档 Y，没有覆盖」，原样给用户看
+          notify("error", errorText(error));
+        }
+      }),
+    [busy, notify, refreshSaves],
+  );
+
   /** 备份现在的存档。label 一般填战役名。 */
   const backupSaves = useCallback(
     (label: string) =>
@@ -204,6 +243,7 @@ export function useSaves(options: SavesOptions): SavesApi {
     collectCampaign,
     saves,
     saveBackups,
+    saveTargets,
     saveIsolation,
     refreshSaves,
     toggleSaveIsolation,
@@ -211,6 +251,8 @@ export function useSaves(options: SavesOptions): SavesApi {
     switchSaveProfile,
     assignSaveProfile,
     saveIntoProfile,
+    groupFiles,
+    moveSave,
     backupSaves,
     restoreSaves,
   };

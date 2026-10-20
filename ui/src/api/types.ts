@@ -201,9 +201,15 @@ export interface Preview {
   bytes: number;
 }
 
+/** 存档里的一个文件。对应 `miyin_core::saves::SaveFile`。 */
+export interface SaveFile {
+  name: string;
+  bytes: number;
+}
+
 /** 现在的存档里有什么。对应 `miyin_core::saves::SaveSet`。 */
 export interface SaveSet {
-  files: { name: string; bytes: number }[];
+  files: SaveFile[];
   bytes: number;
   /** 目录不存在（还没产生过存档） */
   missing: boolean;
@@ -216,6 +222,14 @@ export interface SaveIsolation {
   active: string | null;
   /** 组名 -> 战役槽位 */
   assignments: Record<string, string>;
+}
+
+/** 存档页「归属」下拉的一个候选：官方只到战役，自制具体到每部。 */
+export interface SaveTarget {
+  /** 写进 state.json 的隔离键：官方 = 槽位；自制 = `custom/<身份>`。 */
+  key: string;
+  /** 界面上的说法。 */
+  label: string;
 }
 
 /** 一份已备份的存档。 */
@@ -677,6 +691,12 @@ export interface LauncherApi {
   restoreSaves(name: string): Promise<string>;
   /** 把游戏里这份存档存进**指定的组**（存档页的「设为当前」），并把它记为当前组。 */
   saveIntoProfile(name: string): Promise<SaveIsolation>;
+  /** 归属下拉的候选（键的算法在后端，界面别自己拼）。 */
+  savesTargets(): Promise<SaveTarget[]>;
+  /** 一个存档组里有哪些存档文件（组详情用）。 */
+  saveGroupFiles(name: string): Promise<SaveFile[]>;
+  /** 把某一份存档挪到另一个组（= 改它归到哪个战役）。同名不覆盖。 */
+  moveSaveFile(from: string, file: string, to: string): Promise<void>;
 
   /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
 

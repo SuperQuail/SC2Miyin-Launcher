@@ -4,8 +4,10 @@
 //! （那个闸门只管安装目录里的文件）。但同样守两条：**动之前先备份**、
 //! **先给人看**（[`SaveSet`] 就是给人看的那一份）。
 //!
-//! **存档隔离**：打开之后，每个战役用自己的那份 Banks，切换战役时自动换档。
-//! 默认**关着** —— 不开的时候启动器一个字节都不碰存档。
+//! **存档隔离**：**默认开着**，每个战役用自己的那份 Banks，切换战役时自动换档。
+//! 官方战役按**槽位**共用一组（同一部的各个改版本来就该共用进度）；
+//! 自制战役**每部一组**（键是 `custom/<身份>`，见 [`isolation_key`]）。
+//! 关掉之后启动器不再动 Banks，已经存下的组都留着。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +15,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::library::Library;
+use crate::safety;
 
 /// 备份目录名里的时间戳：`20261009-181500`。
 fn stamp() -> String {
@@ -193,6 +197,73 @@ pub fn restore(banks: &Path, library_root: &Path, name: &str) -> Result<String> 
     Ok(safety.unwrap_or_default())
 }
 
+// ---------------------------------------------------------------------------
+// 存档组里的**单个文件**（组详情：可以打开看、把某一份挪到别的组）
+// ---------------------------------------------------------------------------
+
+/// 一个组目录。组名只许**裸名字** —— 这条边界保证下面所有操作都只在
+/// `<data>/saves/` 里面动，跳不出去。
+fn group_dir(root: &Path, name: &str) -> Result<PathBuf> {
+    let saves = self::root(root);
+    safety::ensure_within(&saves, &saves.join(name))
+}
+
+/// 列出一个存档组里的存档文件（名字 + 字节数），按名字排序。
+///
+/// 组不存在就说清楚是哪一组；空组给空数组（空组是正常状态，不是错误）。
+pub fn group_files(root: &Path, name: &str) -> Result<Vec<SaveFile>> {
+    let dir = group_dir(root, name)?;
+    if !dir.is_dir() {
+        return Err(crate::error::Error::PackageRejected(format!(
+            "没有这个存档组：{name}"
+        )));
+    }
+    Ok(snapshot(&dir)?.files)
+}
+
+/// 把某个组里的**一份**存档挪到另一个组 —— 也就是改它归到哪个战役。
+///
+/// 三条底线（动的都是用户数据）：
+/// - 目标组不存在就建；
+/// - **同名不覆盖**，直接报错让用户自己决定（宁可报错，也不替他做决定）；
+/// - 只动 `<data>/saves/` 里的文件，**绝不碰游戏目录的 Banks**（Banks 是另一套路径，
+///   这个函数自始至终没有 banks 参数）；源组挪空了也不删组（用户可能还想切回来）。
+pub fn move_save_file(root: &Path, from: &str, file: &str, to: &str) -> Result<()> {
+    if file.is_empty() || file.contains(['/', '\\']) || file == "." || file == ".." {
+        return Err(crate::error::Error::PackageRejected(format!(
+            "存档文件名不合法：{file}"
+        )));
+    }
+    if from == to {
+        return Err(crate::error::Error::PackageRejected(
+            "源组和目标组是同一个".to_string(),
+        ));
+    }
+
+    let saves = self::root(root);
+    let source = safety::ensure_within(&saves, &saves.join(from).join(file))?;
+    if !source.is_file() {
+        return Err(crate::error::Error::PackageRejected(format!(
+            "找不到这份存档：{file}"
+        )));
+    }
+
+    let target_dir = group_dir(root, to)?;
+    std::fs::create_dir_all(&target_dir)?;
+    let target = safety::ensure_within(&saves, &saves.join(to).join(file))?;
+    if target.exists() {
+        return Err(crate::error::Error::PackageRejected(format!(
+            "「{to}」里已经有同名存档 {file}，没有覆盖"
+        )));
+    }
+
+    // 同盘 rename 一步到位；跨盘 rename 会失败，退回复制 + 删
+    if std::fs::rename(&source, &target).is_err() {
+        std::fs::copy(&source, &target)?;
+        std::fs::remove_file(&source)?;
+    }
+    Ok(())
+}
 // ---------------------------------------------------------------------------
 // 存档隔离（按安装的战役分开）
 // ---------------------------------------------------------------------------
@@ -397,29 +468,141 @@ fn fresh_group(root: &Path, label: &str) -> Result<String> {
     Ok(name)
 }
 
-/// 这个槽位是不是自制战役。
+/// 自制战役隔离键的前缀。
+const CUSTOM_PREFIX: &str = "custom/";
+
+/// 这个隔离键是不是自制战役的。
 ///
-/// 自制战役是**各自独立**的：没有记录时不该继承当前这份存档。
-fn is_custom(slot: &str) -> bool {
-    matches!(
-        crate::campaign::metadata::CampaignType::from_slug(slot),
-        Some(crate::campaign::metadata::CampaignType::Custom)
-    )
+/// 两种都算：新格式 `custom/<身份>`，以及老数据里光秃秃的 `custom`
+/// （老数据不自动迁移 —— 见 [`isolation_key`] 的说明）。
+pub fn is_custom_key(key: &str) -> bool {
+    key == "custom" || key.starts_with(CUSTOM_PREFIX)
 }
 
-/// 启用某个战役之前调它：隔离开着就切到该战役的存档组。
+/// 这个版本的**隔离键**。
+///
+/// - **官方槽位**：就是槽位本身（`wol` / `hots` …）—— 同一部官方战役的各个改版
+///   本来就该共用进度，换哪一版都是同一段游玩。
+/// - **自制战役**：`custom/<身份>` —— **每部自制战役一组**（用户原话「每个战役单独管理」）。
+///
+/// 身份怎么定：**优先用包声明的注册 ID**（大小写归一），没写注册 ID 才退回版本目录名。
+/// **为什么不用版本 id**：版本 id 是「这一份包」，同一部自制战役的每个版本都不同 ——
+/// 拿它当隔离键的话，用户「更新了同一部战役的新版本」就等于换了一份存档，
+/// 旧进度会被甩在一个再也不会被用到的组里（那是真丢数据）。
+/// **代价**：两部不同的自制战役如果声明了同一个注册 ID，会被认成同一部、共用一个组 ——
+/// 可以接受：`conflict_for` 认「同一部战役的新版本」用的也是注册 ID，口径一致；
+/// 而且注册 ID 本来就是作者声明的稳定身份。
+/// 没写注册 ID 的包退回版本目录名，也就是那种包换版本会各自一组，
+/// 用户可以在存档页手动把归属改到同一组（不猜，猜测才会串档）。
+///
+/// 老数据里的 `custom` 键**不会被匹配到**（新键形如 `custom/<身份>`）：
+/// 宁可让用户手动指一次，也不要猜错版本、把两部自制战役的存档串在一起。
+pub fn isolation_key(library: &Library, slot: &str, variant_id: &str) -> String {
+    if !is_custom_key(slot) {
+        return slot.to_string();
+    }
+
+    let identity = library
+        .index()
+        .slots
+        .get(slot)
+        .and_then(|entry| entry.variants.iter().find(|item| item.id == variant_id))
+        .and_then(|item| item.registration_id.as_deref())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_lowercase)
+        .unwrap_or_else(|| variant_id.to_string());
+
+    format!("{CUSTOM_PREFIX}{identity}")
+}
+
+/// 存档页「归属」下拉的一个候选。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SaveTarget {
+    /// 写进 `state.json` 的隔离键。
+    pub key: String,
+    /// 界面上的说法（官方只到战役；自制具体到每个版本）。
+    pub label: String,
+}
+
+/// 归属下拉的候选清单：官方战役（固定菜单顺序）+ 每部自制战役。
+///
+/// 和 [`isolation_key`] 用同一套规则算键 —— 界面不要自己拼键，免得两处规则漂移。
+pub fn targets(library: &Library) -> Vec<SaveTarget> {
+    use crate::campaign::metadata::CampaignType;
+
+    let mut out: Vec<SaveTarget> = Vec::new();
+    for kind in CampaignType::MENU {
+        // 自制战役不按槽位列，下面按版本各自列
+        if kind.is_custom() {
+            continue;
+        }
+        out.push(SaveTarget {
+            key: kind.slug().to_string(),
+            label: kind.display_name(),
+        });
+    }
+
+    let index = library.index();
+    if let Some(entry) = index.slots.get("custom") {
+        // 同一部战役的多个版本（共享注册 ID）只列一条。**label 要稳定**：
+        // 优先用「当前启用那版」的名字，没有就用导入时间最新的那版 ——
+        // 不顺着 slots 的遍历顺序漂，否则页面上同一个条目会忽然换名字。
+        struct Picked {
+            key: String,
+            name: String,
+            active: bool,
+            imported_at: u64,
+        }
+        let mut picked: Vec<Picked> = Vec::new();
+        for variant in &entry.variants {
+            let key = isolation_key(library, "custom", &variant.id);
+            let active = entry.active.as_deref() == Some(variant.id.as_str());
+            match picked.iter_mut().find(|item| item.key == key) {
+                None => picked.push(Picked {
+                    key,
+                    name: variant.name.clone(),
+                    active,
+                    imported_at: variant.imported_at,
+                }),
+                Some(item) => {
+                    // 已启用那版不换；否则「这个启用」或「这个更新」就换掉它。
+                    // 都没启用就比导入时间（新的赢），时间相同就保持先出现的。
+                    let better = !item.active && (active || variant.imported_at > item.imported_at);
+                    if better {
+                        item.name = variant.name.clone();
+                        item.active = active;
+                        item.imported_at = variant.imported_at;
+                    }
+                }
+            }
+        }
+        let prefix = CampaignType::Custom.display_name();
+        out.extend(picked.into_iter().map(|item| SaveTarget {
+            key: item.key,
+            label: format!("{} · {}", prefix, item.name),
+        }));
+    }
+
+    out
+}
+
+/// 启用某个战役之前调它：隔离开着就切到它的存档组。
+///
+/// `key` 是 [`isolation_key`] 算出来的隔离键（官方 = 槽位，自制 = `custom/<身份>`）；
+/// 调用方负责算，别在这里再推一次规则。
 ///
 /// 没有记录时的默认归属（2026-10 用户要求「没有记录就归当前启用的战役」）：
 /// - **官方战役**：把**现在游戏里这份 Banks** 收成它的组。切组前 `save_active` 会先把
 ///   这份收进「原版」，所以「原版」和这个战役组会**同时**有这份进度 —— 刻意的
 ///   （用户之前那段进度两头都在，谁也没被顶掉）。还没玩过（Banks 空）就退化成空组。
-/// - **自制战役**：新建空组。它们各自独立管理，不继承当前存档。
+/// - **自制战役**：新建空组，**不继承**当前存档（每部各管各的）。
 ///
 /// 已经有组就照旧切过去。返回切到了哪个组（没开隔离返回 `None`）。
 pub fn ensure_for_slot(
     root: &Path,
     banks: &Path,
-    slot: &str,
+    key: &str,
     label: &str,
 ) -> Result<Option<String>> {
     let state = isolation(root)?;
@@ -427,12 +610,12 @@ pub fn ensure_for_slot(
         return Ok(None);
     }
 
-    if let Some(name) = profile_for(root, slot)? {
+    if let Some(name) = profile_for(root, key)? {
         switch(root, banks, &name)?;
         return Ok(Some(name));
     }
 
-    let name = if is_custom(slot) {
+    let name = if is_custom_key(key) {
         fresh_group(root, label)?
     } else {
         // 官方战役：接着当前这份进度往下玩（Banks 还没东西时没得接，给个空组）
@@ -442,7 +625,7 @@ pub fn ensure_for_slot(
         }
     };
 
-    assign(root, &name, Some(slot))?;
+    assign(root, &name, Some(key))?;
     switch(root, banks, &name)?;
     Ok(Some(name))
 }
@@ -726,5 +909,317 @@ mod tests {
             std::fs::read_to_string(banks.join("进度.SC2Bank")).expect("读"),
             "原版"
         );
+    }
+
+    /// 造一个库，里面只有一个自制槽位、若干版本。
+    fn library_with_custom(data: &Path, variants: &[(&str, &str, Option<&str>)]) -> Library {
+        let library = Library::new(data);
+        let mut index = crate::library::LibraryIndex::default();
+        let slot = crate::library::CampaignSlot {
+            variants: variants
+                .iter()
+                .map(|(id, name, registration)| crate::library::Variant {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    registration_id: registration.map(str::to_string),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        index.slots.insert("custom".to_string(), slot);
+        library.save_index(&index).expect("写索引");
+        library
+    }
+
+    #[test]
+    fn isolation_key_is_the_slot_for_official_campaigns() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let library = library_with_custom(&tmp.path().join("data"), &[]);
+
+        // 官方战役：同一部战役换哪个改版都是同一段进度
+        assert_eq!(isolation_key(&library, "wol", "任意版本"), "wol");
+        assert_eq!(isolation_key(&library, "hots", "任意版本"), "hots");
+    }
+
+    #[test]
+    fn two_custom_campaigns_get_separate_groups() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        let library = library_with_custom(&data, &[("甲", "战役甲", None), ("乙", "战役乙", None)]);
+
+        let a = ensure_for_slot(
+            &data,
+            &banks,
+            &isolation_key(&library, "custom", "甲"),
+            "战役甲",
+        )
+        .expect("切甲")
+        .expect("开着");
+        let b = ensure_for_slot(
+            &data,
+            &banks,
+            &isolation_key(&library, "custom", "乙"),
+            "战役乙",
+        )
+        .expect("切乙")
+        .expect("开着");
+
+        assert_ne!(a, b, "两部自制战役必须是两个组：{a} / {b}");
+        assert_eq!(
+            profile_for(&data, "custom/甲").expect("查"),
+            Some(a.clone())
+        );
+        assert_eq!(
+            profile_for(&data, "custom/乙").expect("查"),
+            Some(b.clone())
+        );
+
+        // 各自的组是空的（自制战役不继承当前存档）
+        assert!(
+            snapshot(&root(&data).join(&a))
+                .expect("快照")
+                .files
+                .is_empty()
+        );
+        assert!(
+            snapshot(&root(&data).join(&b))
+                .expect("快照")
+                .files
+                .is_empty()
+        );
+
+        // 名字不撞（组名带战役名）
+        assert!(a.contains("战役甲"), "{a}");
+        assert!(b.contains("战役乙"), "{b}");
+    }
+
+    #[test]
+    fn versions_of_one_custom_campaign_share_a_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        // 同一部战役的两个版本：包内声明的注册 ID 相同（大小写不同也算同一个）
+        let library = library_with_custom(
+            &data,
+            &[
+                ("v1", "战役 1.0", Some("Team.Campaign")),
+                ("v2", "战役 2.0", Some("team.campaign")),
+            ],
+        );
+
+        let key1 = isolation_key(&library, "custom", "v1");
+        let key2 = isolation_key(&library, "custom", "v2");
+        assert_eq!(key1, key2, "注册 ID 一样就得是同一个键");
+
+        let first = ensure_for_slot(&data, &banks, &key1, "战役 1.0")
+            .expect("切 1.0")
+            .expect("开着");
+        let second = ensure_for_slot(&data, &banks, &key2, "战役 2.0")
+            .expect("切 2.0")
+            .expect("开着");
+        assert_eq!(first, second, "换版本要共用同一个组");
+        assert_eq!(backups(&data).expect("列").len(), 1, "不该多出一个组");
+    }
+
+    #[test]
+    fn legacy_custom_assignment_is_kept_but_never_auto_migrated() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_custom(&data, &[("甲", "战役甲", None)]);
+
+        // 老数据：组存在，归属是光秃秃的 `custom`
+        let old = root(&data).join("旧的自制战役-1");
+        std::fs::create_dir_all(&old).expect("建组");
+        std::fs::write(old.join("旧.SC2Bank"), "老进度").expect("写");
+        let mut state = Isolation::default();
+        state
+            .assignments
+            .insert("旧的自制战役-1".to_string(), "custom".to_string());
+        write_isolation(&data, &state).expect("写状态");
+
+        // 新键不会匹配到它 —— 不猜版本
+        assert_eq!(
+            profile_for(&data, &isolation_key(&library, "custom", "甲")).expect("查"),
+            None,
+            "绝不自动把老组迁到某个自制版本"
+        );
+        // 组本身还在（不丢）
+        assert!(old.is_dir());
+        assert_eq!(
+            std::fs::read_to_string(old.join("旧.SC2Bank")).expect("读"),
+            "老进度"
+        );
+
+        // 候选里不会冒出这个老键（界面会单独标成「旧的自制战役（未指定版本）」）
+        assert!(!targets(&library).iter().any(|item| item.key == "custom"));
+
+        // 用户手动指过去：一次 assign 就归到新键上
+        assign(&data, "旧的自制战役-1", Some("custom/甲")).expect("手改");
+        assert_eq!(
+            profile_for(&data, "custom/甲").expect("查"),
+            Some("旧的自制战役-1".to_string())
+        );
+    }
+
+    #[test]
+    fn targets_list_official_in_menu_order_then_each_custom_campaign() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_custom(
+            &data,
+            &[
+                ("v1", "战役 1.0", Some("Team.Campaign")),
+                ("v2", "战役 2.0", Some("team.campaign")),
+                ("other", "另一部", None),
+            ],
+        );
+
+        let list = targets(&library);
+        let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
+        assert_eq!(
+            &keys[..4],
+            &["wol", "hots", "lotv", "nova"],
+            "官方按固定菜单顺序"
+        );
+        assert_eq!(keys[4], "custom/team.campaign", "同一部只列一条");
+        assert_eq!(keys[5], "custom/other");
+        assert_eq!(list[4].label, "自制战役 · 战役 1.0");
+    }
+
+    #[test]
+    fn custom_target_label_prefers_the_active_version_then_the_newest() {
+        // label 不能随遍历顺序漂：启用的那版优先，都没启用就取导入时间最新的
+        fn variant(id: &str, name: &str, imported_at: u64) -> crate::library::Variant {
+            crate::library::Variant {
+                id: id.to_string(),
+                name: name.to_string(),
+                registration_id: Some("team.campaign".to_string()),
+                imported_at,
+                ..Default::default()
+            }
+        }
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = Library::new(&data);
+        let mut index = crate::library::LibraryIndex::default();
+        index.slots.insert(
+            "custom".to_string(),
+            crate::library::CampaignSlot {
+                variants: vec![
+                    variant("new", "战役 2.0", 20),
+                    variant("old", "战役 1.0", 10),
+                ],
+                active: None,
+            },
+        );
+        library.save_index(&index).expect("写索引");
+
+        // 都没启用 -> 取最新的那版
+        let list = targets(&library);
+        assert_eq!(list[4].label, "自制战役 · 战役 2.0");
+        assert_eq!(list.len(), 5, "同一部只列一条");
+
+        // 启用了旧那版 -> 取启用的那版（哪怕它不是最新）
+        let mut index = library.index();
+        index.slots.get_mut("custom").expect("槽位").active = Some("old".to_string());
+        library.save_index(&index).expect("写索引");
+        let list = targets(&library);
+        assert_eq!(list[4].label, "自制战役 · 战役 1.0");
+    }
+
+    #[test]
+    fn group_files_lists_one_group_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        write(&root(&data).join("甲"), "a.SC2Bank", "1");
+        write(&root(&data).join("甲"), "b.SC2Bank", "22");
+        write(&root(&data).join("乙"), "c.SC2Bank", "333");
+
+        let files = group_files(&data, "甲").expect("列甲");
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].name, "a.SC2Bank");
+        assert_eq!(files[0].bytes, 1);
+        assert_eq!(files[1].name, "b.SC2Bank");
+        assert_eq!(files[1].bytes, 2);
+
+        // 空组是正常状态
+        std::fs::create_dir_all(root(&data).join("空")).expect("建组");
+        assert!(group_files(&data, "空").expect("列空组").is_empty());
+
+        // 没有这个组要说清楚是哪一组
+        let err = group_files(&data, "查无此组").expect_err("该报错");
+        assert!(format!("{err}").contains("查无此组"), "{err}");
+    }
+
+    #[test]
+    fn moving_a_save_file_moves_it_between_groups_and_never_touches_banks() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        // 游戏目录那份 Banks 也放一个**同名**文件：绝不能被碰
+        let banks = tmp.path().join("Banks");
+        write(&banks, "a.SC2Bank", "游戏里那份");
+        write(&root(&data).join("甲"), "a.SC2Bank", "进度");
+        write(&root(&data).join("乙"), "b.SC2Bank", "别的");
+
+        move_save_file(&data, "甲", "a.SC2Bank", "乙").expect("挪");
+
+        assert!(
+            !root(&data).join("甲").join("a.SC2Bank").exists(),
+            "源组里没了"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("乙").join("a.SC2Bank")).expect("读"),
+            "进度"
+        );
+        assert!(root(&data).join("甲").is_dir(), "源组空了也不删组");
+        assert_eq!(
+            std::fs::read_to_string(banks.join("a.SC2Bank")).expect("读"),
+            "游戏里那份",
+            "只动 data/saves，绝不碰 Banks"
+        );
+    }
+
+    #[test]
+    fn moving_refuses_to_overwrite_a_same_named_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        write(&root(&data).join("甲"), "a.SC2Bank", "旧的");
+        write(&root(&data).join("乙"), "a.SC2Bank", "新的");
+
+        let err = move_save_file(&data, "甲", "a.SC2Bank", "乙").expect_err("必须拒绝");
+        assert!(format!("{err}").contains("同名"), "{err}");
+
+        // 两边都没被动过
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("甲").join("a.SC2Bank")).expect("读"),
+            "旧的"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("乙").join("a.SC2Bank")).expect("读"),
+            "新的"
+        );
+    }
+
+    #[test]
+    fn moving_creates_the_target_group_and_rejects_path_like_names() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        write(&root(&data).join("甲"), "b.SC2Bank", "内容");
+
+        // 目标组不存在就建
+        move_save_file(&data, "甲", "b.SC2Bank", "新建的组").expect("目标组自动建");
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("新建的组").join("b.SC2Bank")).expect("读"),
+            "内容"
+        );
+
+        // 文件名 / 组名都不许带路径（跳出 data/saves 的一道闸）
+        write(&root(&data).join("甲"), "c.SC2Bank", "x");
+        assert!(move_save_file(&data, "甲", "../c.SC2Bank", "新建的组").is_err());
+        assert!(move_save_file(&data, "..", "c.SC2Bank", "新建的组").is_err());
+        assert!(move_save_file(&data, "甲", "c.SC2Bank", "..").is_err());
     }
 }

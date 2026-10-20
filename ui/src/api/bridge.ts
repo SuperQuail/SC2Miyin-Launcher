@@ -43,7 +43,9 @@ import type {
   LauncherApi,
   Preview,
   SaveBackup,
+  SaveFile,
   SaveIsolation,
+  SaveTarget,
   SaveSet,
   PackageInspection,
   Patch,
@@ -74,6 +76,9 @@ const desktop: LauncherApi = {
   listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
   restoreSaves: (name) => invoke<string>("restore_saves", { name }),
   saveIntoProfile: (name) => invoke<SaveIsolation>("save_into_profile", { name }),
+  savesTargets: () => invoke<SaveTarget[]>("saves_targets"),
+  saveGroupFiles: (name) => invoke<SaveFile[]>("save_group_files", { name }),
+  moveSaveFile: (from, file, to) => invoke<void>("move_save_file", { from, file, to }),
 
   /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
   previewActivation: (slot, variantId) =>
@@ -370,6 +375,11 @@ const demoslots: SlotView[] = [
         ),
         { mod_count: 4, doc: null },
       ),
+      // 第二部自制战役：用来演"每部自制战役各自一组存档"
+      Object.assign(
+        variant("边境之地 1.0", "边境之地", "FrontierWorks", "1.0", 12, 380_000_000),
+        { mod_count: 0, doc: null },
+      ),
     ],
     active: "Starcraft Mass Recall 8.0",
     active_name: "Starcraft Mass Recall",
@@ -539,11 +549,13 @@ let counter = 0;
  */
 const demoSaveGroups: SaveBackup[] = [
   { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
+  // 第二个组是给「组详情 → 挪到…」演示用的：两个组各有一份存档，挪动看得出来
+  { name: "自由之翼-1790000100", label: "自由之翼", bytes: 1_220_000, files: 2 },
 ];
 const demoSavesState: SaveIsolation = {
   enabled: true,
   active: "原版-1790000000",
-  assignments: {},
+  assignments: { "自由之翼-1790000100": "wol" },
 };
 /** 游戏里这份 Banks 现在长什么样（切组会换）。 */
 let demoBanks: SaveSet = {
@@ -560,6 +572,24 @@ function demoIsolation(): SaveIsolation {
   return { ...demoSavesState, assignments: { ...demoSavesState.assignments } };
 }
 
+/**
+ * 演示模式的**组内文件**：名字是真的、字节是编的（按组的平均大小）。
+ * 挪动会真的改这些数组，这样组详情弹层在演示里也能看到"少了一份 / 多了一份"。
+ */
+const demoGroupFiles: Record<string, string[]> = {};
+
+function demoFilesOf(name: string): string[] {
+  if (!demoGroupFiles[name]) {
+    const group = demoSaveGroups.find((item) => item.name === name);
+    demoGroupFiles[name] = Array.from(
+      { length: group?.files ?? 0 },
+      // 带上组名：两个组不能有同名文件，否则「挪到…」永远撞车，演示看不出效果
+      (_, index) => (group?.label ?? name) + (index + 1) + ".SC2Bank",
+    );
+  }
+  return demoGroupFiles[name];
+}
+
 /** 按组的体积 / 文件数编一份"Banks 长这样"—— 演示模式只求自洽。 */
 function demoBanksOf(group: SaveBackup): SaveSet {
   const each = group.files > 0 ? Math.round(group.bytes / group.files) : 0;
@@ -573,17 +603,26 @@ function demoBanksOf(group: SaveBackup): SaveSet {
   };
 }
 
-/** 演示模式里模拟 `ensure_for_slot`：官方战役继承当前存档，自制战役是空组。 */
-function demoEnsureSaves(slot: string, label: string): void {
+/** 演示模式的隔离键 —— 和后端同规则：官方 = 槽位；自制 = `custom/<身份>`。 */
+function demoIsolationKey(slot: string, variantId: string): string {
+  if (slot !== "custom") return slot;
+  const item = demoslots
+    .find((entry) => entry.slug === slot)
+    ?.variants.find((entry) => entry.id === variantId);
+  return "custom/" + (item?.registration_id ?? variantId);
+}
+
+/** 演示模式里模拟 `ensure_for_slot`：官方战役继承当前存档，自制战役每部一个空组。 */
+function demoEnsureSaves(key: string, label: string): void {
   if (!demoSavesState.enabled) return;
-  const assigned = Object.entries(demoSavesState.assignments).find(([, value]) => value === slot)?.[0];
+  const assigned = Object.entries(demoSavesState.assignments).find(([, value]) => value === key)?.[0];
   if (assigned) {
     demoSavesState.active = assigned;
     const group = demoSaveGroups.find((item) => item.name === assigned);
     if (group) demoBanks = demoBanksOf(group);
     return;
   }
-  const fresh = !slotIsCustom(slot);
+  const fresh = !key.startsWith("custom/") && key !== "custom";
   const name = label + "-" + (1790000200 + demoSaveGroups.length);
   demoSaveGroups.push({
     name,
@@ -591,15 +630,10 @@ function demoEnsureSaves(slot: string, label: string): void {
     bytes: fresh ? demoBanks.bytes : 0,
     files: fresh ? demoBanks.files.length : 0,
   });
-  demoSavesState.assignments[name] = slot;
+  demoSavesState.assignments[name] = key;
   demoSavesState.active = name;
   if (fresh) demoBanks = { ...demoBanks };
   else demoBanks = { files: [], bytes: 0, missing: false };
-}
-
-/** 自制战役槽位（各自独立，不继承当前存档）。 */
-function slotIsCustom(slot: string): boolean {
-  return slot === "custom";
 }
 
 /**
@@ -707,6 +741,46 @@ const demo: LauncherApi = {
     demoSavesState.active = name;
     return demoIsolation();
   },
+  savesTargets: async () => {
+    const official = demoslots
+      .filter((slot) => slot.slug !== "custom")
+      .map((slot) => ({ key: slot.slug, label: slot.display_name }));
+    const custom = demoslots.find((slot) => slot.slug === "custom");
+    return [
+      ...official,
+      ...(custom?.variants ?? []).map((item) => ({
+        key: demoIsolationKey("custom", item.id),
+        label: "自制战役 · " + item.name,
+      })),
+    ];
+  },
+  saveGroupFiles: async (name) => {
+    const group = demoSaveGroups.find((item) => item.name === name);
+    if (!group) throw new Error("没有这个存档组：" + name);
+    const names = demoFilesOf(name);
+    const each = names.length > 0 ? Math.round(group.bytes / names.length) : 0;
+    return names.map((file) => ({ name: file, bytes: each }));
+  },
+  moveSaveFile: async (from, file, to) => {
+    if (from === to) throw new Error("源组和目标组是同一个");
+    const source = demoSaveGroups.find((item) => item.name === from);
+    if (!source) throw new Error("没有这个存档组：" + from);
+    const names = demoFilesOf(from);
+    if (!names.includes(file)) throw new Error("找不到这份存档：" + file);
+    const target = demoSaveGroups.find((item) => item.name === to);
+    if (target && demoFilesOf(to).includes(file)) {
+      throw new Error("「" + to + "」里已经有同名存档 " + file + "，没有覆盖");
+    }
+    names.splice(names.indexOf(file), 1);
+    source.files = names.length;
+    if (target) {
+      demoFilesOf(to).push(file);
+      target.files = demoFilesOf(to).length;
+    } else {
+      demoSaveGroups.push({ name: to, label: to, files: 1, bytes: 0 });
+      demoGroupFiles[to] = [file];
+    }
+  },
   listSaves: async () => demoBanks,
   backupSaves: async (label) => {
     const name = label + "-" + (1790000300 + demoSaveGroups.length);
@@ -742,7 +816,11 @@ const demo: LauncherApi = {
           target.active_name = found ? found.name : null;
           // 启用战役时存档跟着走（模拟后端的 ensure_for_slot）：
           // 官方战役继承当前这份，自制战役开一个空组
-          if (variantId !== null) demoEnsureSaves(slot, target.display_name);
+          if (variantId !== null) {
+            const key = demoIsolationKey(slot, variantId);
+            const label = slot === "custom" ? (found?.name ?? key) : target.display_name;
+            demoEnsureSaves(key, label);
+          }
         }
         return [] as string[];
       })(),

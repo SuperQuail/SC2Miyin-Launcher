@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import type { SaveBackup, SaveIsolation, SaveSet, SaveTarget } from "../../../api/types";
+import type { SaveBackup, SaveFile, SaveIsolation, SaveSet, SaveTarget } from "../../../api/types";
 import { Button } from "../../ui";
+import { GroupDetailDialog } from "./GroupDetailDialog";
 import "./saves.css";
 
 /**
@@ -23,6 +24,8 @@ export function SavesView({
   onSaveInto,
   onRefresh,
   onOpenSettings,
+  onGroupFiles,
+  onMoveSave,
 }: {
   /** 归属下拉的候选：官方战役 + 每部自制战役（键由后端算，界面不拼）。 */
   targets: SaveTarget[];
@@ -35,6 +38,10 @@ export function SavesView({
   onSaveInto: (name: string) => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
+  /** 读一个组里的存档文件（打开组详情用）。 */
+  onGroupFiles: (name: string) => Promise<SaveFile[]>;
+  /** 把一份存档挪到别的组（= 改这份归属的战役）。 */
+  onMoveSave: (from: string, file: string, to: string, toLabel?: string) => Promise<void>;
 }) {
   useEffect(() => {
     onRefresh();
@@ -49,6 +56,22 @@ export function SavesView({
     if (!key || options.some((item) => item.key === key)) continue;
     options.push({ key, label: key === "custom" ? "旧的自制战役（未指定版本）" : key });
   }
+
+  const [detail, setDetail] = useState<{ name: string; label: string } | null>(null);
+  const [detailFiles, setDetailFiles] = useState<SaveFile[] | null>(null);
+
+  const loadGroup = useCallback(
+    async (name: string) => {
+      setDetailFiles(null);
+      setDetailFiles(await onGroupFiles(name));
+    },
+    [onGroupFiles],
+  );
+
+  const openGroup = (name: string, label: string) => {
+    setDetail({ name, label });
+    void loadGroup(name);
+  };
 
   const banksText = !banks
     ? "正在读取…"
@@ -124,7 +147,14 @@ export function SavesView({
                 >
                   <div className="saves__info">
                     <span className="saves__name">
-                      {group.label}
+                      <button
+                        type="button"
+                        className="saves__name-btn"
+                        title="打开看看这个组里有哪些存档"
+                        onClick={() => openGroup(group.name, group.label)}
+                      >
+                        {group.label}
+                      </button>
                       {active && <span className="tag">当前在用</span>}
                     </span>
                     <span className="saves__meta">
@@ -168,6 +198,33 @@ export function SavesView({
           「切换到这个」= 游戏里换成这份存档（现在这份会先存回它自己的组）；「设为当前」= 把游戏里现在这份存进这个组。归属改了之后，启用那个战役就会用它。
         </p>
       </section>
+
+      {detail && (
+        <GroupDetailDialog
+          groupLabel={detail.label}
+          files={detailFiles}
+          choices={groups
+            .filter((item) => item.name !== detail.name)
+            .map((item) => {
+              const key = isolation.assignments[item.name];
+              const target = key ? options.find((option) => option.key === key) : undefined;
+              return {
+                name: item.name,
+                label: item.label + (target ? " → " + target.label : "（不属于任何战役）"),
+              };
+            })}
+          busy={busy}
+          onMove={(file, to) => {
+            void (async () => {
+              const choice = groups.find((item) => item.name === to);
+              await onMoveSave(detail.name, file, to, choice?.label);
+              await loadGroup(detail.name);
+            })();
+          }}
+          onReload={() => void loadGroup(detail.name)}
+          onClose={() => setDetail(null)}
+        />
+      )}
     </div>
   );
 }

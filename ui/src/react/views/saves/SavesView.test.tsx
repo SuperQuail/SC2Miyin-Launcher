@@ -43,6 +43,8 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
   const onSwitch = vi.fn();
   const onAssign = vi.fn();
   const onSaveInto = vi.fn();
+  const onGroupFiles = vi.fn(async () => []);
+  const onMoveSave = vi.fn(async () => {});
   const onRefresh = vi.fn();
   const onOpenSettings = vi.fn();
   const host = document.createElement("div");
@@ -59,6 +61,8 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
         onSwitch,
         onAssign,
         onSaveInto,
+        onGroupFiles,
+        onMoveSave,
         onRefresh,
         onOpenSettings,
       }),

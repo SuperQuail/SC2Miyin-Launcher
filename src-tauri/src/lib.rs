@@ -293,6 +293,40 @@ fn save_into_profile(
     library_saves::save_into(state.library.root(), &banks, &name).map_err(|e| e.to_string())
 }
 
+/// 存档页「归属」下拉的候选：官方战役（固定菜单顺序）+ 每部自制战役。
+///
+/// 键的算法和 `saves::isolation_key` 同源，界面别自己拼。
+#[tauri::command(async)]
+fn saves_targets(state: State<'_, AppState>) -> Vec<miyin_core::saves::SaveTarget> {
+    miyin_core::saves::targets(&state.library)
+}
+
+/// 一个存档组里有哪些存档文件（组详情用：可以打开看、挑某一份挪走）。
+///
+/// **只读**，而且只读 `data/saves/<组>/` —— 不碰游戏目录的 Banks。
+#[tauri::command(async)]
+fn save_group_files(
+    name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<miyin_core::saves::SaveFile>, String> {
+    miyin_core::saves::group_files(state.library.root(), &name).map_err(|error| error.to_string())
+}
+
+/// 把某一份存档挪到另一个组（= 改它归到哪个战役）。
+///
+/// 目标组不存在会建；**同名不覆盖**（报错让用户自己决定）；源组空了也不删。
+/// 只动 `data/saves/`，绝不碰游戏目录的 Banks。
+#[tauri::command(async)]
+fn move_save_file(
+    from: String,
+    file: String,
+    to: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    miyin_core::saves::move_save_file(state.library.root(), &from, &file, &to)
+        .map_err(|error| error.to_string())
+}
+
 /// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
 #[tauri::command(async)]
 fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
@@ -679,11 +713,27 @@ fn activate_variant(
     // 切回原版就回「原版」那份。**没开隔离时这一段什么都不做。**
     if let Some(banks) = installation.banks_root.as_deref() {
         let root = state.library.root();
-        if variant_id.is_some() {
-            let label = library::require_slot(&slot)
-                .map(|kind| kind.display_name().to_string())
-                .unwrap_or_else(|_| slot.clone());
-            let _ = miyin_core::saves::ensure_for_slot(root, banks, &slot, &label);
+        if let Some(variant) = variant_id.as_deref() {
+            // 隔离键：官方 = 槽位；**自制 = custom/<版本身份>**（每部自制战役一组，
+            // 同一部战役的多个版本靠注册 ID 共用一个键）
+            let key = miyin_core::saves::isolation_key(&state.library, &slot, variant);
+            // 组名：官方用战役名；自制用版本名（几部自制战役各自一组，名字得能分辨）
+            let label = if miyin_core::saves::is_custom_key(&key) {
+                state
+                    .library
+                    .index()
+                    .slots
+                    .get(&slot)
+                    .and_then(|entry| entry.variants.iter().find(|item| item.id == variant))
+                    .map(|item| item.name.clone())
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| key.clone())
+            } else {
+                library::require_slot(&slot)
+                    .map(|kind| kind.display_name().to_string())
+                    .unwrap_or_else(|_| slot.clone())
+            };
+            let _ = miyin_core::saves::ensure_for_slot(root, banks, &key, &label);
         } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {
             let _ = miyin_core::saves::switch(root, banks, &original);
         }
@@ -2002,6 +2052,9 @@ pub fn run() {
             set_save_isolation,
             save_current_saves,
             save_into_profile,
+            saves_targets,
+            save_group_files,
+            move_save_file,
             switch_save_profile,
             assign_save_profile,
             backup_saves,

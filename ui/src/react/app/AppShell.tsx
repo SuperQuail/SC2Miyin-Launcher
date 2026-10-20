@@ -211,6 +211,8 @@ export function AppShell() {
                 onSaveInto={(name) => void app.saves.saveIntoProfile(name)}
                 onRefresh={() => void app.saves.refreshSaves()}
                 onOpenSettings={() => app.nav.setView("settings")}
+                onGroupFiles={(name) => app.saves.groupFiles(name)}
+                onMoveSave={(from, file, to, label) => app.saves.moveSave(from, file, to, label)}
               />
             )}
             {view === "settings" && <SettingsView {...settingsProps} />}
