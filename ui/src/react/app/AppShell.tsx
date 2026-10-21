@@ -208,12 +208,12 @@ groups={app.saves.saveBackups.filter((item) => !item.auto)}
                 banks={app.saves.saves}
                 busy={app.busy}
                 onSwitch={(name) => void app.saves.switchSaveProfile(name)}
-                onAssign={(name, slot) => void app.saves.assignSaveProfile(name, slot)}
+                
                 onSaveInto={(name) => void app.saves.saveIntoProfile(name)}
                 onRefresh={() => void app.saves.refreshSaves()}
                 onOpenSettings={() => app.nav.setView("settings")}
                 onGroupFiles={(name) => app.saves.groupFiles(name)}
-                onMoveSave={(from, file, to, label) => app.saves.moveSave(from, file, to, label)}
+                onMoveToKey={(from, file, key) => app.saves.moveToKey(from, file, key, app.saves.saveTargets.find((item) => item.key === key)?.label ?? key)}
               />
             )}
             {view === "settings" && <SettingsView {...settingsProps} />}

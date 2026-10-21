@@ -20,12 +20,11 @@ export function SavesView({
   banks,
   busy,
   onSwitch,
-  onAssign,
+  onMoveToKey,
   onSaveInto,
   onRefresh,
   onOpenSettings,
   onGroupFiles,
-  onMoveSave,
 }: {
   /** 归属下拉的候选：官方战役 + 每部自制战役（键由后端算，界面不拼）。 */
   targets: SaveTarget[];
@@ -34,14 +33,14 @@ export function SavesView({
   banks: SaveSet | null;
   busy: boolean;
   onSwitch: (name: string) => void;
-  onAssign: (name: string, slot: string | null) => void;
+  /** 把某一份存档归到某个战役/版本（组自动建，用户不碰组的绑定）。 */
+  onMoveToKey: (from: string, file: string, key: string) => Promise<void>;
   onSaveInto: (name: string) => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
   /** 读一个组里的存档文件（打开组详情用）。 */
   onGroupFiles: (name: string) => Promise<SaveFile[]>;
   /** 把一份存档挪到别的组（= 改这份归属的战役）。 */
-  onMoveSave: (from: string, file: string, to: string, toLabel?: string) => Promise<void>;
 }) {
   useEffect(() => {
     onRefresh();
@@ -72,6 +71,9 @@ export function SavesView({
     setDetail({ name, label });
     void loadGroup(name);
   };
+
+  // 没有存档的组不显示（当前在用的那个例外 —— 不然看不出现在用的是哪份）
+  const visible = groups.filter((item) => item.files > 0 || isolation.active === item.name);
 
   const banksText = !banks
     ? "正在读取…"
@@ -123,10 +125,10 @@ export function SavesView({
       <section className="card panel">
         <header className="panel__head">
           <h2 className="panel__title">存档组</h2>
-          <span className="saves__count">{groups.length} 个</span>
+          <span className="saves__count">{visible.length} 个</span>
         </header>
 
-        {groups.length === 0 ? (
+        {visible.length === 0 ? (
           <p className="saves__empty">
             还没有存档组
             <span className="saves__empty-sub">
@@ -137,7 +139,7 @@ export function SavesView({
           </p>
         ) : (
           <ul className="saves__list">
-            {groups.map((group) => {
+            {visible.map((group) => {
               const active = isolation.active === group.name;
               const slot = isolation.assignments[group.name] ?? "";
               return (
@@ -162,23 +164,7 @@ export function SavesView({
                     </span>
                   </div>
 
-                  <label className="saves__assign">
-                    <span className="saves__assign-label">归到</span>
-                    <select
-                      className="saves__select"
-                      value={slot}
-                      disabled={busy}
-                      onChange={(event) => onAssign(group.name, event.target.value || null)}
-                      aria-label={"「" + group.label + "」归到哪部战役"}
-                    >
-                      <option value="">不属于任何战役（原版）</option>
-                      {options.map((item) => (
-                        <option key={item.key} value={item.key}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {!slot && <span className="saves__loose">未指定</span>}
 
                   <div className="saves__ops">
                     <Button disabled={busy || active} onClick={() => onSwitch(group.name)}>
@@ -203,22 +189,14 @@ export function SavesView({
         <GroupDetailDialog
           groupLabel={detail.label}
           files={detailFiles}
-          choices={groups
-            .filter((item) => item.name !== detail.name)
-            .map((item) => {
-              const key = isolation.assignments[item.name];
-              const target = key ? options.find((option) => option.key === key) : undefined;
-              return {
-                name: item.name,
-                label: item.label + (target ? " → " + target.label : "（不属于任何战役）"),
-              };
-            })}
+          choices={options}
           busy={busy}
-          onMove={(file, to) => {
+          onMove={(file, key) => {
             void (async () => {
-              const choice = groups.find((item) => item.name === to);
-              await onMoveSave(detail.name, file, to, choice?.label);
+              const choice = options.find((item) => item.key === key);
+              await onMoveToKey(detail.name, file, key);
               await loadGroup(detail.name);
+              void choice;
             })();
           }}
           onReload={() => void loadGroup(detail.name)}

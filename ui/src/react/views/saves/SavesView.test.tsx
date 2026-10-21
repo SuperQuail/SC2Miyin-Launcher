@@ -41,10 +41,8 @@ afterEach(async () => {
 
 async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBackup[] }) {
   const onSwitch = vi.fn();
-  const onAssign = vi.fn();
   const onSaveInto = vi.fn();
   const onGroupFiles = vi.fn(async () => []);
-  const onMoveSave = vi.fn(async () => {});
   const onRefresh = vi.fn();
   const onOpenSettings = vi.fn();
   const host = document.createElement("div");
@@ -59,10 +57,9 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
         banks: { files: [{ name: "ENS.SC2Bank", bytes: 611_000 }], bytes: 1_842_000, missing: false },
         busy: false,
         onSwitch,
-        onAssign,
+        onMoveToKey: vi.fn(async () => {}),
         onSaveInto,
         onGroupFiles,
-        onMoveSave,
         onRefresh,
         onOpenSettings,
       }),
@@ -74,38 +71,36 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
     });
     host.remove();
   });
-  return { onSwitch, onAssign, onSaveInto, onOpenSettings };
+  return { onSwitch, onSaveInto, onOpenSettings };
 }
 
 describe("存档页", () => {
-  it("列出每个组：名字、文件数与大小、归属下拉的当前值", async () => {
+  it("列出每个组：名字、文件数与大小；没归属的组标「未指定」", async () => {
     await mount();
 
     expect(document.querySelectorAll(".saves__row")).toHaveLength(2);
     const text = document.body.textContent ?? "";
     expect(text).toContain("原版");
     expect(text).toContain("3 个文件");
-    // 归属下拉：原版那个组不属于任何战役，自由之翼那个挂在 wol
-    const selects = [...document.querySelectorAll<HTMLSelectElement>(".saves__select")];
-    expect(selects.map((select) => select.value)).toEqual(["", "wol"]);
+    // 没有归属的组标「未指定」；归属由系统按组名自动维护，界面上不给改
+    expect(document.querySelector(".saves__loose")?.textContent).toBe("未指定");
     // 当前在用的那个组有标记
     expect(document.querySelector(".saves__row--active")?.textContent).toContain("当前在用");
   });
 
-  it("改归属下拉真的会上报（手动定位到别的战役）", async () => {
-    const { onAssign } = await mount();
-    const select = document.querySelectorAll<HTMLSelectElement>(".saves__select")[1];
-
-    await act(async () => {
-      select.value = "hots";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-
-    expect(onAssign).toHaveBeenCalledWith("自由之翼-1790000100", "hots");
+  it("没有存档的组自动隐藏（当前在用的那个例外）", async () => {
+    const empty: SaveBackup[] = [
+      { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
+      { name: "空组-1790000200", label: "空组", bytes: 0, files: 0 },
+    ];
+    await mount({ groups: empty });
+    const rows = [...document.querySelectorAll(".saves__row")];
+    expect(rows).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("空组");
   });
 
   it("「切换到这个」和「设为当前」是两个不同的动作", async () => {
-    const { onSwitch, onSaveInto, onAssign } = await mount();
+    const { onSwitch, onSaveInto } = await mount();
     const row = document.querySelectorAll(".saves__row")[1];
     const buttons = [...row.querySelectorAll("button")];
     const switchButton = buttons.find((button) => button.textContent === "切换到这个");
@@ -122,7 +117,6 @@ describe("存档页", () => {
       saveButton?.click();
     });
     expect(onSaveInto).toHaveBeenCalledWith("自由之翼-1790000100");
-    expect(onAssign).not.toHaveBeenCalled();
   });
 
   it("没有组时给空状态说明", async () => {

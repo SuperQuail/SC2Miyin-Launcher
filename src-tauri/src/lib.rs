@@ -327,6 +327,22 @@ fn move_save_file(
         .map_err(|error| error.to_string())
 }
 
+/// 把某一份存档挪到**某个战役 / 版本名下**（键来自 `saves_targets`）。
+///
+/// 组是**自动生成**的：有现成组就挪进去，没有就按启用同一套规则新建 + 自动绑定 ——
+/// 用户改的是「这一份属于谁」，不是把整个组改绑到别的战役（那样组名就没意义了）。
+/// 只动 `data/saves`，不碰 Banks；同名不覆盖。返回挪进去的组名。
+#[tauri::command(async)]
+fn move_save_to_key(
+    from: String,
+    file: String,
+    key: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    miyin_core::saves::move_save_to_key(state.library.root(), &from, &file, &key)
+        .map_err(|error| error.to_string())
+}
+
 /// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
 #[tauri::command(async)]
 fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
@@ -717,24 +733,9 @@ fn activate_variant(
             // 隔离键：原版 = 槽位；**有版本（官方改版也算）= 槽位/<身份>** ——
             // 每个导入的版本各自一组（用户原话：改版是另一个游戏，和原版互相隔离）
             let key = miyin_core::saves::isolation_key(&state.library, &slot, Some(variant));
-            let variant_name = state
-                .library
-                .index()
-                .slots
-                .get(&slot)
-                .and_then(|entry| entry.variants.iter().find(|item| item.id == variant))
-                .map(|item| item.name.clone())
-                .filter(|name| !name.trim().is_empty())
-                .unwrap_or_else(|| variant.to_string());
-            // 组名要能分辨：官方改版「战役名 · 版本名」，自制用版本名
-            let label = if miyin_core::saves::is_custom_key(&key) {
-                variant_name
-            } else {
-                match library::require_slot(&slot) {
-                    Ok(kind) => format!("{} · {}", kind.display_name(), variant_name),
-                    Err(_) => format!("{slot} · {variant_name}"),
-                }
-            };
+            // 组名规则在 saves 里（和「把某份存档挪到某个归属」新建组时同一条规则）：
+            // 原版 = 战役名；官方改版 = 战役名 · 版本名；自制 = 版本名
+            let label = miyin_core::saves::group_label(&state.library, &key);
             let _ = miyin_core::saves::ensure_for_slot(root, banks, &key, &label);
         } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {
             let _ = miyin_core::saves::switch(root, banks, &original);
@@ -2057,6 +2058,7 @@ pub fn run() {
             saves_targets,
             save_group_files,
             move_save_file,
+            move_save_to_key,
             switch_save_profile,
             assign_save_profile,
             backup_saves,

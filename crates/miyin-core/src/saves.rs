@@ -278,6 +278,43 @@ pub fn move_save_file(root: &Path, from: &str, file: &str, to: &str) -> Result<(
     }
     Ok(())
 }
+
+/// 把某一份存档挪到**某个战役 / 版本名下**（键来自 [`targets`]）。
+///
+/// 用户改的是「**这一份**存档属于谁」，不是把整个组改绑到别的战役 ——
+/// 组是**自动生成**的，它的名字就是它的意义（「虚空之遗」不该装 AI 盟友的档）。所以：
+/// - 已经有组绑着这个键：挪进那个组；
+/// - 没有：按 [`group_label`] 的规则建一个新组、自动绑上这个键，再把文件挪进去。
+///
+/// 底线不变：**同名不覆盖**、只动 `<data>/saves/`、**绝不碰 Banks**。
+/// 返回挪进去的组名。
+pub fn move_save_to_key(root: &Path, from: &str, file: &str, key: &str) -> Result<String> {
+    let library = Library::new(root);
+    let target = match profile_for(root, key)? {
+        Some(name) => name,
+        None => {
+            // 新建之前先把两件事确认掉：这个键是不是真的目标、源文件在不在。
+            // 不然失败时账上会多一条指向空组的绑定。
+            if !targets(&library).iter().any(|item| item.key == key) {
+                return Err(crate::error::Error::PackageRejected(format!(
+                    "未知的归属：{key}"
+                )));
+            }
+            let source = group_dir(root, from)?.join(file);
+            if !source.is_file() {
+                return Err(crate::error::Error::PackageRejected(format!(
+                    "找不到这份存档：{file}"
+                )));
+            }
+            let name = fresh_group(root, &group_label(&library, key))?;
+            assign(root, &name, Some(key))?;
+            name
+        }
+    };
+
+    move_save_file(root, from, file, &target)?;
+    Ok(target)
+}
 // ---------------------------------------------------------------------------
 // 存档隔离（按安装的战役分开）
 // ---------------------------------------------------------------------------
@@ -630,6 +667,39 @@ fn named_targets(campaign: &str, picked: Vec<(String, String, Option<String>)>) 
         out.push(SaveTarget { key, label });
     }
     out
+}
+
+/// 某个隔离键对应的**组名**（`dir_name` 之前那份，给人看的）。
+///
+/// 规则和启用时造组一致：
+/// - 原版（键 = 槽位）-> 战役名；
+/// - 有版本 -> 官方「战役名 · 版本名」，自制用版本名；
+/// - 认不出来的键（老数据里的 `custom`、或那个版本已经从库里删了）-> 原样用键。
+pub fn group_label(library: &Library, key: &str) -> String {
+    use crate::campaign::metadata::CampaignType;
+
+    let index = library.index();
+    for kind in CampaignType::MENU {
+        let slot = kind.slug();
+        let name = kind.display_name();
+        if key == slot {
+            return name;
+        }
+        let Some(entry) = index.slots.get(slot) else {
+            continue;
+        };
+        for variant in &entry.variants {
+            if format!("{slot}/{}", identity_of(variant)) != key {
+                continue;
+            }
+            return if kind.is_custom() {
+                variant.name.clone()
+            } else {
+                format!("{name} · {}", variant.name)
+            };
+        }
+    }
+    key.to_string()
 }
 
 /// 归属下拉的候选清单。
@@ -1539,5 +1609,111 @@ mod tests {
             .collect();
         assert_eq!(auto, vec![safety.as_str()], "「还原前」要标成自动备份");
         assert_eq!(groups, vec![manual.as_str()], "组列表里只留用户自己的组");
+    }
+
+    /// 造一个只有 lotv 槽位（带一个「肉鸽」改版）的库。
+    fn library_with_lotv_mod(data: &Path) -> Library {
+        let library = Library::new(data);
+        let mut index = crate::library::LibraryIndex::default();
+        index.slots.insert(
+            "lotv".to_string(),
+            crate::library::CampaignSlot {
+                variants: vec![crate::library::Variant {
+                    id: "肉鸽".to_string(),
+                    name: "肉鸽".to_string(),
+                    ..Default::default()
+                }],
+                active: None,
+            },
+        );
+        library.save_index(&index).expect("写索引");
+        library
+    }
+
+    #[test]
+    fn move_save_to_key_uses_the_existing_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let _library = library_with_lotv_mod(&data);
+        write(&root(&data).join("旧组"), "a.SC2Bank", "进度");
+        std::fs::create_dir_all(root(&data).join("现有组")).expect("建组");
+        assign(&data, "现有组", Some("lotv/肉鸽")).expect("绑定");
+
+        let moved = move_save_to_key(&data, "旧组", "a.SC2Bank", "lotv/肉鸽").expect("挪");
+        assert_eq!(moved, "现有组", "已有组就用它，不该再造一个");
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("现有组").join("a.SC2Bank")).expect("读"),
+            "进度"
+        );
+        assert_eq!(backups(&data).expect("列").len(), 2, "只有旧组和现有组");
+    }
+
+    #[test]
+    fn move_save_to_key_creates_and_binds_a_new_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let _library = library_with_lotv_mod(&data);
+        write(&root(&data).join("旧组"), "a.SC2Bank", "进度");
+
+        let moved = move_save_to_key(&data, "旧组", "a.SC2Bank", "lotv/肉鸽").expect("挪");
+        // 组名和启用时造组一致「战役名 · 版本名」（空格会被折成 _）
+        assert!(moved.starts_with("虚空之遗"), "{moved}");
+        assert!(moved.contains("肉鸽"), "{moved}");
+        assert_eq!(
+            profile_for(&data, "lotv/肉鸽").expect("查"),
+            Some(moved.clone()),
+            "新组要自动绑定到这个键"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join(&moved).join("a.SC2Bank")).expect("读"),
+            "进度"
+        );
+        assert!(
+            !root(&data).join("旧组").join("a.SC2Bank").exists(),
+            "源组里没了"
+        );
+        assert!(root(&data).join("旧组").is_dir(), "源组空了也不删");
+    }
+
+    #[test]
+    fn move_save_to_key_refuses_same_name_and_unknown_keys() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let _library = library_with_lotv_mod(&data);
+        write(&root(&data).join("甲"), "a.SC2Bank", "旧的");
+        std::fs::create_dir_all(root(&data).join("乙")).expect("建组");
+        assign(&data, "乙", Some("lotv/肉鸽")).expect("绑定");
+        write(&root(&data).join("乙"), "a.SC2Bank", "新的");
+
+        let err = move_save_to_key(&data, "甲", "a.SC2Bank", "lotv/肉鸽").expect_err("必须拒绝");
+        assert!(format!("{err}").contains("同名"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("甲").join("a.SC2Bank")).expect("读"),
+            "旧的"
+        );
+
+        // 不认识的键：不能凭空造一个名字都说不清的组
+        let err =
+            move_save_to_key(&data, "甲", "a.SC2Bank", "lotv/不存在的版本").expect_err("要拒绝");
+        assert!(format!("{err}").contains("未知的归属"), "{err}");
+        assert_eq!(backups(&data).expect("列").len(), 2, "只该有甲和乙两个组");
+    }
+
+    #[test]
+    fn move_save_to_key_never_touches_banks() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let _library = library_with_lotv_mod(&data);
+        // 游戏目录那份也放一份同名文件：挪动绝不能被它碰到
+        let banks = tmp.path().join("Banks");
+        write(&banks, "a.SC2Bank", "游戏里那份");
+        write(&root(&data).join("旧组"), "a.SC2Bank", "进度");
+
+        move_save_to_key(&data, "旧组", "a.SC2Bank", "lotv/肉鸽").expect("挪");
+        assert_eq!(
+            std::fs::read_to_string(banks.join("a.SC2Bank")).expect("读"),
+            "游戏里那份",
+            "只动 data/saves，绝不碰 Banks"
+        );
     }
 }

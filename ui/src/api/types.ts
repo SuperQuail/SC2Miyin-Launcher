@@ -707,6 +707,12 @@ export interface LauncherApi {
   saveGroupFiles(name: string): Promise<SaveFile[]>;
   /** 把某一份存档挪到另一个组（= 改它归到哪个战役）。同名不覆盖。 */
   moveSaveFile(from: string, file: string, to: string): Promise<void>;
+  /**
+   * 把某一份存档挪到**某个战役 / 版本名下**（键来自 [savesTargets]）。
+   *
+   * 组是自动生成的：有现成组就挪进去，没有就新建并自动绑定。返回挪进去的组名。
+   */
+  moveSaveToKey(from: string, file: string, key: string): Promise<string>;
 
   /** 游戏是不是正跑着；跑着就返回进程名。切换前先问它。 */
 

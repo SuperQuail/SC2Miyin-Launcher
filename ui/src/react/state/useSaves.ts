@@ -37,6 +37,8 @@ export interface SavesApi {
   groupFiles: (name: string) => Promise<SaveFile[]>;
   /** 把组里的一份存档挪到另一个组。 */
   moveSave: (from: string, file: string, to: string, toLabel?: string) => Promise<void>;
+  /** 把一份存档按目标键落位（组自动建/自动绑定）。 */
+  moveToKey: (from: string, file: string, key: string, label: string) => Promise<void>;
 }
 
 export function useSaves(options: SavesOptions): SavesApi {
@@ -207,6 +209,21 @@ export function useSaves(options: SavesOptions): SavesApi {
     [busy, notify, refreshSaves],
   );
 
+  /** 把一份存档挪到某个战役/版本（按键落位；目标组不存在会自动建）。 */
+  const moveToKey = useCallback(
+    (from: string, file: string, key: string, label: string) =>
+      busy(async () => {
+        try {
+          await api.moveSaveToKey(from, file, key);
+          await refreshSaves();
+          notify("success", "「" + file + "」已归到「" + label + "」");
+        } catch (error) {
+          notify("error", errorText(error));
+        }
+      }),
+    [busy, notify, refreshSaves],
+  );
+
   /** 备份现在的存档。label 一般填战役名。 */
   const backupSaves = useCallback(
     (label: string) =>
@@ -253,6 +270,7 @@ export function useSaves(options: SavesOptions): SavesApi {
     saveIntoProfile,
     groupFiles,
     moveSave,
+    moveToKey,
     backupSaves,
     restoreSaves,
   };

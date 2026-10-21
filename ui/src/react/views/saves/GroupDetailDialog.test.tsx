@@ -39,8 +39,8 @@ async function mount(overrides: { files?: Array<{ name: string; bytes: number }>
             ]
           : overrides.files,
         choices: [
-          { name: "原版-1790", label: "原版（不属于任何战役）" },
-          { name: "虫群之心-1790", label: "虫群之心 → 虫群之心" },
+          { key: "lotv", label: "虚空之遗（原版）" },
+          { key: "lotv/肉鸽", label: "虚空之遗 · 肉鸽" },
         ],
         busy: false,
         onMove,
@@ -74,10 +74,10 @@ describe("存档组详情", () => {
     const selects = [...document.querySelectorAll<HTMLSelectElement>(".savedetail__move")];
     expect(selects).toHaveLength(2);
     await act(async () => {
-      selects[1].value = "虫群之心-1790";
+      selects[1].value = "lotv/肉鸽";
       selects[1].dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(onMove).toHaveBeenCalledWith("Swarm01.SC2Bank", "虫群之心-1790");
+    expect(onMove).toHaveBeenCalledWith("Swarm01.SC2Bank", "lotv/肉鸽");
   });
 
   it("空组说一句话，不画空列表", async () => {

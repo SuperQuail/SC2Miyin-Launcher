@@ -79,6 +79,7 @@ const desktop: LauncherApi = {
   savesTargets: () => invoke<SaveTarget[]>("saves_targets"),
   saveGroupFiles: (name) => invoke<SaveFile[]>("save_group_files", { name }),
   moveSaveFile: (from, file, to) => invoke<void>("move_save_file", { from, file, to }),
+  moveSaveToKey: (from, file, key) => invoke<string>("move_save_to_key", { from, file, key }),
 
   /** 启用前先看：会往游戏目录里放什么、覆盖什么、删什么（不写盘）。 */
   previewActivation: (slot, variantId) =>
@@ -678,6 +679,58 @@ function demoActivationConflicts(slot: string, variantId: string): ActivationCon
   }));
 }
 
+/** 演示模式的归属候选：和后端 `targets()` 同规则（官方：原版 + 每个改版；自制每部一条）。 */
+function demoTargets(): SaveTarget[] {
+  const out: SaveTarget[] = [];
+  // 键相同的只留一条（同一部战役的多个版本共用一个组）；重名补版本号/身份，
+  // 否则下拉里会出现两条一模一样的选项 —— 和 core 里 named_targets 的规则一致
+  const push = (key: string, label: string, version?: string | null) => {
+    if (out.some((item) => item.key === key)) return;
+    const clash = out.some((item) => item.label === label);
+    const suffix = clash
+      ? version && version.trim()
+        ? " " + version
+        : "（" + key.split("/").pop() + "）"
+      : "";
+    out.push({ key, label: label + suffix });
+  };
+  // 官方：每个槽位先「（原版）」（键 = 槽位），再跟上它的每个改版（同一部只一条）
+  for (const slot of demoslots.filter((item) => item.slug !== "custom")) {
+    push(slot.slug, slot.display_name + "（原版）");
+    for (const item of slot.variants) {
+      push(demoIsolationKey(slot.slug, item.id), slot.display_name + " · " + item.name, item.version);
+    }
+  }
+  // 自制：每部一条
+  const custom = demoslots.find((slot) => slot.slug === "custom");
+  for (const item of custom?.variants ?? []) {
+    push(demoIsolationKey("custom", item.id), "自制战役 · " + item.name, item.version);
+  }
+  return out;
+}
+
+/** 演示模式：把一份存档从一个组挪到另一个组（同名不覆盖、目标不存在就建）。 */
+function demoMoveFile(from: string, file: string, to: string): void {
+  if (from === to) throw new Error("源组和目标组是同一个");
+  const source = demoSaveGroups.find((item) => item.name === from);
+  if (!source) throw new Error("没有这个存档组：" + from);
+  const names = demoFilesOf(from);
+  if (!names.includes(file)) throw new Error("找不到这份存档：" + file);
+  const target = demoSaveGroups.find((item) => item.name === to);
+  if (target && demoFilesOf(to).includes(file)) {
+    throw new Error("「" + to + "」里已经有同名存档 " + file + "，没有覆盖");
+  }
+  names.splice(names.indexOf(file), 1);
+  source.files = names.length;
+  if (target) {
+    demoFilesOf(to).push(file);
+    target.files = demoFilesOf(to).length;
+  } else {
+    demoSaveGroups.push({ name: to, label: to, files: 1, bytes: 0, auto: false });
+    demoGroupFiles[to] = [file];
+  }
+}
+
 const demo: LauncherApi = {
   detectInstallation: () => delay(demoInstallation as Installation | null),
   setInstallation: () => delay(demoInstallation),
@@ -755,34 +808,7 @@ const demo: LauncherApi = {
     demoSavesState.active = name;
     return demoIsolation();
   },
-  savesTargets: async () => {
-    const out: SaveTarget[] = [];
-    // 键相同的只留一条（同一部战役的多个版本共用一个组）；重名补版本号/身份，
-    // 否则下拉里会出现两条一模一样的选项 —— 和 core 里 named_targets 的规则一致
-    const push = (key: string, label: string, version?: string | null) => {
-      if (out.some((item) => item.key === key)) return;
-      const clash = out.some((item) => item.label === label);
-      const suffix = clash
-        ? version && version.trim()
-          ? " " + version
-          : "（" + key.split("/").pop() + "）"
-        : "";
-      out.push({ key, label: label + suffix });
-    };
-    // 官方：每个槽位先「（原版）」（键 = 槽位），再跟上它的每个改版（同一部只一条）
-    for (const slot of demoslots.filter((item) => item.slug !== "custom")) {
-      push(slot.slug, slot.display_name + "（原版）");
-      for (const item of slot.variants) {
-        push(demoIsolationKey(slot.slug, item.id), slot.display_name + " · " + item.name, item.version);
-      }
-    }
-    // 自制：每部一条
-    const custom = demoslots.find((slot) => slot.slug === "custom");
-    for (const item of custom?.variants ?? []) {
-      push(demoIsolationKey("custom", item.id), "自制战役 · " + item.name, item.version);
-    }
-    return out;
-  },
+  savesTargets: async () => demoTargets(),
   saveGroupFiles: async (name) => {
     const group = demoSaveGroups.find((item) => item.name === name);
     if (!group) throw new Error("没有这个存档组：" + name);
@@ -790,25 +816,24 @@ const demo: LauncherApi = {
     const each = names.length > 0 ? Math.round(group.bytes / names.length) : 0;
     return names.map((file) => ({ name: file, bytes: each }));
   },
-  moveSaveFile: async (from, file, to) => {
-    if (from === to) throw new Error("源组和目标组是同一个");
-    const source = demoSaveGroups.find((item) => item.name === from);
-    if (!source) throw new Error("没有这个存档组：" + from);
-    const names = demoFilesOf(from);
-    if (!names.includes(file)) throw new Error("找不到这份存档：" + file);
-    const target = demoSaveGroups.find((item) => item.name === to);
-    if (target && demoFilesOf(to).includes(file)) {
-      throw new Error("「" + to + "」里已经有同名存档 " + file + "，没有覆盖");
+  moveSaveFile: async (from, file, to) => demoMoveFile(from, file, to),
+  moveSaveToKey: async (from, file, key) => {
+    // 已经有组绑着这个键：挪进那个组
+    const bound = Object.entries(demoSavesState.assignments).find(([, value]) => value === key)?.[0];
+    if (bound) {
+      demoMoveFile(from, file, bound);
+      return bound;
     }
-    names.splice(names.indexOf(file), 1);
-    source.files = names.length;
-    if (target) {
-      demoFilesOf(to).push(file);
-      target.files = demoFilesOf(to).length;
-    } else {
-      demoSaveGroups.push({ name: to, label: to, files: 1, bytes: 0, auto: false });
-      demoGroupFiles[to] = [file];
-    }
+
+    // 没有就按 targets 的 label 建一个新组，自动绑上这个键
+    const target = demoTargets().find((item) => item.key === key);
+    if (!target) throw new Error("未知的归属：" + key);
+    const name = target.label + "-" + (1790000500 + demoSaveGroups.length);
+    demoSaveGroups.push({ name, label: target.label, files: 0, bytes: 0, auto: false });
+    demoGroupFiles[name] = [];
+    demoSavesState.assignments[name] = key;
+    demoMoveFile(from, file, name);
+    return name;
   },
   listSaves: async () => demoBanks,
   backupSaves: async (label) => {

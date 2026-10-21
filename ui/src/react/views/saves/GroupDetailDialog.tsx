@@ -23,10 +23,10 @@ export function GroupDetailDialog({
   /** null = 正在读。 */
   files: SaveFile[] | null;
   error?: string | null;
-  /** 可挪去的其它组（label 里带上它们归哪个战役）。 */
-  choices: Array<{ name: string; label: string }>;
+  /** 可归到的战役/版本（键 + 人看的名字）。组的绑定由系统管，用户只挑归属。 */
+  choices: Array<{ key: string; label: string }>;
   busy: boolean;
-  onMove: (file: string, to: string) => void;
+  onMove: (file: string, key: string) => void;
   onReload: () => void;
   onClose: () => void;
 }) {
@@ -46,8 +46,7 @@ export function GroupDetailDialog({
       }
     >
       <p className="savedetail__lede">
-        这个组就是一份 Banks 快照。如果里面混进了别的战役的存档，把它挪到对应的组即可 ——
-        挪过去之后，那一份就归到那个组所属的战役。
+        这个组是一份 Banks 快照。如果某一份其实属于别的战役，把它归过去 —— 只动这一份，组名和别的存档都不受影响。
       </p>
 
       {error ? (
@@ -67,15 +66,15 @@ export function GroupDetailDialog({
                 value=""
                 disabled={busy || choices.length === 0}
                 onChange={(event) => {
-                  const to = event.target.value;
-                  if (to) onMove(file.name, to);
+                  const key = event.target.value;
+                  if (key) onMove(file.name, key);
                   event.target.value = "";
                 }}
-                aria-label={"把「" + file.name + "」挪到哪个组"}
+                aria-label={"把「" + file.name + "」归到哪个战役"}
               >
-                <option value="">{choices.length === 0 ? "没有别的组" : "挪到…"}</option>
+                <option value="">{choices.length === 0 ? "没有可选的目的地" : "归到…"}</option>
                 {choices.map((choice) => (
-                  <option key={choice.name} value={choice.name}>
+                  <option key={choice.key} value={choice.key}>
                     {choice.label}
                   </option>
                 ))}
@@ -86,7 +85,7 @@ export function GroupDetailDialog({
       )}
 
       <p className="savedetail__foot">
-        挪动只发生在存档库（data/saves）里，不会动游戏目录的 Banks。目标组已有同名存档时不会覆盖，会提示你。
+        只动存档库（data/saves）里的这一份，不会动游戏目录的 Banks。目标里已有同名存档时不会覆盖，会提示你。
       </p>
     </Sheet>
   );
