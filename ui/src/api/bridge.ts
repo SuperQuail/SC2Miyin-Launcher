@@ -345,6 +345,8 @@ const demoslots: SlotView[] = [
     sub_directory: "void",
     variants: [
       variant("虚空之遗：残卷", "虚空之遗：残卷", "VoidWorks", "2.0", 9, 412_000_000),
+      // 「改版和原版各自一份存档」的演示样本（用户原话举的就是它）
+      variant("虚空之遗：肉鸽", "虚空之遗：肉鸽", "RogueTeam", "1.2", 16, 780_000_000),
     ],
     active: null,
     active_name: null,
@@ -548,14 +550,21 @@ let counter = 0;
  * 好让验收里那三条在浏览器里看得见（**内容**是假的，目录和文件都是编的）。
  */
 const demoSaveGroups: SaveBackup[] = [
-  { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
+  { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3, auto: false },
   // 第二个组是给「组详情 → 挪到…」演示用的：两个组各有一份存档，挪动看得出来
-  { name: "自由之翼-1790000100", label: "自由之翼", bytes: 1_220_000, files: 2 },
+  {
+    name: "自由之翼 · 重生 v1.4.2-1790000100",
+    label: "自由之翼 · 重生 v1.4.2",
+    bytes: 1_220_000,
+    files: 2,
+    auto: false,
+  },
 ];
 const demoSavesState: SaveIsolation = {
   enabled: true,
   active: "原版-1790000000",
-  assignments: { "自由之翼-1790000100": "wol" },
+  // 键的规则和后端一致：原版 = 槽位；有版本 = 槽位/身份
+  assignments: { "自由之翼 · 重生 v1.4.2-1790000100": "wol/自由之翼：重生 v1.4.2" },
 };
 /** 游戏里这份 Banks 现在长什么样（切组会换）。 */
 let demoBanks: SaveSet = {
@@ -603,13 +612,15 @@ function demoBanksOf(group: SaveBackup): SaveSet {
   };
 }
 
-/** 演示模式的隔离键 —— 和后端同规则：官方 = 槽位；自制 = `custom/<身份>`。 */
+/**
+ * 演示模式的隔离键 —— 和后端同规则：**有版本就是 `槽位/身份`**（官方改版也一样），
+ * 原版才是槽位本身；身份优先注册 ID、没有就用版本 id。
+ */
 function demoIsolationKey(slot: string, variantId: string): string {
-  if (slot !== "custom") return slot;
   const item = demoslots
     .find((entry) => entry.slug === slot)
     ?.variants.find((entry) => entry.id === variantId);
-  return "custom/" + (item?.registration_id ?? variantId);
+  return slot + "/" + (item?.registration_id ?? variantId);
 }
 
 /** 演示模式里模拟 `ensure_for_slot`：官方战役继承当前存档，自制战役每部一个空组。 */
@@ -622,17 +633,20 @@ function demoEnsureSaves(key: string, label: string): void {
     if (group) demoBanks = demoBanksOf(group);
     return;
   }
-  const fresh = !key.startsWith("custom/") && key !== "custom";
+  // 只有「还没归过档」才收编当前这份；已经有组在用就从空组开始（别串档）
+  const custom = key.startsWith("custom/") || key === "custom";
+  const adopt = !custom && demoSavesState.active === null;
   const name = label + "-" + (1790000200 + demoSaveGroups.length);
   demoSaveGroups.push({
     name,
     label,
-    bytes: fresh ? demoBanks.bytes : 0,
-    files: fresh ? demoBanks.files.length : 0,
+    bytes: adopt ? demoBanks.bytes : 0,
+    files: adopt ? demoBanks.files.length : 0,
+    auto: false,
   });
   demoSavesState.assignments[name] = key;
   demoSavesState.active = name;
-  if (fresh) demoBanks = { ...demoBanks };
+  if (adopt) demoBanks = { ...demoBanks };
   else demoBanks = { files: [], bytes: 0, missing: false };
 }
 
@@ -742,17 +756,32 @@ const demo: LauncherApi = {
     return demoIsolation();
   },
   savesTargets: async () => {
-    const official = demoslots
-      .filter((slot) => slot.slug !== "custom")
-      .map((slot) => ({ key: slot.slug, label: slot.display_name }));
+    const out: SaveTarget[] = [];
+    // 键相同的只留一条（同一部战役的多个版本共用一个组）；重名补版本号/身份，
+    // 否则下拉里会出现两条一模一样的选项 —— 和 core 里 named_targets 的规则一致
+    const push = (key: string, label: string, version?: string | null) => {
+      if (out.some((item) => item.key === key)) return;
+      const clash = out.some((item) => item.label === label);
+      const suffix = clash
+        ? version && version.trim()
+          ? " " + version
+          : "（" + key.split("/").pop() + "）"
+        : "";
+      out.push({ key, label: label + suffix });
+    };
+    // 官方：每个槽位先「（原版）」（键 = 槽位），再跟上它的每个改版（同一部只一条）
+    for (const slot of demoslots.filter((item) => item.slug !== "custom")) {
+      push(slot.slug, slot.display_name + "（原版）");
+      for (const item of slot.variants) {
+        push(demoIsolationKey(slot.slug, item.id), slot.display_name + " · " + item.name, item.version);
+      }
+    }
+    // 自制：每部一条
     const custom = demoslots.find((slot) => slot.slug === "custom");
-    return [
-      ...official,
-      ...(custom?.variants ?? []).map((item) => ({
-        key: demoIsolationKey("custom", item.id),
-        label: "自制战役 · " + item.name,
-      })),
-    ];
+    for (const item of custom?.variants ?? []) {
+      push(demoIsolationKey("custom", item.id), "自制战役 · " + item.name, item.version);
+    }
+    return out;
   },
   saveGroupFiles: async (name) => {
     const group = demoSaveGroups.find((item) => item.name === name);
@@ -777,18 +806,37 @@ const demo: LauncherApi = {
       demoFilesOf(to).push(file);
       target.files = demoFilesOf(to).length;
     } else {
-      demoSaveGroups.push({ name: to, label: to, files: 1, bytes: 0 });
+      demoSaveGroups.push({ name: to, label: to, files: 1, bytes: 0, auto: false });
       demoGroupFiles[to] = [file];
     }
   },
   listSaves: async () => demoBanks,
   backupSaves: async (label) => {
     const name = label + "-" + (1790000300 + demoSaveGroups.length);
-    demoSaveGroups.push({ name, label, bytes: demoBanks.bytes, files: demoBanks.files.length });
+    demoSaveGroups.push({
+      name,
+      label,
+      bytes: demoBanks.bytes,
+      files: demoBanks.files.length,
+      auto: false,
+    });
     return name;
   },
   listSaveBackups: async () => demoSaveGroups.map((item) => ({ ...item })),
-  restoreSaves: async () => "",
+  restoreSaves: async (name) => {
+    // 和后端一样：还原前先留一份自动备份（它不是"用户意义上的组"）
+    const safety = "还原前-" + (1790000400 + demoSaveGroups.length);
+    demoSaveGroups.push({
+      name: safety,
+      label: "还原前",
+      bytes: demoBanks.bytes,
+      files: demoBanks.files.length,
+      auto: true,
+    });
+    const group = demoSaveGroups.find((item) => item.name === name);
+    if (group) demoBanks = demoBanksOf(group);
+    return safety;
+  },
   // 演示模式也给一份预演：真后端只要版本里有载荷就会算出来。返回 null 会让
   // "启用 → 预演确认"这一步在演示里永远被跳过，看不出真实手感。
   previewActivation: () =>
@@ -818,7 +866,9 @@ const demo: LauncherApi = {
           // 官方战役继承当前这份，自制战役开一个空组
           if (variantId !== null) {
             const key = demoIsolationKey(slot, variantId);
-            const label = slot === "custom" ? (found?.name ?? key) : target.display_name;
+            const variantName = found?.name ?? variantId;
+            // 组名和后端一致：自制用版本名；官方改版「战役名 · 版本名」
+            const label = slot === "custom" ? variantName : target.display_name + " · " + variantName;
             demoEnsureSaves(key, label);
           }
         }

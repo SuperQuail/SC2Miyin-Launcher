@@ -714,24 +714,26 @@ fn activate_variant(
     if let Some(banks) = installation.banks_root.as_deref() {
         let root = state.library.root();
         if let Some(variant) = variant_id.as_deref() {
-            // 隔离键：官方 = 槽位；**自制 = custom/<版本身份>**（每部自制战役一组，
-            // 同一部战役的多个版本靠注册 ID 共用一个键）
-            let key = miyin_core::saves::isolation_key(&state.library, &slot, variant);
-            // 组名：官方用战役名；自制用版本名（几部自制战役各自一组，名字得能分辨）
+            // 隔离键：原版 = 槽位；**有版本（官方改版也算）= 槽位/<身份>** ——
+            // 每个导入的版本各自一组（用户原话：改版是另一个游戏，和原版互相隔离）
+            let key = miyin_core::saves::isolation_key(&state.library, &slot, Some(variant));
+            let variant_name = state
+                .library
+                .index()
+                .slots
+                .get(&slot)
+                .and_then(|entry| entry.variants.iter().find(|item| item.id == variant))
+                .map(|item| item.name.clone())
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| variant.to_string());
+            // 组名要能分辨：官方改版「战役名 · 版本名」，自制用版本名
             let label = if miyin_core::saves::is_custom_key(&key) {
-                state
-                    .library
-                    .index()
-                    .slots
-                    .get(&slot)
-                    .and_then(|entry| entry.variants.iter().find(|item| item.id == variant))
-                    .map(|item| item.name.clone())
-                    .filter(|name| !name.trim().is_empty())
-                    .unwrap_or_else(|| key.clone())
+                variant_name
             } else {
-                library::require_slot(&slot)
-                    .map(|kind| kind.display_name().to_string())
-                    .unwrap_or_else(|_| slot.clone())
+                match library::require_slot(&slot) {
+                    Ok(kind) => format!("{} · {}", kind.display_name(), variant_name),
+                    Err(_) => format!("{slot} · {variant_name}"),
+                }
             };
             let _ = miyin_core::saves::ensure_for_slot(root, banks, &key, &label);
         } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {

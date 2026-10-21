@@ -203,7 +203,8 @@ export function AppShell() {
               <SavesView
                 targets={app.saves.saveTargets}
                 isolation={app.saves.saveIsolation}
-                groups={app.saves.saveBackups}
+                // 自动备份（restore 造的「还原前-*」）不是用户意义的存档组，别混进列表
+groups={app.saves.saveBackups.filter((item) => !item.auto)}
                 banks={app.saves.saves}
                 busy={app.busy}
                 onSwitch={(name) => void app.saves.switchSaveProfile(name)}

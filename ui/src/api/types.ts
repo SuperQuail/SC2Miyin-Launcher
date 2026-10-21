@@ -224,20 +224,30 @@ export interface SaveIsolation {
   assignments: Record<string, string>;
 }
 
-/** 存档页「归属」下拉的一个候选：官方只到战役，自制具体到每部。 */
+/** 存档页「归属」下拉的一个候选：原版 / 每个导入的版本各一条，自制同理。 */
 export interface SaveTarget {
-  /** 写进 state.json 的隔离键：官方 = 槽位；自制 = `custom/<身份>`。 */
+  /** 写进 state.json 的隔离键：原版 = 槽位；有版本 = `<槽位>/<身份>`。 */
   key: string;
-  /** 界面上的说法。 */
+  /** 界面上的说法：`<战役名>（原版）` / `<战役名> · <版本名>`。 */
   label: string;
 }
 
-/** 一份已备份的存档。 */
+/** 一份已备份的存档（= 一个存档组）。 */
 export interface SaveBackup {
   name: string;
   label: string;
   bytes: number;
   files: number;
+  /**
+   * **自动生成**的备份（还原前留的安全网，标签「还原前」）。
+   *
+   * 它不是用户意义上的存档组 —— 组列表要过滤掉（`!item.auto`），
+   * 但还原列表里还应该能看到。
+   *
+   * 后端一定会送这个字段；声明成可选只是为了老的演示数据 / 测试夹具不用跟着补
+   * —— 缺省当 false（= 这是个正常的组）。
+   */
+  auto?: boolean;
 }
 
 /** 游戏目录里已经装着的一个自制战役（收编用）。 */

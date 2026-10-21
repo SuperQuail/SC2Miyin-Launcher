@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::library::Library;
+use crate::library::{Library, LibraryIndex, Variant};
 use crate::safety;
 
 /// 备份目录名里的时间戳：`20261009-181500`。
@@ -43,6 +43,13 @@ pub struct SaveFile {
     pub bytes: u64,
 }
 
+/// 自动备份（`restore()` 动手前留的那份）的标签。
+///
+/// 它**不是**用户意义上的存档组 —— 只是「刚才那份存哪儿了」的安全网。
+/// 界面必须把它从组列表里摘出去（用 [`BackupEntry::auto`] 判断），
+/// 但仍要能在还原列表里看到它。
+pub const AUTO_BACKUP: &str = "还原前";
+
 /// 一份已备份的存档。
 #[derive(Debug, Clone, Serialize)]
 pub struct BackupEntry {
@@ -52,6 +59,11 @@ pub struct BackupEntry {
     pub label: String,
     pub bytes: u64,
     pub files: usize,
+    /// **自动生成**的备份（`restore()` 的安全网，标签见 [`AUTO_BACKUP`]）。
+    ///
+    /// 界面用它把这类备份从「存档组」列表里剔掉 —— 组是用户能选的东西，
+    /// 自动备份不是（它跟着每次还原长一份）。
+    pub auto: bool,
 }
 
 /// 列一份 Banks 里有什么。目录不存在不算错误（第一次玩之前它就是不存在的）。
@@ -96,7 +108,8 @@ fn dir_name(label: &str) -> String {
     let clean: String = label
         .chars()
         .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' {
+            // 保留间隔号：组名要能一眼分辨「自由之翼 · 重生 v1.5.0」
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '·' {
                 c
             } else {
                 '_'
@@ -154,6 +167,7 @@ pub fn backups(library_root: &Path) -> Result<Vec<BackupEntry>> {
             .map(|(left, _)| left.to_string())
             .unwrap_or_else(|| name.clone());
         out.push(BackupEntry {
+            auto: label == AUTO_BACKUP,
             name,
             label,
             bytes: set.bytes,
@@ -177,7 +191,7 @@ pub fn restore(banks: &Path, library_root: &Path, name: &str) -> Result<String> 
     }
 
     // 先给现在这份留个后路。没有存档（第一次玩）就跳过。
-    let safety = backup(banks, library_root, "还原前").ok();
+    let safety = backup(banks, library_root, AUTO_BACKUP).ok();
 
     std::fs::create_dir_all(banks)?;
     // 清掉现有存档再铺 —— 否则会剩下备份里没有的旧文件，成了两份混在一起
@@ -479,41 +493,58 @@ pub fn is_custom_key(key: &str) -> bool {
     key == "custom" || key.starts_with(CUSTOM_PREFIX)
 }
 
-/// 这个版本的**隔离键**。
+/// 变体的「身份」：注册 ID 优先（大小写归一），没写才退回版本目录名。
 ///
-/// - **官方槽位**：就是槽位本身（`wol` / `hots` …）—— 同一部官方战役的各个改版
-///   本来就该共用进度，换哪一版都是同一段游玩。
-/// - **自制战役**：`custom/<身份>` —— **每部自制战役一组**（用户原话「每个战役单独管理」）。
-///
-/// 身份怎么定：**优先用包声明的注册 ID**（大小写归一），没写注册 ID 才退回版本目录名。
-/// **为什么不用版本 id**：版本 id 是「这一份包」，同一部自制战役的每个版本都不同 ——
+/// **为什么不用版本 id**：版本 id 是「这一份包」，同一部战役（改版 / 自制）的每个版本都不同 ——
 /// 拿它当隔离键的话，用户「更新了同一部战役的新版本」就等于换了一份存档，
 /// 旧进度会被甩在一个再也不会被用到的组里（那是真丢数据）。
-/// **代价**：两部不同的自制战役如果声明了同一个注册 ID，会被认成同一部、共用一个组 ——
+/// **代价**：两部不同的战役如果声明了同一个注册 ID，会被认成同一部、共用一个组 ——
 /// 可以接受：`conflict_for` 认「同一部战役的新版本」用的也是注册 ID，口径一致；
 /// 而且注册 ID 本来就是作者声明的稳定身份。
-/// 没写注册 ID 的包退回版本目录名，也就是那种包换版本会各自一组，
-/// 用户可以在存档页手动把归属改到同一组（不猜，猜测才会串档）。
-///
-/// 老数据里的 `custom` 键**不会被匹配到**（新键形如 `custom/<身份>`）：
-/// 宁可让用户手动指一次，也不要猜错版本、把两部自制战役的存档串在一起。
-pub fn isolation_key(library: &Library, slot: &str, variant_id: &str) -> String {
-    if !is_custom_key(slot) {
-        return slot.to_string();
+fn identity_of(variant: &Variant) -> String {
+    let declared = variant
+        .registration_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    if declared.is_empty() {
+        variant.id.clone()
+    } else {
+        declared.to_lowercase()
     }
+}
 
-    let identity = library
-        .index()
+/// 这个版本的**隔离键**。
+///
+/// - `variant_id` 为 `None`（**原版**）-> 键就是槽位本身（`wol` / `lotv` …）。
+///   旧数据里的 `lotv` / `wol` 就是原版组，语义不变，**不用迁移**。
+/// - 有变体（**官方改版也算**）-> `<槽位>/<身份>`，例如 `lotv/肉鸽`。
+///   用户原话：「存档对应的应该是各个导入的战役 mod 版本和原版，而不是其他战役，
+///   比如虚空之遗的肉鸽 mod 和虚空之遗原版互相隔离」—— 改版是另一个游戏。
+/// - 自制战役同理：`custom/<身份>`（每部自制战役一组）。
+///
+/// 身份见 [`identity_of`]：注册 ID 优先，没写才退回版本目录名。
+/// 没写注册 ID 的包换版本会各自一组，用户可以在存档页手动把归属改到同一组
+/// （不猜 —— 猜测才会串档）。
+///
+/// 老数据里的 `custom` 键**不会被新键匹配到**（新键形如 `custom/<身份>`）：
+/// 宁可让用户手动指一次，也不要猜错版本、把两部自制战役的存档串在一起。
+pub fn isolation_key(library: &Library, slot: &str, variant_id: Option<&str>) -> String {
+    // 原版：就是这个槽位本身
+    let Some(variant_id) = variant_id else {
+        return slot.to_string();
+    };
+
+    let index = library.index();
+    let variant = index
         .slots
         .get(slot)
-        .and_then(|entry| entry.variants.iter().find(|item| item.id == variant_id))
-        .and_then(|item| item.registration_id.as_deref())
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(str::to_lowercase)
-        .unwrap_or_else(|| variant_id.to_string());
-
-    format!("{CUSTOM_PREFIX}{identity}")
+        .and_then(|entry| entry.variants.iter().find(|item| item.id == variant_id));
+    match variant {
+        Some(item) => format!("{slot}/{}", identity_of(item)),
+        // 索引里查不到这个版本（极端情况）：退回版本目录名，别 panic
+        None => format!("{slot}/{variant_id}"),
+    }
 }
 
 /// 存档页「归属」下拉的一个候选。
@@ -521,67 +552,117 @@ pub fn isolation_key(library: &Library, slot: &str, variant_id: &str) -> String 
 pub struct SaveTarget {
     /// 写进 `state.json` 的隔离键。
     pub key: String,
-    /// 界面上的说法（官方只到战役；自制具体到每个版本）。
+    /// 界面上的说法（官方：`<战役名>（原版）` / `<战役名> · <版本名>`）。
     pub label: String,
 }
 
-/// 归属下拉的候选清单：官方战役（固定菜单顺序）+ 每部自制战役。
+/// 一个槽位里的变体按隔离键归并：同一部（共享注册 ID）只留一条。
 ///
+/// 名字取「当前启用那版」，都没启用就取导入时间最新的 —— 稳定，不随遍历顺序漂
+/// （不然页面上同一个条目会忽然换名字）。
+fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Option<String>)> {
+    struct Picked {
+        key: String,
+        name: String,
+        version: Option<String>,
+        active: bool,
+        imported_at: u64,
+    }
+
+    let Some(entry) = index.slots.get(slot) else {
+        return Vec::new();
+    };
+
+    let mut picked: Vec<Picked> = Vec::new();
+    for variant in &entry.variants {
+        let key = format!("{slot}/{}", identity_of(variant));
+        let active = entry.active.as_deref() == Some(variant.id.as_str());
+        match picked.iter_mut().find(|item| item.key == key) {
+            None => picked.push(Picked {
+                key,
+                name: variant.name.clone(),
+                version: variant.version.clone(),
+                active,
+                imported_at: variant.imported_at,
+            }),
+            Some(item) => {
+                // 已启用那版不换；否则「这个启用」或「这个更新」就换掉它。
+                // 都没启用就比导入时间（新的赢），时间相同就保持先出现的。
+                let better = !item.active && (active || variant.imported_at > item.imported_at);
+                if better {
+                    item.name = variant.name.clone();
+                    item.version = variant.version.clone();
+                    item.active = active;
+                    item.imported_at = variant.imported_at;
+                }
+            }
+        }
+    }
+
+    picked
+        .into_iter()
+        .map(|item| (item.key, item.name, item.version))
+        .collect()
+}
+
+/// 把「键 + 版本名」变成下拉里的一条，**重名时补上版本号**。
+///
+/// 两个不同的组可能版本名一模一样（不同注册 ID、名字相同），
+/// 不补版本的话下拉里就是两条完全一样的选项，用户根本没法选。
+fn named_targets(campaign: &str, picked: Vec<(String, String, Option<String>)>) -> Vec<SaveTarget> {
+    let bases: Vec<String> = picked
+        .iter()
+        .map(|(_, name, _)| format!("{campaign} · {name}"))
+        .collect();
+    let mut out: Vec<SaveTarget> = Vec::with_capacity(picked.len());
+    for ((key, _, version), base) in picked.into_iter().zip(bases.iter()) {
+        let duplicated = bases.iter().filter(|item| *item == base).count() > 1;
+        let label = if !duplicated {
+            base.clone()
+        } else {
+            match version {
+                Some(version) if !version.trim().is_empty() => format!("{base} {version}"),
+                // 连版本号都没有（两个不同注册 ID、同名同版本）：退回身份（目录名），
+                // 它一定唯一 —— 下拉里绝不能出现两条一模一样的选项。
+                _ => format!("{base}（{}）", key.rsplit('/').next().unwrap_or(&key)),
+            }
+        };
+        out.push(SaveTarget { key, label });
+    }
+    out
+}
+
+/// 归属下拉的候选清单。
+///
+/// - **官方**每个槽位两条起：`<战役名>（原版）`（键就是槽位，老数据直接对得上）
+///   再跟上它的每个改版 `<战役名> · <版本名>`（键 `slot/<身份>`）；
+/// - **自制**每个变体一条（同一部只列一条的规则不变）。
+///
+/// 顺序：官方按固定菜单顺序，每个槽位先原版后版本；自制排在最后。
 /// 和 [`isolation_key`] 用同一套规则算键 —— 界面不要自己拼键，免得两处规则漂移。
 pub fn targets(library: &Library) -> Vec<SaveTarget> {
     use crate::campaign::metadata::CampaignType;
 
+    let index = library.index();
     let mut out: Vec<SaveTarget> = Vec::new();
+
     for kind in CampaignType::MENU {
-        // 自制战役不按槽位列，下面按版本各自列
+        // 自制战役不按槽位列，最后单独列
         if kind.is_custom() {
             continue;
         }
+        let slot = kind.slug();
+        let name = kind.display_name();
         out.push(SaveTarget {
-            key: kind.slug().to_string(),
-            label: kind.display_name(),
+            key: slot.to_string(),
+            label: format!("{name}（原版）"),
         });
+        out.extend(named_targets(&name, picked_variants(&index, slot)));
     }
 
-    let index = library.index();
-    if let Some(entry) = index.slots.get("custom") {
-        // 同一部战役的多个版本（共享注册 ID）只列一条。**label 要稳定**：
-        // 优先用「当前启用那版」的名字，没有就用导入时间最新的那版 ——
-        // 不顺着 slots 的遍历顺序漂，否则页面上同一个条目会忽然换名字。
-        struct Picked {
-            key: String,
-            name: String,
-            active: bool,
-            imported_at: u64,
-        }
-        let mut picked: Vec<Picked> = Vec::new();
-        for variant in &entry.variants {
-            let key = isolation_key(library, "custom", &variant.id);
-            let active = entry.active.as_deref() == Some(variant.id.as_str());
-            match picked.iter_mut().find(|item| item.key == key) {
-                None => picked.push(Picked {
-                    key,
-                    name: variant.name.clone(),
-                    active,
-                    imported_at: variant.imported_at,
-                }),
-                Some(item) => {
-                    // 已启用那版不换；否则「这个启用」或「这个更新」就换掉它。
-                    // 都没启用就比导入时间（新的赢），时间相同就保持先出现的。
-                    let better = !item.active && (active || variant.imported_at > item.imported_at);
-                    if better {
-                        item.name = variant.name.clone();
-                        item.active = active;
-                        item.imported_at = variant.imported_at;
-                    }
-                }
-            }
-        }
+    if index.slots.contains_key("custom") {
         let prefix = CampaignType::Custom.display_name();
-        out.extend(picked.into_iter().map(|item| SaveTarget {
-            key: item.key,
-            label: format!("{} · {}", prefix, item.name),
-        }));
+        out.extend(named_targets(&prefix, picked_variants(&index, "custom")));
     }
 
     out
@@ -589,14 +670,16 @@ pub fn targets(library: &Library) -> Vec<SaveTarget> {
 
 /// 启用某个战役之前调它：隔离开着就切到它的存档组。
 ///
-/// `key` 是 [`isolation_key`] 算出来的隔离键（官方 = 槽位，自制 = `custom/<身份>`）；
+/// `key` 是 [`isolation_key`] 算出来的隔离键（原版 = 槽位，改版 / 自制 = `槽位/身份`）；
 /// 调用方负责算，别在这里再推一次规则。
 ///
-/// 没有记录时的默认归属（2026-10 用户要求「没有记录就归当前启用的战役」）：
-/// - **官方战役**：把**现在游戏里这份 Banks** 收成它的组。切组前 `save_active` 会先把
-///   这份收进「原版」，所以「原版」和这个战役组会**同时**有这份进度 —— 刻意的
-///   （用户之前那段进度两头都在，谁也没被顶掉）。还没玩过（Banks 空）就退化成空组。
-/// - **自制战役**：新建空组，**不继承**当前存档（每部各管各的）。
+/// 没有记录时新建哪一份：
+/// - **自制战役**：永远空组（每部各管各的，不继承）。
+/// - **还没归过档**（刚升级上来 / 刚打开隔离，`active == None`）：现在游戏里这份就是
+///   「我在玩的那部」，把它收成这个组的。切组前 `save_active` 还会先把同一份收进
+///   「原版」，所以「原版」和这个组会**同时**有它 —— 刻意的，谁也没被顶掉。
+/// - **已经有组在用**：空组。这时 Banks 是**别的组**的进度，抄进新组就是串档
+///   （用户抱怨的正是这个：改版是另一个游戏）。
 ///
 /// 已经有组就照旧切过去。返回切到了哪个组（没开隔离返回 `None`）。
 pub fn ensure_for_slot(
@@ -615,14 +698,16 @@ pub fn ensure_for_slot(
         return Ok(Some(name));
     }
 
-    let name = if is_custom_key(key) {
-        fresh_group(root, label)?
-    } else {
-        // 官方战役：接着当前这份进度往下玩（Banks 还没东西时没得接，给个空组）
+    // 只有「还没归过档」才把当前这份收成新组；其余情况从空组开始
+    let adopt_current = !is_custom_key(key) && state.active.is_none();
+    let name = if adopt_current {
+        // Banks 还没东西（第一次玩）时没得接，退回空组
         match backup(banks, root, label) {
             Ok(name) => name,
             Err(_) => fresh_group(root, label)?,
         }
+    } else {
+        fresh_group(root, label)?
     };
 
     assign(root, &name, Some(key))?;
@@ -632,6 +717,25 @@ pub fn ensure_for_slot(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn duplicate_names_are_disambiguated_in_targets() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        // 两个不同注册 ID（= 两个组）、名字和版本都一样的变体
+        let library = library_with_custom(
+            &data,
+            &[("甲", "一样的名字", None), ("乙", "一样的名字", None)],
+        );
+        let targets = targets(&library);
+        let labels: Vec<String> = targets
+            .iter()
+            .filter(|item| item.key.starts_with("custom/"))
+            .map(|item| item.label.clone())
+            .collect();
+        assert_eq!(labels.len(), 2, "两个组各一条：{labels:?}");
+        assert_ne!(labels[0], labels[1], "重名必须分得开：{labels:?}");
+    }
+
     use super::*;
 
     fn write(dir: &Path, name: &str, body: &str) {
@@ -933,13 +1037,15 @@ mod tests {
     }
 
     #[test]
-    fn isolation_key_is_the_slot_for_official_campaigns() {
+    fn vanilla_uses_the_slot_key_and_each_variant_gets_its_own() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let library = library_with_custom(&tmp.path().join("data"), &[]);
 
-        // 官方战役：同一部战役换哪个改版都是同一段进度
-        assert_eq!(isolation_key(&library, "wol", "任意版本"), "wol");
-        assert_eq!(isolation_key(&library, "hots", "任意版本"), "hots");
+        // 原版：键就是槽位（老数据 `lotv` / `wol` 语义不变，不用迁移）
+        assert_eq!(isolation_key(&library, "wol", None), "wol");
+        assert_eq!(isolation_key(&library, "lotv", None), "lotv");
+        // 有版本（这里库是空的，退回版本目录名）：槽位/身份
+        assert_eq!(isolation_key(&library, "lotv", Some("肉鸽")), "lotv/肉鸽");
     }
 
     #[test]
@@ -952,7 +1058,7 @@ mod tests {
         let a = ensure_for_slot(
             &data,
             &banks,
-            &isolation_key(&library, "custom", "甲"),
+            &isolation_key(&library, "custom", Some("甲")),
             "战役甲",
         )
         .expect("切甲")
@@ -960,7 +1066,7 @@ mod tests {
         let b = ensure_for_slot(
             &data,
             &banks,
-            &isolation_key(&library, "custom", "乙"),
+            &isolation_key(&library, "custom", Some("乙")),
             "战役乙",
         )
         .expect("切乙")
@@ -1009,8 +1115,8 @@ mod tests {
             ],
         );
 
-        let key1 = isolation_key(&library, "custom", "v1");
-        let key2 = isolation_key(&library, "custom", "v2");
+        let key1 = isolation_key(&library, "custom", Some("v1"));
+        let key2 = isolation_key(&library, "custom", Some("v2"));
         assert_eq!(key1, key2, "注册 ID 一样就得是同一个键");
 
         let first = ensure_for_slot(&data, &banks, &key1, "战役 1.0")
@@ -1041,7 +1147,7 @@ mod tests {
 
         // 新键不会匹配到它 —— 不猜版本
         assert_eq!(
-            profile_for(&data, &isolation_key(&library, "custom", "甲")).expect("查"),
+            profile_for(&data, &isolation_key(&library, "custom", Some("甲"))).expect("查"),
             None,
             "绝不自动把老组迁到某个自制版本"
         );
@@ -1064,7 +1170,7 @@ mod tests {
     }
 
     #[test]
-    fn targets_list_official_in_menu_order_then_each_custom_campaign() {
+    fn targets_list_official_vanilla_then_each_version_then_custom() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let data = tmp.path().join("data");
         let library = library_with_custom(
@@ -1078,14 +1184,63 @@ mod tests {
 
         let list = targets(&library);
         let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
+
+        // 官方每个槽位先「原版」（键 = 槽位），没有改版时只有这一条
         assert_eq!(
             &keys[..4],
             &["wol", "hots", "lotv", "nova"],
-            "官方按固定菜单顺序"
+            "官方按固定菜单顺序，每个槽位先原版"
         );
+        assert_eq!(list[0].label, "自由之翼（原版）");
+        // 自制：同一部（共享注册 ID）只列一条，另一部单独一条
         assert_eq!(keys[4], "custom/team.campaign", "同一部只列一条");
         assert_eq!(keys[5], "custom/other");
         assert_eq!(list[4].label, "自制战役 · 战役 1.0");
+    }
+
+    #[test]
+    fn targets_include_official_variants_after_the_vanilla_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = Library::new(&data);
+        let mut index = crate::library::LibraryIndex::default();
+        index.slots.insert(
+            "lotv".to_string(),
+            crate::library::CampaignSlot {
+                variants: vec![
+                    crate::library::Variant {
+                        id: "肉鸽".to_string(),
+                        name: "肉鸽".to_string(),
+                        ..Default::default()
+                    },
+                    crate::library::Variant {
+                        id: "另一个改版".to_string(),
+                        name: "另一个改版".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                active: None,
+            },
+        );
+        library.save_index(&index).expect("写索引");
+
+        let list = targets(&library);
+        let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
+        // 官方顺序：wol（原版）、hots（原版）、lotv（原版 + 两个改版）、nova（原版）
+        assert_eq!(
+            &keys[..6],
+            &[
+                "wol",
+                "hots",
+                "lotv",
+                "lotv/肉鸽",
+                "lotv/另一个改版",
+                "nova"
+            ],
+            "每个槽位先原版、再跟上它的版本：{keys:?}"
+        );
+        assert_eq!(list[2].label, "虚空之遗（原版）");
+        assert_eq!(list[3].label, "虚空之遗 · 肉鸽");
     }
 
     #[test]
@@ -1221,5 +1376,168 @@ mod tests {
         assert!(move_save_file(&data, "甲", "../c.SC2Bank", "新建的组").is_err());
         assert!(move_save_file(&data, "..", "c.SC2Bank", "新建的组").is_err());
         assert!(move_save_file(&data, "甲", "c.SC2Bank", "..").is_err());
+    }
+
+    #[test]
+    fn official_vanilla_and_mod_versions_get_separate_groups() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        write(&banks, "原版进度.SC2Bank", "玩到第三章");
+        let library = library_with_custom(&data, &[]);
+
+        // 原版一份（键 = 槽位），改版一份（键 = 槽位/身份）
+        let vanilla = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
+            .expect("切原版")
+            .expect("开着");
+        let modded = ensure_for_slot(&data, &banks, "lotv/肉鸽", "虚空之遗 · 肉鸽")
+            .expect("切改版")
+            .expect("开着");
+
+        assert_ne!(vanilla, modded, "原版和改版必须是两个组");
+        assert_eq!(
+            profile_for(&data, "lotv").expect("查"),
+            Some(vanilla.clone())
+        );
+        assert_eq!(
+            profile_for(&data, "lotv/肉鸽").expect("查"),
+            Some(modded.clone())
+        );
+        // 原版组有那份进度（第一次启用时收进去的），改版组是空的（不串档）
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join(&vanilla).join("原版进度.SC2Bank"))
+                .expect("读"),
+            "玩到第三章"
+        );
+        assert!(
+            snapshot(&root(&data).join(&modded))
+                .expect("快照")
+                .files
+                .is_empty(),
+            "已经有组在用的时候，改版从空组开始，别把原版进度抄过来"
+        );
+        let _ = &library;
+    }
+
+    #[test]
+    fn official_mod_versions_sharing_registration_share_a_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        let library = Library::new(&data);
+        let mut index = crate::library::LibraryIndex::default();
+        index.slots.insert(
+            "lotv".to_string(),
+            crate::library::CampaignSlot {
+                variants: vec![
+                    crate::library::Variant {
+                        id: "肉鸽 v1".to_string(),
+                        name: "肉鸽 1.0".to_string(),
+                        registration_id: Some("Team.Rogue".to_string()),
+                        imported_at: 10,
+                        ..Default::default()
+                    },
+                    crate::library::Variant {
+                        id: "肉鸽 v2".to_string(),
+                        name: "肉鸽 2.0".to_string(),
+                        registration_id: Some("team.rogue".to_string()),
+                        imported_at: 20,
+                        ..Default::default()
+                    },
+                ],
+                active: None,
+            },
+        );
+        library.save_index(&index).expect("写索引");
+
+        let key1 = isolation_key(&library, "lotv", Some("肉鸽 v1"));
+        let key2 = isolation_key(&library, "lotv", Some("肉鸽 v2"));
+        assert_eq!(key1, key2, "同一部改版换版本 -> 同一个键");
+
+        let first = ensure_for_slot(&data, &banks, &key1, "虚空之遗 · 肉鸽 1.0")
+            .expect("切 1.0")
+            .expect("开着");
+        let second = ensure_for_slot(&data, &banks, &key2, "虚空之遗 · 肉鸽 2.0")
+            .expect("切 2.0")
+            .expect("开着");
+        assert_eq!(first, second, "换版本要共用同一个组");
+        assert_eq!(backups(&data).expect("列").len(), 1, "不该多出一个组");
+        // 原版那个键没被牵连
+        assert_eq!(profile_for(&data, "lotv").expect("查"), None);
+    }
+
+    #[test]
+    fn two_different_official_mods_get_two_groups() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        let library = Library::new(&data);
+        let mut index = crate::library::LibraryIndex::default();
+        index.slots.insert(
+            "lotv".to_string(),
+            crate::library::CampaignSlot {
+                variants: vec![
+                    crate::library::Variant {
+                        id: "肉鸽".to_string(),
+                        name: "肉鸽".to_string(),
+                        ..Default::default()
+                    },
+                    crate::library::Variant {
+                        id: "残卷".to_string(),
+                        name: "残卷".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                active: None,
+            },
+        );
+        library.save_index(&index).expect("写索引");
+
+        let a = ensure_for_slot(
+            &data,
+            &banks,
+            &isolation_key(&library, "lotv", Some("肉鸽")),
+            "虚空之遗 · 肉鸽",
+        )
+        .expect("切肉鸽")
+        .expect("开着");
+        let b = ensure_for_slot(
+            &data,
+            &banks,
+            &isolation_key(&library, "lotv", Some("残卷")),
+            "虚空之遗 · 残卷",
+        )
+        .expect("切残卷")
+        .expect("开着");
+        assert_ne!(a, b, "两部不同改版必须是两个组：{a} / {b}");
+        assert!(a.contains("肉鸽"), "{a}");
+        assert!(b.contains("残卷"), "{b}");
+    }
+
+    #[test]
+    fn restore_safety_backup_is_marked_auto() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        write(&banks, "进度.SC2Bank", "原来的");
+
+        let manual = backup(&banks, &data, "手动备份").expect("备份");
+        write(&banks, "进度.SC2Bank", "新的");
+        let safety = restore(&banks, &data, &manual).expect("还原");
+        assert!(safety.starts_with(AUTO_BACKUP), "还原前留的那份：{safety}");
+
+        let list = backups(&data).expect("列");
+        let auto: Vec<&str> = list
+            .iter()
+            .filter(|item| item.auto)
+            .map(|item| item.name.as_str())
+            .collect();
+        let groups: Vec<&str> = list
+            .iter()
+            .filter(|item| !item.auto)
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(auto, vec![safety.as_str()], "「还原前」要标成自动备份");
+        assert_eq!(groups, vec![manual.as_str()], "组列表里只留用户自己的组");
     }
 }
