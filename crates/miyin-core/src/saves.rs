@@ -64,6 +64,12 @@ pub struct BackupEntry {
     /// 界面用它把这类备份从「存档组」列表里剔掉 —— 组是用户能选的东西，
     /// 自动备份不是（它跟着每次还原长一份）。
     pub auto: bool,
+    /// **没有绑定任何战役/版本**的老组（升级前收下的那份，或者用户手动备份的）。
+    ///
+    /// 这种组的名字说明不了内容（当年是开隔离那一刻把整份 Banks 收下来的，
+    /// 用户可能正在玩某个自制战役）—— 界面别再叫它「原版」，显示成
+    /// 「未分类（升级前的存档）」，让用户自己去归位。
+    pub legacy: bool,
 }
 
 /// 列一份 Banks 里有什么。目录不存在不算错误（第一次玩之前它就是不存在的）。
@@ -153,6 +159,8 @@ pub fn backups(library_root: &Path) -> Result<Vec<BackupEntry>> {
         return Ok(Vec::new());
     }
 
+    // 迁移期：没有绑定的组标成 legacy（名字不代表内容，界面别叫它「原版」）
+    let state = isolation(library_root)?;
     let mut out = Vec::new();
     for entry in std::fs::read_dir(&root)? {
         let entry = entry?;
@@ -168,6 +176,11 @@ pub fn backups(library_root: &Path) -> Result<Vec<BackupEntry>> {
             .unwrap_or_else(|| name.clone());
         out.push(BackupEntry {
             auto: label == AUTO_BACKUP,
+            // 只有「开隔离时自动收下的那份」才叫未分类 —— 用户手动备份、只是没绑战役的组
+            // 有自己的名字，别也给它们贴「升级前的存档」。
+            legacy: label != AUTO_BACKUP
+                && label == ORIGINAL
+                && !state.assignments.contains_key(&name),
             name,
             label,
             bytes: set.bytes,
@@ -510,6 +523,46 @@ pub fn profile_for_original(root: &Path) -> Result<Option<String>> {
             .find(|item| item.label == ORIGINAL)
             .map(|item| item.name)),
     }
+}
+
+/// **迁移/自愈**：`active` 那个组如果绑的还是**战役级键**（`lotv`），而那个槽位
+/// 当前启用的其实是某个改版，就把这条绑定改到该版本的真实键（`lotv/<身份>`）。
+///
+/// 为什么会有这种数据：升级前隔离键只到战役级。用户切到「AI 盟友虚空之遗」之后，
+/// `active` 还指着那个战役级的组 —— 界面上就成了「当前启用 AI盟友虚空之遗」
+/// 但「当前在用 虚空之遗-…」，两边对不上。
+///
+/// **只改 `assignments` 里那一条**：不动组名、不动文件、不新建组、不碰 Banks。
+/// 幂等：已经绑在版本级键上 / 槽位正用着原版 / 没有 `active` —— 都原样返回。
+/// 返回是否真的改过（测试与日志用）。
+pub fn reconcile_active_binding(library: &Library, root: &Path) -> Result<bool> {
+    let state = isolation(root)?;
+    let Some(active) = state.active.clone() else {
+        return Ok(false);
+    };
+    // 这个组绑着什么键；没有绑定 = 升级前收下的老组（那个交给 legacy 标签，不动）
+    let Some(key) = state.assignments.get(&active).cloned() else {
+        return Ok(false);
+    };
+    // 已经是「槽位/身份」这种版本级键：不用管
+    if key.contains('/') {
+        return Ok(false);
+    }
+
+    // 战役级键 + 槽位当前启用的是某个版本 -> 重绑到那个版本的真实键
+    let index = library.index();
+    let Some(variant) = index.slots.get(&key).and_then(|entry| entry.active.clone()) else {
+        // 槽位不存在，或者正用着原版：战役级键本来就是对的
+        return Ok(false);
+    };
+    let real = isolation_key(library, &key, Some(&variant));
+    if real == key {
+        return Ok(false);
+    }
+
+    // 用 assign 而不是直接插：它保证「一个键只归一个组」
+    assign(root, &active, Some(&real))?;
+    Ok(true)
 }
 
 /// 建一个空组，返回组名。
@@ -1611,8 +1664,8 @@ mod tests {
         assert_eq!(groups, vec![manual.as_str()], "组列表里只留用户自己的组");
     }
 
-    /// 造一个只有 lotv 槽位（带一个「肉鸽」改版）的库。
-    fn library_with_lotv_mod(data: &Path) -> Library {
+    /// 造一个只有 lotv 槽位（带一个「肉鸽」改版）的库；`active` 是这个槽位当前启用的版本。
+    fn library_with_lotv_mod_active(data: &Path, active: Option<&str>) -> Library {
         let library = Library::new(data);
         let mut index = crate::library::LibraryIndex::default();
         index.slots.insert(
@@ -1623,11 +1676,25 @@ mod tests {
                     name: "肉鸽".to_string(),
                     ..Default::default()
                 }],
-                active: None,
+                active: active.map(str::to_string),
             },
         );
         library.save_index(&index).expect("写索引");
         library
+    }
+
+    fn library_with_lotv_mod(data: &Path) -> Library {
+        library_with_lotv_mod_active(data, None)
+    }
+
+    /// 造一份隔离状态：`active` 指着 `name` 那个组，那个组绑在 `key` 上。
+    fn state_with(active: Option<&str>, name: &str, key: &str) -> Isolation {
+        let mut state = Isolation {
+            active: active.map(str::to_string),
+            ..Default::default()
+        };
+        state.assignments.insert(name.to_string(), key.to_string());
+        state
     }
 
     #[test]
@@ -1715,5 +1782,108 @@ mod tests {
             "游戏里那份",
             "只动 data/saves，绝不碰 Banks"
         );
+    }
+
+    #[test]
+    fn reconcile_rebinds_a_campaign_level_group_to_the_active_version() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        // 槽位当前启用的是改版「肉鸽」，但老数据把组绑在战役级键 `lotv` 上
+        let library = library_with_lotv_mod_active(&data, Some("肉鸽"));
+        let group = root(&data).join("虚空之遗-1");
+        std::fs::create_dir_all(&group).expect("建组");
+        std::fs::write(group.join("a.SC2Bank"), "进度").expect("写");
+        let state = state_with(Some("虚空之遗-1"), "虚空之遗-1", "lotv");
+        write_isolation(&data, &state).expect("写状态");
+
+        assert!(
+            reconcile_active_binding(&library, &data).expect("迁移"),
+            "该重绑到版本级键"
+        );
+        let state = isolation(&data).expect("读");
+        assert_eq!(
+            state.assignments.get("虚空之遗-1").map(String::as_str),
+            Some("lotv/肉鸽")
+        );
+        assert_eq!(state.active.as_deref(), Some("虚空之遗-1"), "active 不动");
+        // 组名和文件都不动
+        assert!(group.is_dir());
+        assert_eq!(
+            std::fs::read_to_string(group.join("a.SC2Bank")).expect("读"),
+            "进度"
+        );
+    }
+
+    #[test]
+    fn reconcile_leaves_vanilla_alone() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        // 槽位正用着原版：战役级键 `lotv` 本来就是对的
+        let library = library_with_lotv_mod(&data);
+        let state = state_with(Some("虚空之遗-1"), "虚空之遗-1", "lotv");
+        write_isolation(&data, &state).expect("写状态");
+
+        assert!(
+            !reconcile_active_binding(&library, &data).expect("迁移"),
+            "原版不该动"
+        );
+        let state = isolation(&data).expect("读");
+        assert_eq!(
+            state.assignments.get("虚空之遗-1").map(String::as_str),
+            Some("lotv")
+        );
+    }
+
+    #[test]
+    fn reconcile_is_idempotent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_lotv_mod_active(&data, Some("肉鸽"));
+
+        // 已经绑在版本级键上：不动
+        let state = state_with(Some("甲"), "甲", "lotv/肉鸽");
+        write_isolation(&data, &state).expect("写状态");
+        assert!(!reconcile_active_binding(&library, &data).expect("迁移"));
+
+        // 没有 active / 没有绑定：也不动（老组交给 legacy 标签处理）
+        write_isolation(&data, &Isolation::default()).expect("写状态");
+        assert!(!reconcile_active_binding(&library, &data).expect("迁移"));
+
+        // 真的重绑一次之后再跑：什么都不做
+        let state = state_with(Some("乙"), "乙", "lotv");
+        write_isolation(&data, &state).expect("写状态");
+        assert!(reconcile_active_binding(&library, &data).expect("迁移"));
+        assert!(
+            !reconcile_active_binding(&library, &data).expect("迁移"),
+            "第二次必须无动作"
+        );
+    }
+
+    #[test]
+    fn unbound_groups_are_marked_legacy() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        write(&root(&data).join("原版-1"), "a.SC2Bank", "老进度");
+
+        let entry = backups(&data).expect("列").pop().expect("有组");
+        assert!(entry.legacy, "没有绑定的组要标 legacy（名字不代表内容）");
+        assert!(!entry.auto);
+
+        // 绑上某个战役之后就不再是 legacy
+        assign(&data, "原版-1", Some("wol")).expect("绑定");
+        let entry = backups(&data).expect("列").pop().expect("有组");
+        assert!(!entry.legacy);
+
+        // 自动备份不算 legacy（它另有一套 auto 规则）
+        let banks = tmp.path().join("Banks");
+        write(&banks, "a.SC2Bank", "进度");
+        let safety = backup(&banks, &data, AUTO_BACKUP).expect("自动备份");
+        let entry = backups(&data)
+            .expect("列")
+            .into_iter()
+            .find(|item| item.name == safety)
+            .expect("有自动备份");
+        assert!(entry.auto);
+        assert!(!entry.legacy);
     }
 }

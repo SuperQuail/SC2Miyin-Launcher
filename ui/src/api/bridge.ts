@@ -847,7 +847,12 @@ const demo: LauncherApi = {
     });
     return name;
   },
-  listSaveBackups: async () => demoSaveGroups.map((item) => ({ ...item })),
+  listSaveBackups: async () =>
+    demoSaveGroups.map((item) => ({
+      ...item,
+      // 和后端一致：没有绑定的组标 legacy（名字不代表内容）
+      legacy: !item.auto && !(item.name in demoSavesState.assignments),
+    })),
   restoreSaves: async (name) => {
     // 和后端一样：还原前先留一份自动备份（它不是"用户意义上的组"）
     const safety = "还原前-" + (1790000400 + demoSaveGroups.length);

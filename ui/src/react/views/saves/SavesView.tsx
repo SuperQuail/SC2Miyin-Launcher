@@ -72,6 +72,19 @@ export function SavesView({
     void loadGroup(name);
   };
 
+  // 组的显示名跟**绑定**走：绑了哪个战役/版本就显示哪个。
+  // 只用目录名会出现「组名 虚空之遗、实际装的是 AI盟友」这种对不上的情况。
+  // 没有绑定 = 升级前留下的、还没归类的存档。
+  const labelOf = (group: SaveBackup): string => {
+    const key = isolation.assignments[group.name];
+    const target = key ? options.find((item) => item.key === key) : undefined;
+    if (target) return target.label;
+    // legacy = 开隔离时自动收下的「原版」那份（内容可能属于任何战役，名字不可信）
+    if (group.legacy) return "未分类（升级前的存档）";
+    // 其余：用户自己的备份，用它的名字
+    return group.label;
+  };
+
   // 没有存档的组不显示（当前在用的那个例外 —— 不然看不出现在用的是哪份）
   const visible = groups.filter((item) => item.files > 0 || isolation.active === item.name);
 
@@ -153,14 +166,14 @@ export function SavesView({
                         type="button"
                         className="saves__name-btn"
                         title="打开看看这个组里有哪些存档"
-                        onClick={() => openGroup(group.name, group.label)}
+                        onClick={() => openGroup(group.name, labelOf(group))}
                       >
-                        {group.label}
+                        {labelOf(group)}
                       </button>
                       {active && <span className="tag">当前在用</span>}
                     </span>
                     <span className="saves__meta">
-                      {group.files} 个文件 · {(group.bytes / 1024).toFixed(0)} KB
+                      {group.files} 个文件 · {(group.bytes / 1024).toFixed(0)} KB · {group.name}
                     </span>
                   </div>
 

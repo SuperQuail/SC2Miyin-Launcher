@@ -239,9 +239,16 @@ fn set_installation(path: String, state: State<'_, AppState>) -> Result<Installa
 }
 
 /// 存档隔离状态：开关、当前组、组到战役的指派。
+///
+/// 读之前先跑一次**迁移/自愈**：老数据里 `active` 那个组可能还绑在战役级键上，
+/// 而槽位当前启用的其实是某个改版 —— 不修的话界面会出现「当前启用 X 改版，
+/// 但当前在用 Y 战役的组」这种对不上的显示。
 #[tauri::command(async)]
 fn save_isolation(state: State<'_, AppState>) -> Result<library_saves::Isolation, String> {
-    library_saves::isolation(state.library.root()).map_err(|error| error.to_string())
+    let root = state.library.root();
+    library_saves::reconcile_active_binding(&state.library, root)
+        .map_err(|error| error.to_string())?;
+    library_saves::isolation(root).map_err(|error| error.to_string())
 }
 
 /// 打开 / 关掉存档隔离。**打开的那一刻会把现在这份 Banks 收成「原版」。**
@@ -357,12 +364,17 @@ fn backup_saves(label: String, state: State<'_, AppState>) -> Result<String, Str
     library_saves::backup(&banks, state.library.root(), &label).map_err(|error| error.to_string())
 }
 
-/// 已经备份了哪些。
+/// 已经备份了哪些（= 存档组列表）。
+///
+/// 读之前同样先跑一次迁移，免得界面把「绑在战役级键上的老组」显示成当前在用。
 #[tauri::command(async)]
 fn list_save_backups(
     state: State<'_, AppState>,
 ) -> Result<Vec<library_saves::BackupEntry>, String> {
-    library_saves::backups(state.library.root()).map_err(|error| error.to_string())
+    let root = state.library.root();
+    library_saves::reconcile_active_binding(&state.library, root)
+        .map_err(|error| error.to_string())?;
+    library_saves::backups(root).map_err(|error| error.to_string())
 }
 
 /// 还原一份备份。**还原前会先把现在的存档另存一份**，返回那份安全备份的名字。
