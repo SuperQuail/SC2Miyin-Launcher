@@ -158,11 +158,11 @@ export function SavesView({
       {visible.length === 0 && (
         <section className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5">
           <p className="saves__empty">
-            还没有存档组
+            还没有存档分类
             <span className="saves__empty-sub">
               {isolation.enabled
-                ? "启用一个战役之后会自动建组：官方战役会接着当前这份进度，自制战役从零开始。"
-                : "存档隔离关着的时候不分组。去设置里打开它，启用战役时就会自动建组。"}
+                ? "启用一个战役之后会自动建分类：官方战役会接着当前这份进度，自制战役从零开始。"
+                : "存档隔离关着的时候不分类。去设置里打开它，启用战役时就会自动建分类。"}
             </span>
           </p>
         </section>
@@ -172,7 +172,7 @@ export function SavesView({
         <section key={section.key} className="flex flex-col gap-2">
           <div className="flex items-baseline gap-2">
             <h3 className="m-0 text-[13.5px] font-semibold text-on-surface">{section.name}</h3>
-            <span className="text-[11.5px] text-muted">{section.groups.length} 个存档组</span>
+            <span className="text-[11.5px] text-muted">{section.groups.length} 个分类</span>
           </div>
           <ul className="saves__list">
               {section.groups.map((group) => {
@@ -206,7 +206,7 @@ export function SavesView({
                       </Button>
                     </span>
                     <Button disabled={busy || active} onClick={() => onSwitch(group.name)}>
-                      {active ? "正在用" : "切换到这个"}
+                      {active ? "正在用" : "切换为该分类"}
                     </Button>
                     <Button variant="tonal" disabled={busy} onClick={() => onSaveInto(group.name)}>
                       设为当前
@@ -220,8 +220,8 @@ export function SavesView({
       ))}
 
       <p className="saves__foot">
-        「切换到这个」= 游戏里换成这份存档（现在这份会先存回它自己的组）；「设为当前」= 把游戏里现在这份存进这个组。
-        要改某一份存档的归属，点上面对应的组名打开它。
+        「切换为该分类」= 游戏里换成这份存档（现在这份会先存回它自己的分类）；「设为当前」= 把游戏里现在这份存进该分类。
+        要改某一份存档的归属，点「管理存档」打开它。
       </p>
 
       {detail && (

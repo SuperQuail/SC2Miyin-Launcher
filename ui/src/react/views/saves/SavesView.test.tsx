@@ -10,7 +10,7 @@ import { SavesView } from "./SavesView";
  * 存档页的渲染与接线。
  *
  * 两件事最容易坏：**归属下拉真的接到 onAssign**（这是"手动定位到别的战役"的唯一入口），
- * 以及「切换到这个 / 设为当前」别再被写成同一个动作（一个是换内容，一个是把现在这份存回去）。
+ * 以及「切换为该分类 / 设为当前」别再被写成同一个动作（一个是换内容，一个是把现在这份存回去）。
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,16 +99,16 @@ describe("存档页", () => {
     expect(document.body.textContent).not.toContain("空组");
   });
 
-  it("「切换到这个」和「设为当前」是两个不同的动作", async () => {
+  it("「切换为该分类」和「设为当前」是两个不同的动作", async () => {
     const { onSwitch, onSaveInto } = await mount();
     // 分区之后行顺序会变，按名字找那一行（自由之翼那个组）
     const row = [...document.querySelectorAll(".saves__row")].find((item) =>
       (item.textContent ?? "").includes("自由之翼"),
     ) as HTMLElement;
     const buttons = [...row.querySelectorAll("button")];
-    const switchButton = buttons.find((button) => button.textContent === "切换到这个");
+    const switchButton = buttons.find((button) => button.textContent === "切换为该分类");
     const saveButton = buttons.find((button) => button.textContent === "设为当前");
-    expect(switchButton, "不在用的组要有「切换到这个」").toBeTruthy();
+    expect(switchButton, "不在用的组要有「切换为该分类」").toBeTruthy();
     expect(saveButton, "每组都要有「设为当前」").toBeTruthy();
 
     await act(async () => {
@@ -122,10 +122,10 @@ describe("存档页", () => {
     expect(onSaveInto).toHaveBeenCalledWith("自由之翼-1790000100");
   });
 
-  it("没有组时给空状态说明", async () => {
+  it("没有分类时给空状态说明", async () => {
     await mount({ groups: [] });
     expect(document.querySelectorAll(".saves__row")).toHaveLength(0);
-    expect(document.body.textContent).toContain("还没有存档组");
+    expect(document.body.textContent).toContain("还没有存档分类");
   });
 
   it("隔离开着时说明里不出现「去设置里打开」", async () => {
