@@ -69,13 +69,19 @@ describe("存档组详情", () => {
     expect(text).toContain("Swarm01.SC2Bank");
   });
 
-  it("选一个目标组就把这份挪过去（带对参数）", async () => {
+  it("选一个归属就把这份归过去（自家下拉，带对参数）", async () => {
     const { onMove } = await mount();
-    const selects = [...document.querySelectorAll<HTMLSelectElement>(".savedetail__move")];
-    expect(selects).toHaveLength(2);
+    // 自家下拉：先点开第二行那个触发器，再点目标选项
+    const triggers = [...document.querySelectorAll<HTMLButtonElement>(".savedetail__move button")];
+    expect(triggers.length).toBeGreaterThanOrEqual(2);
     await act(async () => {
-      selects[1].value = "lotv/肉鸽";
-      selects[1].dispatchEvent(new Event("change", { bubbles: true }));
+      triggers[1].click();
+    });
+    const options = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+    const target = options.find((item) => (item.textContent ?? "").includes("肉鸽"));
+    expect(target, "要能选到「虚空之遗 · 肉鸽」").toBeTruthy();
+    await act(async () => {
+      target?.click();
     });
     expect(onMove).toHaveBeenCalledWith("Swarm01.SC2Bank", "lotv/肉鸽");
   });

@@ -749,8 +749,13 @@ fn activate_variant(
             // 原版 = 战役名；官方改版 = 战役名 · 版本名；自制 = 版本名
             let label = miyin_core::saves::group_label(&state.library, &key);
             let _ = miyin_core::saves::ensure_for_slot(root, banks, &key, &label);
-        } else if let Ok(Some(original)) = miyin_core::saves::profile_for_original(root) {
-            let _ = miyin_core::saves::switch(root, banks, &original);
+        } else {
+            // 切回原版：键就是槽位本身。走 ensure_for_slot 而不是直接 switch ——
+            // 它会复用「原版」那个老组并补上绑定（以前只 switch，组一直没归属，
+            // 界面上显示成「未分类」；找不到老组才新建）。
+            let key = miyin_core::saves::isolation_key(&state.library, &slot, None);
+            let label = miyin_core::saves::group_label(&state.library, &key);
+            let _ = miyin_core::saves::ensure_for_slot(root, banks, &key, &label);
         }
     }
 

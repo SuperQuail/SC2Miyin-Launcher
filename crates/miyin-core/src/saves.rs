@@ -525,24 +525,26 @@ pub fn profile_for_original(root: &Path) -> Result<Option<String>> {
     }
 }
 
-/// **迁移/自愈**：`active` 那个组如果绑的还是**战役级键**（`lotv`），而那个槽位
-/// 当前启用的其实是某个改版，就把这条绑定改到该版本的真实键（`lotv/<身份>`）。
+/// **迁移/自愈**：把 `active` 那个组的绑定修正到它真正代表的东西上。三种情况：
+/// 1. 绑着**战役级键**（`lotv`）但那个槽位当前启用的是某个改版 -> 重绑到版本键；
+/// 2. **完全没有绑定**、而某个槽位正用着原版 -> 绑到那个槽位键（唯一候选才动手，见
+///    [`bind_unbound_active`]）；
+/// 3. 其余（已经绑对了 / 没有 `active`）：原样返回。
 ///
-/// 为什么会有这种数据：升级前隔离键只到战役级。用户切到「AI 盟友虚空之遗」之后，
-/// `active` 还指着那个战役级的组 —— 界面上就成了「当前启用 AI盟友虚空之遗」
-/// 但「当前在用 虚空之遗-…」，两边对不上。
+/// 为什么会有这种数据：升级前隔离键只到战役级、而且「原版」那个组是开隔离时自动收的、
+/// 从来没有绑定。用户切到改版再切回原版之后，`active` 还指着那个组 —— 界面上就成了
+/// 「当前在用 未分类」，其实那是原版存档。
 ///
-/// **只改 `assignments` 里那一条**：不动组名、不动文件、不新建组、不碰 Banks。
-/// 幂等：已经绑在版本级键上 / 槽位正用着原版 / 没有 `active` —— 都原样返回。
+/// **只改 `assignments`**：不动组名、不动文件、不新建组、不碰 Banks。幂等。
 /// 返回是否真的改过（测试与日志用）。
 pub fn reconcile_active_binding(library: &Library, root: &Path) -> Result<bool> {
     let state = isolation(root)?;
     let Some(active) = state.active.clone() else {
         return Ok(false);
     };
-    // 这个组绑着什么键；没有绑定 = 升级前收下的老组（那个交给 legacy 标签，不动）
+    // 没有任何绑定：可能该绑到「原版」的槽位键上
     let Some(key) = state.assignments.get(&active).cloned() else {
-        return Ok(false);
+        return bind_unbound_active(library, root, &active);
     };
     // 已经是「槽位/身份」这种版本级键：不用管
     if key.contains('/') {
@@ -562,6 +564,44 @@ pub fn reconcile_active_binding(library: &Library, root: &Path) -> Result<bool> 
 
     // 用 assign 而不是直接插：它保证「一个键只归一个组」
     assign(root, &active, Some(&real))?;
+    Ok(true)
+}
+
+/// `active` 那个组没有任何绑定：如果有**唯一**一个候选槽位（正用着原版、而且它的键
+/// 还没有组绑着），就把它绑到那个槽位键上。
+///
+/// 为什么要求唯一：一个组只能绑一个键。四个官方槽位通常都「正用着原版」，挑哪个都是猜 ——
+/// 猜错就是把别的槽位的键抢过来。宁可先不绑（界面显示「未分类」），让用户指一次。
+fn bind_unbound_active(library: &Library, root: &Path, active: &str) -> Result<bool> {
+    use crate::campaign::metadata::CampaignType;
+
+    let state = isolation(root)?;
+    let index = library.index();
+    let mut candidates: Vec<String> = Vec::new();
+    for kind in CampaignType::MENU {
+        if kind.is_custom() {
+            continue;
+        }
+        let slot = kind.slug();
+        // 库里根本没有这个槽位：不算候选（它就是没启用过，不是「正用着原版」）
+        let Some(entry) = index.slots.get(slot) else {
+            continue;
+        };
+        // 槽位得是「正用着原版」（没有启用的版本）
+        if entry.active.is_some() {
+            continue;
+        }
+        // 这个键已经有组绑着（可能就是这个组自己，也可能不是）→ 不算候选
+        if state.assignments.values().any(|value| value == slot) {
+            continue;
+        }
+        candidates.push(slot.to_string());
+    }
+
+    if candidates.len() != 1 {
+        return Ok(false);
+    }
+    assign(root, active, Some(&candidates[0]))?;
     Ok(true)
 }
 
@@ -796,13 +836,16 @@ pub fn targets(library: &Library) -> Vec<SaveTarget> {
 /// `key` 是 [`isolation_key`] 算出来的隔离键（原版 = 槽位，改版 / 自制 = `槽位/身份`）；
 /// 调用方负责算，别在这里再推一次规则。
 ///
-/// 没有记录时新建哪一份：
+/// 没有记录时用哪一份：
+/// - **原版键**（战役级，不含斜杠）：先复用「原版」那个老组 —— 当年开隔离时收下的
+///   那份就是原版进度，**不能**因为没绑定就新建一个空组把它晾在一边（用户会把
+///   一份好好的原版存档看成「未分类」）。组名、文件都不动，只补一条绑定。
 /// - **自制战役**：永远空组（每部各管各的，不继承）。
 /// - **还没归过档**（刚升级上来 / 刚打开隔离，`active == None`）：现在游戏里这份就是
 ///   「我在玩的那部」，把它收成这个组的。切组前 `save_active` 还会先把同一份收进
 ///   「原版」，所以「原版」和这个组会**同时**有它 —— 刻意的，谁也没被顶掉。
-/// - **已经有组在用**：空组。这时 Banks 是**别的组**的进度，抄进新组就是串档
-///   （用户抱怨的正是这个：改版是另一个游戏）。
+/// - **其余（某个改版 / 自制）**：空组。这时 Banks 是**别的组**的进度，抄进新组就是
+///   串档（用户抱怨的正是这个：改版是另一个游戏）。
 ///
 /// 已经有组就照旧切过去。返回切到了哪个组（没开隔离返回 `None`）。
 pub fn ensure_for_slot(
@@ -823,12 +866,23 @@ pub fn ensure_for_slot(
 
     // 只有「还没归过档」才把当前这份收成新组；其余情况从空组开始
     let adopt_current = !is_custom_key(key) && state.active.is_none();
-    let name = if adopt_current {
+    let adopt = || -> Result<String> {
         // Banks 还没东西（第一次玩）时没得接，退回空组
         match backup(banks, root, label) {
-            Ok(name) => name,
-            Err(_) => fresh_group(root, label)?,
+            Ok(name) => Ok(name),
+            Err(_) => fresh_group(root, label),
         }
+    };
+    let name = if is_campaign_key(key) {
+        // 原版键：先复用老组（「原版」那个，或者任意还没归属的老组）——
+        // 那份内容就是原版进度，别新建一个空组把它晾在一边
+        match original_group(root)? {
+            Some(name) => name,
+            None if adopt_current => adopt()?,
+            None => fresh_group(root, label)?,
+        }
+    } else if adopt_current {
+        adopt()?
     } else {
         fresh_group(root, label)?
     };
@@ -836,6 +890,30 @@ pub fn ensure_for_slot(
     assign(root, &name, Some(key))?;
     switch(root, banks, &name)?;
     Ok(Some(name))
+}
+
+/// 战役级键（原版）：就是槽位本身，不带 `/`。
+fn is_campaign_key(key: &str) -> bool {
+    !is_custom_key(key) && !key.contains('/')
+}
+
+/// 切回原版时该用哪个组。
+///
+/// 优先级：**标签是「原版」的那个**（不管它现在绑着谁 —— 内容就是原版进度），
+/// 其次任意一个还没归属的老组（`legacy`）。都没有才让调用方新建。
+/// 只读：返回组名，绑定交给调用方。
+fn original_group(root: &Path) -> Result<Option<String>> {
+    let list = backups(root)?;
+    if let Some(found) = list
+        .iter()
+        .find(|item| !item.auto && item.label == ORIGINAL)
+    {
+        return Ok(Some(found.name.clone()));
+    }
+    Ok(list
+        .into_iter()
+        .find(|item| item.legacy)
+        .map(|item| item.name))
 }
 
 #[cfg(test)]
@@ -1885,5 +1963,127 @@ mod tests {
             .expect("有自动备份");
         assert!(entry.auto);
         assert!(!entry.legacy);
+    }
+
+    #[test]
+    fn vanilla_slot_reuses_the_legacy_original_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        // 只有一个 lotv 槽位、正用着原版
+        let _library = library_with_lotv_mod_active(&data, None);
+        // 当年开隔离时自动收下的老组：有内容、没有任何绑定
+        write(&root(&data).join("原版-1"), "a.SC2Bank", "原版进度");
+
+        let name = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
+            .expect("切原版")
+            .expect("开着");
+        assert_eq!(name, "原版-1", "要复用老组，别新建空组");
+        assert_eq!(
+            profile_for(&data, "lotv").expect("查"),
+            Some("原版-1".to_string()),
+            "复用的同时要把它绑到槽位键上"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root(&data).join("原版-1").join("a.SC2Bank")).expect("读"),
+            "原版进度"
+        );
+        // 切组时 restore() 会留一份「还原前」的自动备份，所以这里只数组
+        assert_eq!(
+            backups(&data)
+                .expect("列")
+                .iter()
+                .filter(|item| !item.auto)
+                .count(),
+            1,
+            "不该多出一个组"
+        );
+
+        // 再走一次：还是同一个组（幂等）
+        let again = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
+            .expect("再切")
+            .expect("开着");
+        assert_eq!(again, "原版-1");
+        assert_eq!(
+            backups(&data)
+                .expect("列")
+                .iter()
+                .filter(|item| !item.auto)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn vanilla_slot_without_legacy_creates_a_group() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let banks = tmp.path().join("Banks");
+        let _library = library_with_lotv_mod_active(&data, None);
+
+        let name = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
+            .expect("切原版")
+            .expect("开着");
+        assert!(name.starts_with("虚空之遗"), "{name}");
+        assert_eq!(profile_for(&data, "lotv").expect("查"), Some(name));
+    }
+
+    #[test]
+    fn reconcile_binds_an_unbound_active_group_to_the_only_vanilla_slot() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_lotv_mod_active(&data, None);
+        // active 指着当年收下的老组，它没有任何绑定
+        write(&root(&data).join("原版-1"), "a.SC2Bank", "原版进度");
+        write_isolation(
+            &data,
+            &Isolation {
+                active: Some("原版-1".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("写状态");
+
+        assert!(
+            reconcile_active_binding(&library, &data).expect("迁移"),
+            "唯一一个原版槽位 + 组没绑定 -> 该绑上"
+        );
+        assert_eq!(
+            profile_for(&data, "lotv").expect("查"),
+            Some("原版-1".to_string())
+        );
+        assert!(
+            !reconcile_active_binding(&library, &data).expect("再迁移"),
+            "第二次必须无动作"
+        );
+    }
+
+    #[test]
+    fn reconcile_does_not_guess_when_several_slots_are_vanilla() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        // 两个官方槽位都正用着原版：挑哪个都是猜 -> 不动
+        let library = Library::new(&data);
+        let mut index = crate::library::LibraryIndex::default();
+        for slot in ["wol", "lotv"] {
+            index
+                .slots
+                .insert(slot.to_string(), crate::library::CampaignSlot::default());
+        }
+        library.save_index(&index).expect("写索引");
+
+        write(&root(&data).join("原版-1"), "a.SC2Bank", "原版进度");
+        write_isolation(
+            &data,
+            &Isolation {
+                active: Some("原版-1".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("写状态");
+
+        assert!(!reconcile_active_binding(&library, &data).expect("迁移"));
+        assert_eq!(profile_for(&data, "wol").expect("查"), None);
+        assert_eq!(profile_for(&data, "lotv").expect("查"), None);
     }
 }

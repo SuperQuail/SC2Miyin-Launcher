@@ -634,8 +634,23 @@ function demoEnsureSaves(key: string, label: string): void {
     if (group) demoBanks = demoBanksOf(group);
     return;
   }
-  // 只有「还没归过档」才收编当前这份；已经有组在用就从空组开始（别串档）
   const custom = key.startsWith("custom/") || key === "custom";
+  const campaign = !custom && !key.includes("/");
+  // 原版键：先复用还没归属的老组（「原版」优先）—— 它的内容就是原版进度，
+  // 别新建一个空组把它晾在一边（后端 ensure_for_slot 同规则）
+  if (campaign) {
+    const bound = (name: string) => name in demoSavesState.assignments;
+    const legacy =
+      demoSaveGroups.find((item) => !item.auto && item.label === "原版" && !bound(item.name)) ??
+      demoSaveGroups.find((item) => !item.auto && !bound(item.name));
+    if (legacy) {
+      demoSavesState.assignments[legacy.name] = key;
+      demoSavesState.active = legacy.name;
+      demoBanks = demoBanksOf(legacy);
+      return;
+    }
+  }
+  // 只有「还没归过档」才收编当前这份；已经有组在用就从空组开始（别串档）
   const adopt = !custom && demoSavesState.active === null;
   const name = label + "-" + (1790000200 + demoSaveGroups.length);
   demoSaveGroups.push({
@@ -900,6 +915,9 @@ const demo: LauncherApi = {
             // 组名和后端一致：自制用版本名；官方改版「战役名 · 版本名」
             const label = slot === "custom" ? variantName : target.display_name + " · " + variantName;
             demoEnsureSaves(key, label);
+          } else {
+            // 切回原版：键就是槽位本身（后端 ensure_for_slot 会复用「原版」老组并补绑定）
+            demoEnsureSaves(slot, target.display_name);
           }
         }
         return [] as string[];

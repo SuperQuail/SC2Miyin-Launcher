@@ -1,0 +1,24 @@
+/* Tailwind（v4）。**只引 theme 与 utilities，不引 preflight** ——
+ * 项目里已有成体系的基础样式（tokens.css / base.css），preflight 会把它们重置掉。
+ * 新界面用原子类写，颜色/圆角走下面映射过来的令牌，别写死。
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  --color-surface: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-on-surface: var(--on-surface);
+  --color-muted: var(--on-surface-variant);
+  --color-accent: var(--accent);
+  --color-outline: var(--outline);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn, #f5a524);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+}
+
+/* 让扫描范围明确一点：只扫用户侧 React 源码 */
+@source "../react";

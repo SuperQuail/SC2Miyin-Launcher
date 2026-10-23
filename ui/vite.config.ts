@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 // 弥音启动器前端构建配置。
@@ -7,6 +8,9 @@ export default defineConfig({
   // 这个构建**只管用户侧**（React）。开发者页是独立的一次构建（见 vite.ide.config.ts）——
   // 放在一起的话 rolldown 会把两边拆出的公共块塞进 index.html 预加载，
   // 结果用户侧执行到开发者页的挂载代码，白屏。
+  // Tailwind 只管新界面的原子类；preflight 没开（见 styles/tailwind.css），
+  // 现有组件样式一个字节不动。
+  plugins: [tailwindcss()],
   clearScreen: false,
   server: {
     port: 5183,

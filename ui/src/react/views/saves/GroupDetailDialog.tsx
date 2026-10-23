@@ -1,5 +1,5 @@
 import type { SaveFile } from "../../../api/types";
-import { Button, Sheet } from "../../ui";
+import { Button, Select, Sheet } from "../../ui";
 import "./saves.css";
 
 /**
@@ -61,24 +61,18 @@ export function GroupDetailDialog({
             <li className="savedetail__row" key={file.name}>
               <span className="savedetail__name">{file.name}</span>
               <span className="savedetail__size">{(file.bytes / 1024).toFixed(0)} KB</span>
-              <select
-                className="savedetail__move"
-                value=""
-                disabled={busy || choices.length === 0}
-                onChange={(event) => {
-                  const key = event.target.value;
-                  if (key) onMove(file.name, key);
-                  event.target.value = "";
-                }}
-                aria-label={"把「" + file.name + "」归到哪个战役"}
-              >
-                <option value="">{choices.length === 0 ? "没有可选的目的地" : "归到…"}</option>
-                {choices.map((choice) => (
-                  <option key={choice.key} value={choice.key}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
+              <span className="savedetail__move">
+                <Select
+                  value=""
+                  placeholder="归到…"
+                  ariaLabel={"把「" + file.name + "」归到哪个战役"}
+                  options={choices.map((choice) => ({ value: choice.key, label: choice.label }))}
+                  disabled={busy || choices.length === 0}
+                  onChange={(key) => {
+                    if (key) onMove(file.name, key);
+                  }}
+                />
+              </span>
             </li>
           ))}
         </ul>

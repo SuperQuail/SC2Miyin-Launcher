@@ -39,6 +39,9 @@
 }
 
 .saves__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -49,6 +52,8 @@
 
 /* 一行三格：信息（吃掉剩余宽度）/ 归属 / 操作。列宽固定，别让内容自己挤 */
 .saves__row {
+  /* 有 padding+border，宽度算进 100% 里，否则会比容器宽出去（分区之后才暴露） */
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;

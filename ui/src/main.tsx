@@ -6,6 +6,7 @@ import { App } from "./react/app/App";
 import { applyInitialTheme } from "./react/state/useTheme";
 import "./styles/tokens.css";
 import "./styles/base.css";
+import "./styles/tailwind.css";
 import "./styles/ripple.css";
 import "./react/app/shell.css";
 

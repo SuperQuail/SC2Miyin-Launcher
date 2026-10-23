@@ -88,6 +88,26 @@ export function SavesView({
   // 没有存档的组不显示（当前在用的那个例外 —— 不然看不出现在用的是哪份）
   const visible = groups.filter((item) => item.files > 0 || isolation.active === item.name);
 
+  // 按战役分区：绑定键的 "/" 前面就是槽位；没有绑定 = 未分类。
+  // 分区顺序跟 targets 一致（官方固定菜单顺序、自制最后），未分类垫底。
+  const sectionNameOf = (group: SaveBackup): { key: string; name: string } => {
+    const binding = isolation.assignments[group.name];
+    if (!binding) return { key: "zz-legacy", name: "未分类" };
+    const slot = binding.includes("/") ? binding.split("/")[0] : binding;
+    const base = targets.find((item) => item.key === slot);
+    return { key: slot, name: base ? base.label.replace("（原版）", "") : slot };
+  };
+
+  const sections: Array<{ key: string; name: string; groups: SaveBackup[] }> = [];
+  for (const group of visible) {
+    const section = sectionNameOf(group);
+    const found = sections.find((item) => item.key === section.key);
+    if (found) found.groups.push(group);
+    else sections.push({ key: section.key, name: section.name, groups: [group] });
+  }
+  sections.sort((a, b) => (a.key === "zz-legacy" ? 1 : b.key === "zz-legacy" ? -1 : 0));
+
+
   const banksText = !banks
     ? "正在读取…"
     : banks.missing
@@ -102,10 +122,10 @@ export function SavesView({
 
   return (
     <div className="page">
-      <section className="card panel">
-        <header className="panel__head">
-          <h2 className="panel__title">存档</h2>
-          <div className="panel__actions">
+      <section className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <h2 className="m-0 text-base font-semibold text-on-surface">存档</h2>
+          <div className="flex gap-1.5">
             <Button disabled={busy} onClick={onRefresh}>
               重新读取
             </Button>
@@ -115,33 +135,28 @@ export function SavesView({
               </Button>
             )}
           </div>
-        </header>
+        </div>
 
-        <p className="saves__lede">
+        <p className="mb-3 max-w-[680px] text-[13px] leading-relaxed text-muted">
           {isolation.enabled
             ? "每个战役用自己的一份存档，换战役不会把上一部的进度冲掉。关掉之后不再动 Banks，已经存下的组都留着。"
             : "现在关着：启动器不碰 Banks（游戏里就那一份）。要按战役分开管，去设置里打开「按战役隔离存档」。"}
         </p>
 
-        <dl className="saves__facts">
-          <div className="saves__fact">
-            <dt>游戏里这份</dt>
-            <dd>{banksText}</dd>
+        <dl className="m-0 flex flex-col gap-1.5">
+          <div className="flex gap-3 text-[12.5px]">
+            <dt className="w-[84px] shrink-0 text-muted">游戏里这份</dt>
+            <dd className="m-0 break-all">{banksText}</dd>
           </div>
-          <div className="saves__fact">
-            <dt>当前在用</dt>
-            <dd>{activeText}</dd>
+          <div className="flex gap-3 text-[12.5px]">
+            <dt className="w-[84px] shrink-0 text-muted">当前在用</dt>
+            <dd className={isolation.enabled && isolation.active ? "m-0 font-semibold text-accent" : "m-0"}>{activeText}</dd>
           </div>
         </dl>
       </section>
 
-      <section className="card panel">
-        <header className="panel__head">
-          <h2 className="panel__title">存档组</h2>
-          <span className="saves__count">{visible.length} 个</span>
-        </header>
-
-        {visible.length === 0 ? (
+      {visible.length === 0 && (
+        <section className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5">
           <p className="saves__empty">
             还没有存档组
             <span className="saves__empty-sub">
@@ -150,9 +165,17 @@ export function SavesView({
                 : "存档隔离关着的时候不分组。去设置里打开它，启用战役时就会自动建组。"}
             </span>
           </p>
-        ) : (
+        </section>
+      )}
+
+      {sections.map((section) => (
+        <section key={section.key} className="flex flex-col gap-2">
+          <div className="flex items-baseline gap-2">
+            <h3 className="m-0 text-[13.5px] font-semibold text-on-surface">{section.name}</h3>
+            <span className="text-[11.5px] text-muted">{section.groups.length} 个存档组</span>
+          </div>
           <ul className="saves__list">
-            {visible.map((group) => {
+              {section.groups.map((group) => {
               const active = isolation.active === group.name;
               const slot = isolation.assignments[group.name] ?? "";
               return (
@@ -191,12 +214,13 @@ export function SavesView({
               );
             })}
           </ul>
-        )}
+        </section>
+      ))}
 
-        <p className="saves__foot">
-          「切换到这个」= 游戏里换成这份存档（现在这份会先存回它自己的组）；「设为当前」= 把游戏里现在这份存进这个组。归属改了之后，启用那个战役就会用它。
-        </p>
-      </section>
+      <p className="saves__foot">
+        「切换到这个」= 游戏里换成这份存档（现在这份会先存回它自己的组）；「设为当前」= 把游戏里现在这份存进这个组。
+        要改某一份存档的归属，点上面对应的组名打开它。
+      </p>
 
       {detail && (
         <GroupDetailDialog

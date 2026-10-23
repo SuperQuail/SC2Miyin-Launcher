@@ -101,7 +101,10 @@ describe("存档页", () => {
 
   it("「切换到这个」和「设为当前」是两个不同的动作", async () => {
     const { onSwitch, onSaveInto } = await mount();
-    const row = document.querySelectorAll(".saves__row")[1];
+    // 分区之后行顺序会变，按名字找那一行（自由之翼那个组）
+    const row = [...document.querySelectorAll(".saves__row")].find((item) =>
+      (item.textContent ?? "").includes("自由之翼"),
+    ) as HTMLElement;
     const buttons = [...row.querySelectorAll("button")];
     const switchButton = buttons.find((button) => button.textContent === "切换到这个");
     const saveButton = buttons.find((button) => button.textContent === "设为当前");
