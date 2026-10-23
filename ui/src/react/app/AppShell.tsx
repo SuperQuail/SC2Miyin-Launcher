@@ -207,9 +207,7 @@ export function AppShell() {
 groups={app.saves.saveBackups.filter((item) => !item.auto)}
                 banks={app.saves.saves}
                 busy={app.busy}
-                onSwitch={(name) => void app.saves.switchSaveProfile(name)}
                 
-                onSaveInto={(name) => void app.saves.saveIntoProfile(name)}
                 onRefresh={() => void app.saves.refreshSaves()}
                 onOpenSettings={() => app.nav.setView("settings")}
                 onGroupFiles={(name) => app.saves.groupFiles(name)}

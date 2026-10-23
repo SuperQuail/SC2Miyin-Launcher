@@ -21,8 +21,6 @@ export function SavesView({
   groups,
   banks,
   busy,
-  onSwitch,
-  onSaveInto,
   onRefresh,
   onOpenSettings,
   onGroupFiles,
@@ -34,8 +32,6 @@ export function SavesView({
   groups: SaveBackup[];
   banks: SaveSet | null;
   busy: boolean;
-  onSwitch: (name: string) => void;
-  onSaveInto: (name: string) => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
   onGroupFiles: (name: string) => Promise<SaveFile[]>;
@@ -108,10 +104,15 @@ export function SavesView({
     enabled: true,
   }));
 
+  // 未启用/未分类的旧组：只留有内容的；标签跟已启用那行重复的丢掉（那是同一战役的空壳目录）；
+  // 分区按它们的标签前缀去找对应战役 —— 折在该战役下面，而不是全塞进一个「未分类」。
+  const enabledLabels = new Set(rows.map((row) => row.label));
   const otherRows: SaveRow[] = groups
     .filter((group) => {
       const binding = isolation.assignments[group.name];
-      return !binding || !usedKeys.has(binding);
+      if (binding && usedKeys.has(binding)) return false;
+      if (group.files === 0) return false;
+      return !enabledLabels.has(labelOf(group));
     })
     .map((group) => ({
       key: "group:" + group.name,
@@ -121,8 +122,19 @@ export function SavesView({
       loose: !isolation.assignments[group.name],
     }));
 
+  /** 老组属于哪个战役：看它的目录名/标签以哪个战役名开头。 */
+  const campaignOfLabel = (label: string): string | null => {
+    for (const [slug, name] of Object.entries(friendly)) {
+      if (label.startsWith(name)) return slug;
+    }
+    return null;
+  };
   const sectionOf = (row: SaveRow): { key: string; name: string } => {
-    if (!row.enabled) return { key: "zz-other", name: "未分类 / 已停用" };
+    if (!row.enabled) {
+      const matched = campaignOfLabel(row.label);
+      if (matched) return { key: matched, name: friendly[matched] ?? matched };
+      return { key: "zz-other", name: "未分类 / 已停用" };
+    }
     const slot = row.key.includes("/") ? row.key.split("/")[0] : row.key;
     const base = targets.find((item) => item.key === slot);
     return { key: slot, name: base ? base.label.replace("（原版）", "") : (friendly[slot] ?? slot) };
@@ -241,21 +253,7 @@ export function SavesView({
                           管理存档
                         </Button>
                       </span>
-                    )}
-                    <Button
-                      disabled={busy || active}
-                      onClick={() => onSwitch(group?.name ?? row.key)}
-                    >
-                      {active ? "正在用" : "切换为该分类"}
-                    </Button>
-                    <Button
-                      variant="tonal"
-                      disabled={busy || group === null}
-                      onClick={() => group && onSaveInto(group.name)}
-                    >
-                      设为当前
-                    </Button>
-                  </div>
+                    )}                  </div>
                 </li>
               );
             })}
@@ -272,8 +270,8 @@ export function SavesView({
       )}
 
       <p className="saves__foot">
-        「切换为该分类」= 游戏里换成这份存档（现在这份会先存回它自己的分类）；「设为当前」= 把游戏里现在这份存进该分类。
-        要改某一份存档的归属，点「管理存档」打开它。
+        这个页面只管「存档归哪个战役」。要让某个战役生效、或切换版本，去「战役 / 自制战役」页操作。
+        改某一份存档的归属，点「管理存档」打开它。
       </p>
 
       {detail && (

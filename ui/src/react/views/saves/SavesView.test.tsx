@@ -7,11 +7,10 @@ import type { SaveBackup, SaveIsolation, SaveTarget } from "../../../api/types";
 import { SavesView } from "./SavesView";
 
 /**
- * 存档页的渲染与接线。
+ * 存档页：**一行 = 一个战役/版本**（已启用的各占一格，哪怕还没存档、哪怕它是原版）。
  *
- * 这一页的核心是**一行 = 一个战役/版本**（已启用的各占一格，哪怕还没存档、哪怕它是原版），
- * 没启用的旧组默认折叠。这里钉四件事：已启用各占一行、空分类照样出现、折叠开关、
- * 以及「切换为该分类 / 设为当前」别被写成同一个动作。
+ * 这一页只负责「存档归哪个战役」—— 切换战役在战役页，所以行里只有「管理存档」一个按钮。
+ * 钉四件事：已启用各占一行、空分类照样出现、未启用的折在对应战役下、没有任何重复标签。
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -20,11 +19,14 @@ const targets: SaveTarget[] = [
   { key: "wol", label: "自由之翼（原版）", enabled: true },
   { key: "wol/重生", label: "自由之翼 · 自由之翼：重生", enabled: false },
   { key: "hots", label: "虫群之心（原版）", enabled: true },
+  { key: "custom/SCMR", label: "自制战役 · SCMR", enabled: true },
 ];
 
 const groups: SaveBackup[] = [
   { name: "自由之翼-1790000100", label: "自由之翼", bytes: 1_220_000, files: 2 },
   { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3, legacy: true },
+  // 同一战役的空壳目录：不该在页面上再出现一次（用户报的「没去重」）
+  { name: "自由之翼_·_重生-1790000099", label: "自由之翼 · 重生", bytes: 0, files: 0 },
 ];
 
 const isolation: SaveIsolation = {
@@ -41,8 +43,6 @@ afterEach(async () => {
 });
 
 async function mount(overrides?: { targets?: SaveTarget[]; groups?: SaveBackup[]; isolation?: SaveIsolation }) {
-  const onSwitch = vi.fn();
-  const onSaveInto = vi.fn();
   const onRefresh = vi.fn();
   const onOpenSettings = vi.fn();
   const host = document.createElement("div");
@@ -56,8 +56,6 @@ async function mount(overrides?: { targets?: SaveTarget[]; groups?: SaveBackup[]
         groups: overrides?.groups ?? groups,
         banks: { files: [{ name: "ENS.SC2Bank", bytes: 611_000 }], bytes: 1_842_000, missing: false },
         busy: false,
-        onSwitch,
-        onSaveInto,
         onRefresh,
         onOpenSettings,
         onGroupFiles: vi.fn(async () => []),
@@ -71,15 +69,14 @@ async function mount(overrides?: { targets?: SaveTarget[]; groups?: SaveBackup[]
     });
     host.remove();
   });
-  return { onSwitch, onSaveInto, onOpenSettings };
+  return { onRefresh, onOpenSettings };
 }
 
 describe("存档页", () => {
   it("已启用的战役/版本各占一行（哪怕还没存档）", async () => {
     await mount();
     const rows = [...document.querySelectorAll(".saves__row")];
-    // wol（有 2 个文件）+ hots（还没有组 -> 「还没有存档」）
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     const text = document.body.textContent ?? "";
     expect(text).toContain("自由之翼（原版）");
     expect(text).toContain("2 个文件");
@@ -92,7 +89,13 @@ describe("存档页", () => {
     expect(document.querySelector(".saves__row--active")?.textContent).toContain("当前在用");
   });
 
-  it("未启用的旧组默认折叠，点开才出现", async () => {
+  it("行里只有「管理存档」一个按钮（切换战役属于战役页）", async () => {
+    await mount();
+    const texts = [...document.querySelectorAll(".saves__ops button")].map((button) => button.textContent?.trim());
+    expect(texts).toEqual(["管理存档"]);
+  });
+
+  it("未启用的旧组默认折叠，展开后折到对应战役下面", async () => {
     await mount();
     expect(document.body.textContent).not.toContain("未分类（升级前的存档）");
     const toggle = [...document.querySelectorAll("button")].find((button) =>
@@ -103,26 +106,9 @@ describe("存档页", () => {
       toggle?.click();
     });
     expect(document.body.textContent).toContain("未分类（升级前的存档）");
-  });
-
-  it("「切换为该分类」和「设为当前」是两个不同的动作", async () => {
-    // active 置空，这样那一行不是"正在用"，两个动作都点得动
-    const { onSwitch, onSaveInto } = await mount({
-      isolation: { enabled: true, active: null, assignments: isolation.assignments },
-    });
-    const row = [...document.querySelectorAll(".saves__row")].find((item) =>
-      (item.textContent ?? "").includes("自由之翼（原版）"),
-    ) as HTMLElement;
-    const buttons = [...row.querySelectorAll("button")];
-    await act(async () => {
-      buttons.find((button) => button.textContent === "切换为该分类")?.click();
-    });
-    expect(onSwitch).toHaveBeenCalledWith("自由之翼-1790000100");
-
-    await act(async () => {
-      buttons.find((button) => button.textContent === "设为当前")?.click();
-    });
-    expect(onSaveInto).toHaveBeenCalledWith("自由之翼-1790000100");
+    // 空壳目录不该重复出现
+    const labels = [...document.querySelectorAll(".saves__title-text")].map((item) => item.textContent);
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
   it("既没启用分类、也没有旧组时给空状态说明", async () => {
