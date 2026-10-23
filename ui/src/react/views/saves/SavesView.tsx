@@ -185,14 +185,7 @@ export function SavesView({
                 >
                   <div className="saves__info">
                     <span className="saves__name">
-                      <button
-                        type="button"
-                        className="saves__name-btn"
-                        title="打开看看这个组里有哪些存档"
-                        onClick={() => openGroup(group.name, labelOf(group))}
-                      >
-                        {labelOf(group)}
-                      </button>
+                      <span className="saves__title-text">{labelOf(group)}</span>
                       {active && <span className="tag">当前在用</span>}
                     </span>
                     <span className="saves__meta">
@@ -203,6 +196,15 @@ export function SavesView({
                   {!slot && <span className="saves__loose">未指定</span>}
 
                   <div className="saves__ops">
+                    <span className="saves__name-btn">
+                      <Button
+                        variant="tonal"
+                        title={"打开「" + labelOf(group) + "」，看里面的存档、改其中某一份的归属"}
+                        onClick={() => openGroup(group.name, labelOf(group))}
+                      >
+                        管理存档
+                      </Button>
+                    </span>
                     <Button disabled={busy || active} onClick={() => onSwitch(group.name)}>
                       {active ? "正在用" : "切换到这个"}
                     </Button>

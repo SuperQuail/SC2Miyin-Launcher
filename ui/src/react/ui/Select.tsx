@@ -50,7 +50,7 @@ export function Select({
   };
 
   return (
-    <div ref={rootRef} className="relative inline-block text-left">
+    <div ref={rootRef} className="relative inline-block w-full text-left">
       <button
         type="button"
         disabled={disabled}
@@ -78,7 +78,7 @@ export function Select({
           }
         }}
         className={[
-          "flex min-w-[9.5rem] items-center justify-between gap-2 rounded-md px-3 py-1.5 text-[12.5px]",
+          "flex w-full min-w-[9.5rem] items-center justify-between gap-2 rounded-md px-3 py-1.5 text-[12.5px]",
           "border border-[color-mix(in_srgb,var(--outline)_85%,transparent)] bg-surface-2 text-on-surface",
           "transition-colors hover:border-accent/60 disabled:cursor-not-allowed disabled:opacity-50",
           open ? "border-accent" : "",
@@ -94,7 +94,7 @@ export function Select({
         <ul
           id={listId}
           role="listbox"
-          className="absolute right-0 z-50 mt-1 max-h-64 min-w-[13rem] overflow-auto rounded-lg border border-[color-mix(in_srgb,var(--outline)_80%,transparent)] bg-surface p-1 shadow-lg"
+          className="absolute left-0 z-50 mt-1 max-h-64 w-full min-w-[13rem] overflow-auto rounded-lg border border-[color-mix(in_srgb,var(--outline)_80%,transparent)] bg-surface p-1 shadow-lg"
         >
           {options.length === 0 && (
             <li className="px-3 py-2 text-[12px] text-muted">没有可选项</li>

@@ -125,20 +125,11 @@
 
 /* 组名是可点的：点开看这个组里有哪些存档 */
 .saves__name-btn {
-  padding: 0;
-  border: none;
-  border-bottom: 1px dashed color-mix(in srgb, var(--on-surface) 35%, transparent);
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
+  display: inline-flex;
 }
 
-.saves__name-btn:hover {
-  border-bottom-color: var(--accent);
-  color: var(--accent);
+.saves__title-text {
+  font-weight: 600;
 }
 
 .savedetail__lede {
