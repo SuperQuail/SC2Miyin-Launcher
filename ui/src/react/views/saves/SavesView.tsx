@@ -95,7 +95,17 @@ export function SavesView({
     if (!binding) return { key: "zz-legacy", name: "未分类" };
     const slot = binding.includes("/") ? binding.split("/")[0] : binding;
     const base = targets.find((item) => item.key === slot);
-    return { key: slot, name: base ? base.label.replace("（原版）", "") : slot };
+    // 分区标题用中文名：自制战役的键是 custom，直接显示会很怪
+    const friendly: Record<string, string> = {
+      custom: "自制战役",
+      wol: "自由之翼",
+      hots: "虫群之心",
+      hotsevolution: "虫群之心 · 进化",
+      lotv: "虚空之遗",
+      lotvprologue: "虚空之遗 · 序章",
+      nova: "诺娃隐秘行动",
+    };
+    return { key: slot, name: base ? base.label.replace("（原版）", "") : (friendly[slot] ?? slot) };
   };
 
   const sections: Array<{ key: string; name: string; groups: SaveBackup[] }> = [];

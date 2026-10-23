@@ -88,9 +88,13 @@ export interface SlotView {
   /** 启用时地图落到的官方子目录（相对 Maps/Campaign）。 */
   sub_directory: string | null;
   variants: Variant[];
-  /** 当前启用的版本 id；null 表示原版战役。 */
+  /** 最后选中的那个版本 id；null 表示原版战役。**别拿它当「装了没」**。 */
   active: string | null;
   active_name: string | null;
+  /** **装在游戏目录里**的版本 id（按激活清单算）。自制战役可以同时有好几个。 */
+  enabled_variants?: string[];
+  /** 原版是不是装着的那一份（= 这个槽位没有任何版本装着）。 */
+  vanilla_enabled?: boolean;
   notice: string | null;
 }
 
@@ -230,6 +234,13 @@ export interface SaveTarget {
   key: string;
   /** 界面上的说法：`<战役名>（原版）` / `<战役名> · <版本名>`。 */
   label: string;
+  /**
+   * 这个战役 / 版本现在**装在游戏目录里**（按激活清单算，不看槽位选中项）。
+   *
+   * 官方改版最多一个为 true；**自制战役可以有好几个 true**。
+   * 后端一定会送；可选是为了老的测试夹具不用补。
+   */
+  enabled?: boolean;
 }
 
 /** 一份已备份的存档（= 一个存档组）。 */

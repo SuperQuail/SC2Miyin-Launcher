@@ -105,6 +105,25 @@ pub fn activate(
     Ok(warnings)
 }
 
+/// 现在**装在游戏目录里**的战役版本（`(槽位, 版本 id)`），按激活清单 `active.json` 算。
+///
+/// **别拿 `index.slots[..].active` 当「装了没」**：它只记得最后选中的那一个。
+/// 自制战役可以同时装好几部 —— 清单里有几条就是几部在游戏目录里。
+pub fn enabled_variants(library: &Library, installation: &Installation) -> Vec<(String, String)> {
+    let manifest = Manifest::load_migrating(library.root(), installation);
+    let mut out: Vec<(String, String)> = Vec::new();
+    for file in &manifest.files {
+        let Owner::Campaign { slot, variant } = &file.owner else {
+            continue;
+        };
+        let row = (slot.clone(), variant.clone());
+        if !out.contains(&row) {
+            out.push(row);
+        }
+    }
+    out
+}
+
 /// 攒出「启用这个版本」要铺的那份计划。`activate` 与 `preview` 共用同一份 ——
 /// 两处各写一遍的话，预演说"会覆盖 A"，实际却动了 B，那种错最要命。
 fn plan_for(
@@ -269,4 +288,71 @@ pub fn conflicts(
     found.sort();
     found.dedup();
     Ok(found)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::Library;
+    use crate::library::install::{Manifest, Owner, Plan};
+    use crate::sc2::{DiscoverySource, Installation};
+
+    /// 造一个能通过校验的假游戏目录。
+    fn fake_game(tmp: &std::path::Path) -> Installation {
+        let game = tmp.join("game");
+        std::fs::create_dir_all(&game).expect("建目录");
+        std::fs::write(game.join("StarCraft II.exe"), b"x").expect("写 exe");
+        Installation::from_root(&game, DiscoverySource::Manual).expect("假安装")
+    }
+
+    #[test]
+    fn enabled_variants_comes_from_the_manifest_not_the_selection() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let library = Library::new(tmp.path().join("data"));
+        let installation = fake_game(tmp.path());
+        let source = tmp.path().join("pkg.SC2Map");
+        std::fs::write(&source, b"x").expect("写源文件");
+
+        // 游戏目录里实际装了两部自制战役（清单两条）—— 槽位 `active` 只有一个，
+        // 所以「装了没」只能看清单
+        let mut manifest = Manifest::default();
+        for variant in ["甲", "乙"] {
+            let mut plan = Plan::new(Owner::Campaign {
+                slot: "custom".to_string(),
+                variant: variant.to_string(),
+            });
+            plan.push(
+                source.clone(),
+                format!("Maps/CustomCampaigns/{variant}/{variant}.SC2Map"),
+            );
+            manifest
+                .apply(library.root(), &installation, &plan)
+                .expect("装");
+        }
+
+        let mut enabled = enabled_variants(&library, &installation);
+        enabled.sort();
+        let mut expected = vec![
+            ("custom".to_string(), "甲".to_string()),
+            ("custom".to_string(), "乙".to_string()),
+        ];
+        expected.sort();
+        assert_eq!(enabled, expected, "两部自制都装着 -> 两条都在");
+
+        // 撤掉一部 -> 只剩一条
+        manifest
+            .remove(
+                library.root(),
+                &installation,
+                &Owner::Campaign {
+                    slot: "custom".to_string(),
+                    variant: "甲".to_string(),
+                },
+            )
+            .expect("撤");
+        assert_eq!(
+            enabled_variants(&library, &installation),
+            vec![("custom".to_string(), "乙".to_string())]
+        );
+    }
 }

@@ -624,6 +624,13 @@ pub struct SlotView {
     pub active: Option<String>,
     /// 当前启用版本的名字，方便界面直接显示。
     pub active_name: Option<String>,
+    /// **装在游戏目录里**的版本 id（按激活清单算）。
+    ///
+    /// 和 `active` 不是一回事：`active` 只是「最后选中的那个」，这个才是「真的装着」。
+    /// **自制战役可以同时装着好几部**，所以这里可能有多条。
+    pub enabled_variants: Vec<String>,
+    /// 原版是不是装着的那一份（= 这个槽位没有任何版本装着）。
+    pub vanilla_enabled: bool,
     /// 一句提示（例如官方目录缺失）。
     pub notice: Option<String>,
 }
@@ -705,6 +712,10 @@ impl Library {
     /// 按**官方发布顺序**生成槽位快照。
     pub fn slots(&self, installation: Option<&Installation>) -> Vec<SlotView> {
         let index = self.index();
+        // 「装了没」看激活清单，不看槽位的 `active`（那只记最后选中的那个）
+        let installed = installation
+            .map(|installation| self::activation::enabled_variants(self, installation))
+            .unwrap_or_default();
 
         // 主菜单列五个条目：四大原版战役（进化归虫群之心、序章归虚空之遗）+ 自制战役
         CampaignType::MENU
@@ -725,6 +736,12 @@ impl Library {
                     None
                 };
 
+                let enabled_variants: Vec<String> = installed
+                    .iter()
+                    .filter(|(installed_slot, _)| installed_slot == slug)
+                    .map(|(_, variant)| variant.clone())
+                    .collect();
+
                 SlotView {
                     slug: slug.to_string(),
                     display_name: kind.display_name(),
@@ -732,6 +749,8 @@ impl Library {
                     variants: slot.variants,
                     active: slot.active,
                     active_name,
+                    vanilla_enabled: enabled_variants.is_empty(),
+                    enabled_variants,
                     notice,
                 }
             })

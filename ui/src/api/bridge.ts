@@ -614,6 +614,26 @@ function demoBanksOf(group: SaveBackup): SaveSet {
 }
 
 /**
+ * 演示模式里「游戏目录里实际装着哪些版本」—— 对应后端的 `active.json`。
+ *
+ * 和后端一样：**这是「装了没」的唯一依据**，`slot.active` 只是「最后选中的那个」。
+ * 自制战役可以同时装好几部（所以 `custom` 那一格可能是多个）。
+ */
+const demoInstalled: Record<string, string[]> = {};
+// 演示数据里 `active` 就是「装着的那一版」，先对齐，免得一进页面就自相矛盾
+for (const slot of demoslots) {
+  if (slot.active) demoInstalled[slot.slug] = [slot.active];
+}
+
+function demoInstalledIn(slot: string): string[] {
+  return demoInstalled[slot] ?? [];
+}
+
+function demoIsInstalled(slot: string, variantId: string): boolean {
+  return demoInstalledIn(slot).includes(variantId);
+}
+
+/**
  * 演示模式的隔离键 —— 和后端同规则：**有版本就是 `槽位/身份`**（官方改版也一样），
  * 原版才是槽位本身；身份优先注册 ID、没有就用版本 id。
  */
@@ -699,7 +719,7 @@ function demoTargets(): SaveTarget[] {
   const out: SaveTarget[] = [];
   // 键相同的只留一条（同一部战役的多个版本共用一个组）；重名补版本号/身份，
   // 否则下拉里会出现两条一模一样的选项 —— 和 core 里 named_targets 的规则一致
-  const push = (key: string, label: string, version?: string | null) => {
+  const push = (key: string, label: string, enabled: boolean, version?: string | null) => {
     if (out.some((item) => item.key === key)) return;
     const clash = out.some((item) => item.label === label);
     const suffix = clash
@@ -707,19 +727,30 @@ function demoTargets(): SaveTarget[] {
         ? " " + version
         : "（" + key.split("/").pop() + "）"
       : "";
-    out.push({ key, label: label + suffix });
+    out.push({ key, label: label + suffix, enabled });
   };
   // 官方：每个槽位先「（原版）」（键 = 槽位），再跟上它的每个改版（同一部只一条）
   for (const slot of demoslots.filter((item) => item.slug !== "custom")) {
-    push(slot.slug, slot.display_name + "（原版）");
+    // 原版「装着」= 这个槽位一个版本都没装
+    push(slot.slug, slot.display_name + "（原版）", demoInstalledIn(slot.slug).length === 0);
     for (const item of slot.variants) {
-      push(demoIsolationKey(slot.slug, item.id), slot.display_name + " · " + item.name, item.version);
+      push(
+        demoIsolationKey(slot.slug, item.id),
+        slot.display_name + " · " + item.name,
+        demoIsInstalled(slot.slug, item.id),
+        item.version,
+      );
     }
   }
-  // 自制：每部一条
+  // 自制：每部一条（可以同时好几部 true）
   const custom = demoslots.find((slot) => slot.slug === "custom");
   for (const item of custom?.variants ?? []) {
-    push(demoIsolationKey("custom", item.id), "自制战役 · " + item.name, item.version);
+    push(
+      demoIsolationKey("custom", item.id),
+      "自制战役 · " + item.name,
+      demoIsInstalled("custom", item.id),
+      item.version,
+    );
   }
   return out;
 }
@@ -750,7 +781,18 @@ const demo: LauncherApi = {
   detectInstallation: () => delay(demoInstallation as Installation | null),
   setInstallation: () => delay(demoInstallation),
   libraryRoot: () => delay(DEMO_LIBRARY_ROOT),
-  listSlots: () => delay(demoslots.map((slot) => ({ ...slot }))),
+  listSlots: () =>
+    delay(
+      demoslots.map((slot) => {
+        const enabled = demoInstalledIn(slot.slug);
+        return {
+          ...slot,
+          variants: slot.variants.map((item) => ({ ...item })),
+          enabled_variants: [...enabled],
+          vanilla_enabled: enabled.length === 0,
+        };
+      }),
+    ),
   // 演示模式：假的合并案只在 ?merge=1 时给 —— 否则一进演示就被弹窗挡住，什么都看不见
   mergeStatus: () =>
     new URLSearchParams(location.search).has("merge") ? delay(demoMergeStatus()) : delay(null),
@@ -905,6 +947,16 @@ const demo: LauncherApi = {
         const target = demoslots.find((item) => item.slug === slot);
         if (target) {
           target.active = variantId;
+          // 「装了没」记在清单里（演示模式就是这份内存映射）
+          if (variantId === null) {
+            demoInstalled[slot] = [];
+          } else if (slot === "custom") {
+            // 自制战役允许同时装好几部
+            const current = demoInstalledIn(slot);
+            demoInstalled[slot] = current.includes(variantId) ? current : [...current, variantId];
+          } else {
+            demoInstalled[slot] = [variantId];
+          }
           const found = target.variants.find((item) => item.id === variantId);
           target.active_name = found ? found.name : null;
           // 启用战役时存档跟着走（模拟后端的 ensure_for_slot）：

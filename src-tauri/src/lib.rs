@@ -300,12 +300,25 @@ fn save_into_profile(
     library_saves::save_into(state.library.root(), &banks, &name).map_err(|e| e.to_string())
 }
 
-/// 存档页「归属」下拉的候选：官方战役（固定菜单顺序）+ 每部自制战役。
+/// 候选清单：官方战役（固定菜单顺序）+ 每部自制战役，各带一个 `enabled`。
 ///
+/// `enabled` 按**激活清单**（游戏目录里实际装了什么）算 —— 自制战役可以同时装好几部，
+/// 所以别拿槽位的 `active`（那只是最后选中的那个）当「装了没」。
 /// 键的算法和 `saves::isolation_key` 同源，界面别自己拼。
 #[tauri::command(async)]
 fn saves_targets(state: State<'_, AppState>) -> Vec<miyin_core::saves::SaveTarget> {
-    miyin_core::saves::targets(&state.library)
+    let installation = state
+        .installation
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    let installed = match installation.as_ref() {
+        Some(installation) => {
+            miyin_core::library::activation::enabled_variants(&state.library, installation)
+        }
+        None => Vec::new(),
+    };
+    miyin_core::saves::targets(&state.library, &installed)
 }
 
 /// 一个存档组里有哪些存档文件（组详情用：可以打开看、挑某一份挪走）。

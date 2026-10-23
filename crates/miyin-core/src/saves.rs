@@ -308,7 +308,7 @@ pub fn move_save_to_key(root: &Path, from: &str, file: &str, key: &str) -> Resul
         None => {
             // 新建之前先把两件事确认掉：这个键是不是真的目标、源文件在不在。
             // 不然失败时账上会多一条指向空组的绑定。
-            if !targets(&library).iter().any(|item| item.key == key) {
+            if !targets(&library, &[]).iter().any(|item| item.key == key) {
                 return Err(crate::error::Error::PackageRejected(format!(
                     "未知的归属：{key}"
                 )));
@@ -677,26 +677,35 @@ pub fn isolation_key(library: &Library, slot: &str, variant_id: Option<&str>) ->
     }
 }
 
-/// 存档页「归属」下拉的一个候选。
+/// 存档页「归属」下拉 / 战役卡片的一个候选。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SaveTarget {
     /// 写进 `state.json` 的隔离键。
     pub key: String,
     /// 界面上的说法（官方：`<战役名>（原版）` / `<战役名> · <版本名>`）。
     pub label: String,
+    /// 这个战役 / 版本现在**装在游戏目录里**（按激活清单算，不看槽位选中项）。
+    ///
+    /// 官方改版最多一个为 true；**自制战役可以有好几个 true**。
+    pub enabled: bool,
 }
 
 /// 一个槽位里的变体按隔离键归并：同一部（共享注册 ID）只留一条。
 ///
 /// 名字取「当前启用那版」，都没启用就取导入时间最新的 —— 稳定，不随遍历顺序漂
 /// （不然页面上同一个条目会忽然换名字）。
-fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Option<String>)> {
+fn picked_variants(
+    index: &LibraryIndex,
+    slot: &str,
+    installed: &[(String, String)],
+) -> Vec<(String, String, Option<String>, bool)> {
     struct Picked {
         key: String,
         name: String,
         version: Option<String>,
         active: bool,
         imported_at: u64,
+        enabled: bool,
     }
 
     let Some(entry) = index.slots.get(slot) else {
@@ -707,6 +716,10 @@ fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Opt
     for variant in &entry.variants {
         let key = format!("{slot}/{}", identity_of(variant));
         let active = entry.active.as_deref() == Some(variant.id.as_str());
+        // 装着没：按激活清单，不看 active
+        let installed_variant = installed.iter().any(|(installed_slot, installed_id)| {
+            installed_slot == slot && installed_id == &variant.id
+        });
         match picked.iter_mut().find(|item| item.key == key) {
             None => picked.push(Picked {
                 key,
@@ -714,8 +727,11 @@ fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Opt
                 version: variant.version.clone(),
                 active,
                 imported_at: variant.imported_at,
+                enabled: installed_variant,
             }),
             Some(item) => {
+                // 同一部战役的任一版本装着，这条就算「装着」
+                item.enabled |= installed_variant;
                 // 已启用那版不换；否则「这个启用」或「这个更新」就换掉它。
                 // 都没启用就比导入时间（新的赢），时间相同就保持先出现的。
                 let better = !item.active && (active || variant.imported_at > item.imported_at);
@@ -731,7 +747,7 @@ fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Opt
 
     picked
         .into_iter()
-        .map(|item| (item.key, item.name, item.version))
+        .map(|item| (item.key, item.name, item.version, item.enabled))
         .collect()
 }
 
@@ -739,13 +755,16 @@ fn picked_variants(index: &LibraryIndex, slot: &str) -> Vec<(String, String, Opt
 ///
 /// 两个不同的组可能版本名一模一样（不同注册 ID、名字相同），
 /// 不补版本的话下拉里就是两条完全一样的选项，用户根本没法选。
-fn named_targets(campaign: &str, picked: Vec<(String, String, Option<String>)>) -> Vec<SaveTarget> {
+fn named_targets(
+    campaign: &str,
+    picked: Vec<(String, String, Option<String>, bool)>,
+) -> Vec<SaveTarget> {
     let bases: Vec<String> = picked
         .iter()
-        .map(|(_, name, _)| format!("{campaign} · {name}"))
+        .map(|(_, name, _, _)| format!("{campaign} · {name}"))
         .collect();
     let mut out: Vec<SaveTarget> = Vec::with_capacity(picked.len());
-    for ((key, _, version), base) in picked.into_iter().zip(bases.iter()) {
+    for ((key, _, version, enabled), base) in picked.into_iter().zip(bases.iter()) {
         let duplicated = bases.iter().filter(|item| *item == base).count() > 1;
         let label = if !duplicated {
             base.clone()
@@ -757,7 +776,11 @@ fn named_targets(campaign: &str, picked: Vec<(String, String, Option<String>)>) 
                 _ => format!("{base}（{}）", key.rsplit('/').next().unwrap_or(&key)),
             }
         };
-        out.push(SaveTarget { key, label });
+        out.push(SaveTarget {
+            key,
+            label,
+            enabled,
+        });
     }
     out
 }
@@ -803,7 +826,7 @@ pub fn group_label(library: &Library, key: &str) -> String {
 ///
 /// 顺序：官方按固定菜单顺序，每个槽位先原版后版本；自制排在最后。
 /// 和 [`isolation_key`] 用同一套规则算键 —— 界面不要自己拼键，免得两处规则漂移。
-pub fn targets(library: &Library) -> Vec<SaveTarget> {
+pub fn targets(library: &Library, installed: &[(String, String)]) -> Vec<SaveTarget> {
     use crate::campaign::metadata::CampaignType;
 
     let index = library.index();
@@ -816,16 +839,27 @@ pub fn targets(library: &Library) -> Vec<SaveTarget> {
         }
         let slot = kind.slug();
         let name = kind.display_name();
+        // 原版「装着」= 这个槽位一个版本都没装
+        let vanilla = !installed
+            .iter()
+            .any(|(installed_slot, _)| installed_slot == slot);
         out.push(SaveTarget {
             key: slot.to_string(),
             label: format!("{name}（原版）"),
+            enabled: vanilla,
         });
-        out.extend(named_targets(&name, picked_variants(&index, slot)));
+        out.extend(named_targets(
+            &name,
+            picked_variants(&index, slot, installed),
+        ));
     }
 
     if index.slots.contains_key("custom") {
         let prefix = CampaignType::Custom.display_name();
-        out.extend(named_targets(&prefix, picked_variants(&index, "custom")));
+        out.extend(named_targets(
+            &prefix,
+            picked_variants(&index, "custom", installed),
+        ));
     }
 
     out
@@ -927,7 +961,7 @@ mod tests {
             &data,
             &[("甲", "一样的名字", None), ("乙", "一样的名字", None)],
         );
-        let targets = targets(&library);
+        let targets = targets(&library, &[]);
         let labels: Vec<String> = targets
             .iter()
             .filter(|item| item.key.starts_with("custom/"))
@@ -1360,7 +1394,11 @@ mod tests {
         );
 
         // 候选里不会冒出这个老键（界面会单独标成「旧的自制战役（未指定版本）」）
-        assert!(!targets(&library).iter().any(|item| item.key == "custom"));
+        assert!(
+            !targets(&library, &[])
+                .iter()
+                .any(|item| item.key == "custom")
+        );
 
         // 用户手动指过去：一次 assign 就归到新键上
         assign(&data, "旧的自制战役-1", Some("custom/甲")).expect("手改");
@@ -1383,7 +1421,7 @@ mod tests {
             ],
         );
 
-        let list = targets(&library);
+        let list = targets(&library, &[]);
         let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
 
         // 官方每个槽位先「原版」（键 = 槽位），没有改版时只有这一条
@@ -1425,7 +1463,7 @@ mod tests {
         );
         library.save_index(&index).expect("写索引");
 
-        let list = targets(&library);
+        let list = targets(&library, &[]);
         let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
         // 官方顺序：wol（原版）、hots（原版）、lotv（原版 + 两个改版）、nova（原版）
         assert_eq!(
@@ -1474,7 +1512,7 @@ mod tests {
         library.save_index(&index).expect("写索引");
 
         // 都没启用 -> 取最新的那版
-        let list = targets(&library);
+        let list = targets(&library, &[]);
         assert_eq!(list[4].label, "自制战役 · 战役 2.0");
         assert_eq!(list.len(), 5, "同一部只列一条");
 
@@ -1482,7 +1520,7 @@ mod tests {
         let mut index = library.index();
         index.slots.get_mut("custom").expect("槽位").active = Some("old".to_string());
         library.save_index(&index).expect("写索引");
-        let list = targets(&library);
+        let list = targets(&library, &[]);
         assert_eq!(list[4].label, "自制战役 · 战役 1.0");
     }
 
@@ -2085,5 +2123,88 @@ mod tests {
         assert!(!reconcile_active_binding(&library, &data).expect("迁移"));
         assert_eq!(profile_for(&data, "wol").expect("查"), None);
         assert_eq!(profile_for(&data, "lotv").expect("查"), None);
+    }
+
+    #[test]
+    fn two_installed_custom_campaigns_are_both_enabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_custom(&data, &[("甲", "战役甲", None), ("乙", "战役乙", None)]);
+        let installed = vec![
+            ("custom".to_string(), "甲".to_string()),
+            ("custom".to_string(), "乙".to_string()),
+        ];
+
+        let list = targets(&library, &installed);
+        let custom: Vec<&SaveTarget> = list
+            .iter()
+            .filter(|item| item.key.starts_with("custom/"))
+            .collect();
+        assert_eq!(custom.len(), 2);
+        assert!(
+            custom.iter().all(|item| item.enabled),
+            "两部自制都装着 -> 两个 true"
+        );
+    }
+
+    #[test]
+    fn only_the_installed_custom_campaign_is_enabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_custom(&data, &[("甲", "战役甲", None), ("乙", "战役乙", None)]);
+        let installed = vec![("custom".to_string(), "甲".to_string())];
+
+        let list = targets(&library, &installed);
+        let enabled: Vec<&str> = list
+            .iter()
+            .filter(|item| item.key.starts_with("custom/") && item.enabled)
+            .map(|item| item.label.as_str())
+            .collect();
+        assert_eq!(enabled, vec!["自制战役 · 战役甲"]);
+    }
+
+    #[test]
+    fn installed_official_variant_disables_the_vanilla_target() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_lotv_mod_active(&data, None);
+        let key = isolation_key(&library, "lotv", Some("肉鸽"));
+
+        let list = targets(&library, &[("lotv".to_string(), "肉鸽".to_string())]);
+        assert!(
+            list.iter()
+                .find(|item| item.key == key)
+                .expect("有改版")
+                .enabled,
+            "装着的改版要算启用"
+        );
+        assert!(
+            !list
+                .iter()
+                .find(|item| item.key == "lotv")
+                .expect("有原版")
+                .enabled,
+            "装了改版，原版就不算装着"
+        );
+    }
+
+    #[test]
+    fn uninstalled_targets_are_disabled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tmp.path().join("data");
+        let library = library_with_lotv_mod_active(&data, None);
+
+        // 什么都没装：改版全 false，原版全 true
+        let list = targets(&library, &[]);
+        assert!(
+            list.iter()
+                .filter(|item| item.key.contains('/'))
+                .all(|item| !item.enabled)
+        );
+        assert!(
+            list.iter()
+                .filter(|item| !item.key.contains('/'))
+                .all(|item| item.enabled)
+        );
     }
 }
