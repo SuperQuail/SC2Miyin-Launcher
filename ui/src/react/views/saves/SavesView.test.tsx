@@ -9,26 +9,27 @@ import { SavesView } from "./SavesView";
 /**
  * 存档页的渲染与接线。
  *
- * 两件事最容易坏：**归属下拉真的接到 onAssign**（这是"手动定位到别的战役"的唯一入口），
- * 以及「切换为该分类 / 设为当前」别再被写成同一个动作（一个是换内容，一个是把现在这份存回去）。
+ * 这一页的核心是**一行 = 一个战役/版本**（已启用的各占一格，哪怕还没存档、哪怕它是原版），
+ * 没启用的旧组默认折叠。这里钉四件事：已启用各占一行、空分类照样出现、折叠开关、
+ * 以及「切换为该分类 / 设为当前」别被写成同一个动作。
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const targets: SaveTarget[] = [
-  { key: "wol", label: "自由之翼" },
-  { key: "hots", label: "虫群之心" },
-  { key: "custom", label: "自制战役" },
+  { key: "wol", label: "自由之翼（原版）", enabled: true },
+  { key: "wol/重生", label: "自由之翼 · 自由之翼：重生", enabled: false },
+  { key: "hots", label: "虫群之心（原版）", enabled: true },
 ];
 
 const groups: SaveBackup[] = [
-  { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
-  { name: "自由之翼-1790000100", label: "自由之翼", bytes: 611_000, files: 2 },
+  { name: "自由之翼-1790000100", label: "自由之翼", bytes: 1_220_000, files: 2 },
+  { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3, legacy: true },
 ];
 
 const isolation: SaveIsolation = {
   enabled: true,
-  active: "原版-1790000000",
+  active: "自由之翼-1790000100",
   assignments: { "自由之翼-1790000100": "wol" },
 };
 
@@ -39,10 +40,9 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
-async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBackup[] }) {
+async function mount(overrides?: { targets?: SaveTarget[]; groups?: SaveBackup[]; isolation?: SaveIsolation }) {
   const onSwitch = vi.fn();
   const onSaveInto = vi.fn();
-  const onGroupFiles = vi.fn(async () => []);
   const onRefresh = vi.fn();
   const onOpenSettings = vi.fn();
   const host = document.createElement("div");
@@ -51,17 +51,17 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
   await act(async () => {
     root.render(
       createElement(SavesView, {
-        targets,
+        targets: overrides?.targets ?? targets,
         isolation: overrides?.isolation ?? isolation,
         groups: overrides?.groups ?? groups,
         banks: { files: [{ name: "ENS.SC2Bank", bytes: 611_000 }], bytes: 1_842_000, missing: false },
         busy: false,
         onSwitch,
-        onMoveToKey: vi.fn(async () => {}),
         onSaveInto,
-        onGroupFiles,
         onRefresh,
         onOpenSettings,
+        onGroupFiles: vi.fn(async () => []),
+        onMoveToKey: vi.fn(async () => {}),
       }),
     );
   });
@@ -75,62 +75,59 @@ async function mount(overrides?: { isolation?: SaveIsolation; groups?: SaveBacku
 }
 
 describe("存档页", () => {
-  it("列出每个组：名字、文件数与大小；没归属的组标「未指定」", async () => {
+  it("已启用的战役/版本各占一行（哪怕还没存档）", async () => {
     await mount();
-
-    expect(document.querySelectorAll(".saves__row")).toHaveLength(2);
+    const rows = [...document.querySelectorAll(".saves__row")];
+    // wol（有 2 个文件）+ hots（还没有组 -> 「还没有存档」）
+    expect(rows).toHaveLength(2);
     const text = document.body.textContent ?? "";
-    expect(text).toContain("原版");
-    expect(text).toContain("3 个文件");
-    // 没有归属的组标「未指定」；归属由系统按组名自动维护，界面上不给改
-    expect(document.querySelector(".saves__loose")?.textContent).toBe("未指定");
-    // 当前在用的那个组有标记
+    expect(text).toContain("自由之翼（原版）");
+    expect(text).toContain("2 个文件");
+    expect(text).toContain("虫群之心（原版）");
+    expect(text).toContain("还没有存档");
+  });
+
+  it("当前在用的那一行有标记", async () => {
+    await mount();
     expect(document.querySelector(".saves__row--active")?.textContent).toContain("当前在用");
   });
 
-  it("没有存档的组自动隐藏（当前在用的那个例外）", async () => {
-    const empty: SaveBackup[] = [
-      { name: "原版-1790000000", label: "原版", bytes: 1_842_000, files: 3 },
-      { name: "空组-1790000200", label: "空组", bytes: 0, files: 0 },
-    ];
-    await mount({ groups: empty });
-    const rows = [...document.querySelectorAll(".saves__row")];
-    expect(rows).toHaveLength(1);
-    expect(document.body.textContent).not.toContain("空组");
+  it("未启用的旧组默认折叠，点开才出现", async () => {
+    await mount();
+    expect(document.body.textContent).not.toContain("未分类（升级前的存档）");
+    const toggle = [...document.querySelectorAll("button")].find((button) =>
+      (button.textContent ?? "").includes("显示未启用"),
+    );
+    expect(toggle, "要有折叠开关").toBeTruthy();
+    await act(async () => {
+      toggle?.click();
+    });
+    expect(document.body.textContent).toContain("未分类（升级前的存档）");
   });
 
   it("「切换为该分类」和「设为当前」是两个不同的动作", async () => {
-    const { onSwitch, onSaveInto } = await mount();
-    // 分区之后行顺序会变，按名字找那一行（自由之翼那个组）
+    // active 置空，这样那一行不是"正在用"，两个动作都点得动
+    const { onSwitch, onSaveInto } = await mount({
+      isolation: { enabled: true, active: null, assignments: isolation.assignments },
+    });
     const row = [...document.querySelectorAll(".saves__row")].find((item) =>
-      (item.textContent ?? "").includes("自由之翼"),
+      (item.textContent ?? "").includes("自由之翼（原版）"),
     ) as HTMLElement;
     const buttons = [...row.querySelectorAll("button")];
-    const switchButton = buttons.find((button) => button.textContent === "切换为该分类");
-    const saveButton = buttons.find((button) => button.textContent === "设为当前");
-    expect(switchButton, "不在用的组要有「切换为该分类」").toBeTruthy();
-    expect(saveButton, "每组都要有「设为当前」").toBeTruthy();
-
     await act(async () => {
-      switchButton?.click();
+      buttons.find((button) => button.textContent === "切换为该分类")?.click();
     });
     expect(onSwitch).toHaveBeenCalledWith("自由之翼-1790000100");
 
     await act(async () => {
-      saveButton?.click();
+      buttons.find((button) => button.textContent === "设为当前")?.click();
     });
     expect(onSaveInto).toHaveBeenCalledWith("自由之翼-1790000100");
   });
 
-  it("没有分类时给空状态说明", async () => {
-    await mount({ groups: [] });
+  it("既没启用分类、也没有旧组时给空状态说明", async () => {
+    await mount({ targets: [], groups: [] });
     expect(document.querySelectorAll(".saves__row")).toHaveLength(0);
     expect(document.body.textContent).toContain("还没有存档分类");
-  });
-
-  it("隔离开着时说明里不出现「去设置里打开」", async () => {
-    const { onOpenSettings } = await mount();
-    expect(document.body.textContent).not.toContain("去设置里打开");
-    void onOpenSettings;
   });
 });
