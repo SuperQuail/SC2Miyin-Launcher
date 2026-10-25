@@ -11,8 +11,9 @@ import "./saves.css";
  * 所以什么都读不出来。现在改成读 `Accounts/<账号>/<地域>/Saves/**`，与游戏「加载游戏」
  * 里看到的是同一批文件。
  *
- * 参考 HMCL 的存档管理：一张表 + 每行一条 + 显式操作；隔离靠目录，不靠全局开关。
- * 这一轮只做**看得见、筛得动**；备份/归类等写操作等下一轮加。
+ * **按战役分区** —— SC2 的存档天生属于某个战役（`虚空之遗 战役 08` / `虫群之心 战役 04` …），
+ * 所以列表要先按战役分组，而不是像"世界列表"那样平铺。
+ * 文件名认不出战役的进「未归类」，用户之后可以手动归类（下一轮）。
  */
 export function SavesView({
   inventory,
@@ -34,11 +35,33 @@ export function SavesView({
   const saves = inventory?.saves ?? [];
   const folders = useMemo(() => [...new Set(saves.map((item) => item.folder))], [saves]);
 
+  /** 从存档文件名认战役；认不出返回 null（进「未归类」）。 */
+  const campaignOf = (name: string): { key: string; name: string } | null => {
+    const rules: Array<{ key: string; name: string; patterns: RegExp }> = [
+      { key: "wol", name: "自由之翼", patterns: /自由之翼|Liberty|WoL/i },
+      { key: "hots", name: "虫群之心", patterns: /虫群之心|Swarm|HotS/i },
+      { key: "lotv", name: "虚空之遗", patterns: /虚空之遗|LotV|Void/i },
+      { key: "nova", name: "诺娃隐秘行动", patterns: /诺娃|Nova|NCO/i },
+    ];
+    return rules.find((rule) => rule.patterns.test(name)) ?? null;
+  };
+
   const shown = saves.filter(
     (item) =>
       (account === "all" || item.account === account) &&
       (folder === "all" || item.folder === folder),
   );
+
+  // 分区：官方四大战役（固定顺序）+ 未归类（既有自制战役的，也有认不出的）
+  const sections: Array<{ key: string; name: string; saves: typeof shown }> = [];
+  for (const item of shown) {
+    const campaign = campaignOf(item.name);
+    const section = campaign ?? { key: "zz-unknown", name: "未归类 / 自制战役" };
+    const found = sections.find((entry) => entry.key === section.key);
+    if (found) found.saves.push(item);
+    else sections.push({ key: section.key, name: section.name, saves: [item] });
+  }
+  sections.sort((a, b) => (a.key === "zz-unknown" ? 1 : b.key === "zz-unknown" ? -1 : 0));
 
   const stamp = (seconds: number) => {
     if (!seconds) return "—";
@@ -137,26 +160,35 @@ export function SavesView({
               : "当前筛选下没有存档。"}
           </p>
         ) : (
-          <ul className="saves__list">
-            {shown.map((item) => (
-              <li className="saves__row" key={item.path}>
-                <div className="saves__info">
-                  <span className="saves__name">
-                    <span className="saves__title-text">{item.name}</span>
-                  </span>
-                  <span className="saves__meta">
-                    {stamp(item.modified)} · {kb(item.bytes)} · {item.account}/{item.region} · {item.folder}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          sections.map((section) => (
+            <div key={section.key} className="flex flex-col gap-2">
+              <div className="flex items-baseline gap-2">
+                <h4 className="m-0 text-[13px] font-semibold text-on-surface">{section.name}</h4>
+                <span className="text-[11.5px] text-muted">{section.saves.length} 份</span>
+              </div>
+              <ul className="saves__list">
+                {section.saves.map((item) => (
+                  <li className="saves__row" key={item.path}>
+                    <div className="saves__info">
+                      <span className="saves__name">
+                        <span className="saves__title-text">{item.name}</span>
+                      </span>
+                      <span className="saves__meta">
+                        {stamp(item.modified)} · {kb(item.bytes)} · {item.account}/{item.region} · {item.folder}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))
         )}
       </section>
 
+
       <p className="saves__foot">
-        备份、归类和切换还在做 —— 这一版先把「读得到、筛得动」修好。
-        参考 HMCL 的做法：一个存档一条记录，操作都要你显式触发，不会偷偷替换你的文件。
+        按战役分组是从存档文件名认出来的（`虚空之遗 …` / `LotV …` 之类）。
+        认不出的进「未归类」，之后可以手动归类；备份与切换还在做。
       </p>
     </div>
   );
