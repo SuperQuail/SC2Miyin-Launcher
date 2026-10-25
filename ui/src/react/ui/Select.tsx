@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export interface SelectOption {
   value: string;
@@ -8,11 +10,13 @@ export interface SelectOption {
 }
 
 /**
- * 项目自己的下拉。原生 select 的弹层样式各平台不一、也没法加说明文字，
- * 而这里要的是「贴合弥音风格」的控件，所以自己画一个。
+ * 项目自己的下拉。
+ *
+ * **弹层挂在 document.body 上（portal）+ position: fixed** —— 不能放在触发器里面：
+ * 它在滚动容器（比如组详情那份文件列表）里会被裁掉，容器一滚动位置也会错。
+ * 坐标按触发器的屏幕矩形算，空间不够就往上翻。
  *
  * 只做用得上的：点开、选中、点外面关、Esc 关、上下键移动、Enter 选。
- * 颜色走 tokens（见 styles/tailwind.css 里的 @theme 映射），不写死。
  */
 export function Select({
   value,
@@ -31,27 +35,107 @@ export function Select({
 }) {
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; up: boolean } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const popupRef = useRef<HTMLUListElement | null>(null);
   const listId = useId();
   const current = options.find((item) => item.value === value);
+
+  /** 按触发器的屏幕矩形定位；下面放不下就往上翻。 */
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const up = spaceBelow < 260 && rect.top > spaceBelow;
+    setBox({
+      left: rect.left,
+      top: up ? rect.top : rect.bottom + 4,
+      width: rect.width,
+      up,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      setOpen(false);
     };
+    const onMove = () => place();
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+    // 滚动/缩放时跟着走：fixed 坐标是屏幕坐标，容器滚动它不会自己动
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [open, place]);
 
   const choose = (next: string) => {
     onChange(next);
     setOpen(false);
   };
 
+  const popup = open && box
+    ? createPortal(
+        <ul
+          ref={popupRef}
+          id={listId}
+          role="listbox"
+          style={{
+            position: "fixed",
+            left: box.left,
+            top: box.top,
+            minWidth: box.width,
+            maxWidth: Math.min(420, window.innerWidth - box.left - 12),
+            transform: box.up ? "translateY(-100%)" : undefined,
+            zIndex: 70,
+          }}
+          className="m-0 max-h-64 list-none overflow-auto rounded-lg border border-[color-mix(in_srgb,var(--outline)_80%,transparent)] bg-surface p-1 shadow-lg"
+        >
+          {options.length === 0 && (
+            <li className="px-3 py-2 text-[12px] text-muted">没有可选项</li>
+          )}
+          {options.map((option, index) => {
+            const selected = option.value === value;
+            return (
+              <li key={option.value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onMouseEnter={() => setCursor(index)}
+                  onClick={() => choose(option.value)}
+                  className={[
+                    "flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-1.5 text-left text-[12.5px]",
+                    index === cursor ? "bg-surface-2" : "",
+                    selected ? "text-accent" : "text-on-surface",
+                  ].join(" ")}
+                >
+                  <span className="w-full truncate">{option.label}</span>
+                  {option.hint && <span className="text-[11px] text-muted">{option.hint}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>,
+        document.body,
+      )
+    : null;
+
   return (
-    <div ref={rootRef} className="relative inline-block w-full text-left">
+    <div className="relative inline-block w-full text-left">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         aria-haspopup="listbox"
@@ -90,39 +174,9 @@ export function Select({
         </svg>
       </button>
 
-      {open && (
-        <ul
-          id={listId}
-          role="listbox"
-          className="absolute left-0 z-50 mt-1 max-h-64 w-full min-w-[13rem] overflow-auto rounded-lg border border-[color-mix(in_srgb,var(--outline)_80%,transparent)] bg-surface p-1 shadow-lg"
-        >
-          {options.length === 0 && (
-            <li className="px-3 py-2 text-[12px] text-muted">没有可选项</li>
-          )}
-          {options.map((option, index) => {
-            const selected = option.value === value;
-            return (
-              <li key={option.value}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  onMouseEnter={() => setCursor(index)}
-                  onClick={() => choose(option.value)}
-                  className={[
-                    "flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-1.5 text-left text-[12.5px]",
-                    index === cursor ? "bg-surface-2" : "",
-                    selected ? "text-accent" : "text-on-surface",
-                  ].join(" ")}
-                >
-                  <span className="w-full truncate">{option.label}</span>
-                  {option.hint && <span className="text-[11px] text-muted">{option.hint}</span>}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* createPortal 的返回类型在 @types/react@19 与 React 18 的 ReactNode 不兼容（已知冲突），
+          运行时没问题，这里只做类型转换 */}
+      {popup as unknown as ReactNode}
     </div>
   );
 }
