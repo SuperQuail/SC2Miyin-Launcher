@@ -201,17 +201,9 @@ export function AppShell() {
             {view === "mods" && <ModsView {...modsHost} />}
             {view === "saves" && (
               <SavesView
-                targets={app.saves.saveTargets}
-                isolation={app.saves.saveIsolation}
-                // 自动备份（restore 造的「还原前-*」）不是用户意义的存档组，别混进列表
-groups={app.saves.saveBackups.filter((item) => !item.auto)}
-                banks={app.saves.saves}
+                inventory={app.saves.inventory}
                 busy={app.busy}
-                
-                onRefresh={() => void app.saves.refreshSaves()}
-                onOpenSettings={() => app.nav.setView("settings")}
-                onGroupFiles={(name) => app.saves.groupFiles(name)}
-                onMoveToKey={(from, file, key) => app.saves.moveToKey(from, file, key, app.saves.saveTargets.find((item) => item.key === key)?.label ?? key)}
+                onScan={() => void app.saves.scanSaves()}
               />
             )}
             {view === "settings" && <SettingsView {...settingsProps} />}

@@ -2,7 +2,15 @@ import { useCallback, useState } from "react";
 
 import { api } from "../../api/bridge";
 import { errorText } from "../../api/errors";
-import type { InstalledCampaign, SaveBackup, SaveFile, SaveIsolation, SaveSet, SaveTarget } from "../../api/types";
+import type {
+  InstalledCampaign,
+  SaveBackup,
+  SaveFile,
+  SaveInventory,
+  SaveIsolation,
+  SaveSet,
+  SaveTarget,
+} from "../../api/types";
 import type { Notify } from "./useNotify";
 
 export interface SavesOptions {
@@ -33,6 +41,10 @@ export interface SavesApi {
   saveIntoProfile: (name: string) => Promise<void>;
   backupSaves: (label: string) => Promise<void>;
   restoreSaves: (name: string) => Promise<void>;
+  /** 真机存档清单（Accounts/<账号>/<地域>/Saves/** 下的 .SC2Save 与 Banks）。 */
+  inventory: SaveInventory | null;
+  /** 扫一遍存档目录（只读）。 */
+  scanSaves: () => Promise<void>;
   /** 列出一个组里的存档文件（打开组详情时用）。 */
   groupFiles: (name: string) => Promise<SaveFile[]>;
   /** 把组里的一份存档挪到另一个组。 */
@@ -54,6 +66,21 @@ export function useSaves(options: SavesOptions): SavesApi {
     active: null,
     assignments: {},
   });
+
+  const [inventory, setInventory] = useState<SaveInventory | null>(null);
+
+  /** 扫一遍真存档（Accounts/<账号>/<地域>/Saves/**）。只读，失败给提示。 */
+  const scanSaves = useCallback(
+    () =>
+      busy(async () => {
+        try {
+          setInventory(await api.scanSaves());
+        } catch (error) {
+          notify("error", errorText(error));
+        }
+      }),
+    [busy, notify],
+  );
 
   const refreshInstalled = useCallback(async () => {
     try {
@@ -268,6 +295,8 @@ export function useSaves(options: SavesOptions): SavesApi {
     switchSaveProfile,
     assignSaveProfile,
     saveIntoProfile,
+    inventory,
+    scanSaves,
     groupFiles,
     moveSave,
     moveToKey,

@@ -211,6 +211,44 @@ export interface SaveFile {
   bytes: number;
 }
 
+/** 一个存档文件（`*.SC2Save`）。对应 `miyin_core::saves::SaveEntry`。 */
+export interface SaveEntry {
+  /** 账号目录名（`Accounts/<账号>` 那一层，通常是数字 id）。 */
+  account: string;
+  /** 账号下那一层（`<地域>-<账号>`）。 */
+  region: string;
+  /** 层级：带 `Saves` 前缀的相对路径（`Saves` / `Saves/Campaign` / `Saves/Unsaved/Campaign` …）。 */
+  folder: string;
+  /** 文件名，**不含扩展名**。 */
+  name: string;
+  path: string;
+  bytes: number;
+  /** 修改时间（Unix 秒）。 */
+  modified: number;
+}
+
+/** 一个 Banks 文件（`*.SC2Bank`）。对应 `miyin_core::saves::BankEntry`。 */
+export interface BankEntry {
+  account: string;
+  region: string;
+  /** 地图 key（父目录名；直接在 `Banks` 根下就是空串）。 */
+  map: string;
+  name: string;
+  path: string;
+  bytes: number;
+  modified: number;
+}
+
+/** 扫一遍真实存档目录的结果（`Accounts/<账号>/<地域>/Saves` 与 `Banks`）。 */
+export interface SaveInventory {
+  /** 账号目录名，按最近活跃排序。 */
+  accounts: string[];
+  /** 所有 `*.SC2Save`，按修改时间降序。 */
+  saves: SaveEntry[];
+  /** 所有 `*.SC2Bank`，按修改时间降序。 */
+  banks: BankEntry[];
+}
+
 /** 现在的存档里有什么。对应 `miyin_core::saves::SaveSet`。 */
 export interface SaveSet {
   files: SaveFile[];
@@ -722,6 +760,8 @@ export interface LauncherApi {
   saveIntoProfile(name: string): Promise<SaveIsolation>;
   /** 归属下拉的候选（键的算法在后端，界面别自己拼）。 */
   savesTargets(): Promise<SaveTarget[]>;
+  /** 扫一遍**真实**存档目录（`Accounts/<账号>/<地域>/Saves` 与 `Banks`）。只读。 */
+  scanSaves(): Promise<SaveInventory>;
   /** 一个存档组里有哪些存档文件（组详情用）。 */
   saveGroupFiles(name: string): Promise<SaveFile[]>;
   /** 把某一份存档挪到另一个组（= 改它归到哪个战役）。同名不覆盖。 */

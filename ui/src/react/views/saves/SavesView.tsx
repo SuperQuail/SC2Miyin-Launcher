@@ -1,165 +1,58 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { SaveBackup, SaveFile, SaveIsolation, SaveSet, SaveTarget } from "../../../api/types";
-import { Button } from "../../ui";
-import { GroupDetailDialog } from "./GroupDetailDialog";
+import type { SaveInventory } from "../../../api/types";
+import { Button, Select } from "../../ui";
 import "./saves.css";
 
 /**
- * 存档页。
+ * 存档页：**一张表列出游戏真正的存档**（`*.SC2Save`）。
  *
- * **一行 = 一个战役/版本**（不是"一个文件夹"）：已启用的战役/版本各占一格，
- * 即使它还没有存档、即使它是原版 —— 用户要看到"这个战役的存档在哪"。
- * 没启用但库里还留着的旧组折叠在最后（未分类 / 未启用），按需展开。
+ * 之前这一页读的是 `Documents\StarCraft II\Banks` —— 那目录在真机上根本不存在（或为空），
+ * 所以什么都读不出来。现在改成读 `Accounts/<账号>/<地域>/Saves/**`，与游戏「加载游戏」
+ * 里看到的是同一批文件。
  *
- * 归属由系统按战役/版本维护（组名即分类），用户只能改**单份存档**的归属：
- * 点「管理存档」打开该分类，逐份「归到…」。
+ * 参考 HMCL 的存档管理：一张表 + 每行一条 + 显式操作；隔离靠目录，不靠全局开关。
+ * 这一轮只做**看得见、筛得动**；备份/归类等写操作等下一轮加。
  */
 export function SavesView({
-  targets,
-  isolation,
-  groups,
-  banks,
+  inventory,
   busy,
-  onRefresh,
-  onOpenSettings,
-  onGroupFiles,
-  onMoveToKey,
+  onScan,
 }: {
-  /** 可归到的战役/版本（带 enabled：是不是现在装着）。 */
-  targets: SaveTarget[];
-  isolation: SaveIsolation;
-  groups: SaveBackup[];
-  banks: SaveSet | null;
+  inventory: SaveInventory | null;
   busy: boolean;
-  onRefresh: () => void;
-  onOpenSettings: () => void;
-  onGroupFiles: (name: string) => Promise<SaveFile[]>;
-  onMoveToKey: (from: string, file: string, key: string) => Promise<void>;
+  onScan: () => void;
 }) {
-  const [detail, setDetail] = useState<{ name: string; label: string } | null>(null);
-  const [detailFiles, setDetailFiles] = useState<SaveFile[] | null>(null);
-  const [showOthers, setShowOthers] = useState(false);
+  const [account, setAccount] = useState("all");
+  const [folder, setFolder] = useState("all");
 
   useEffect(() => {
-    onRefresh();
+    if (inventory === null) onScan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadGroup = useCallback(
-    async (name: string) => {
-      setDetailFiles(null);
-      setDetailFiles(await onGroupFiles(name));
-    },
-    [onGroupFiles],
+  const saves = inventory?.saves ?? [];
+  const folders = useMemo(() => [...new Set(saves.map((item) => item.folder))], [saves]);
+
+  const shown = saves.filter(
+    (item) =>
+      (account === "all" || item.account === account) &&
+      (folder === "all" || item.folder === folder),
   );
 
-  const openGroup = (name: string, label: string) => {
-    setDetail({ name, label });
-    void loadGroup(name);
+  const stamp = (seconds: number) => {
+    if (!seconds) return "—";
+    const date = new Date(seconds * 1000);
+    return date.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
-  // 绑定键 -> 组
-  const groupByBinding = new Map<string, SaveBackup>();
-  for (const group of groups) {
-    const binding = isolation.assignments[group.name];
-    if (binding) groupByBinding.set(binding, group);
-  }
-
-  const enabledTargets = targets.filter((item) => item.enabled);
-  const usedKeys = new Set(enabledTargets.map((item) => item.key));
-
-  const friendly: Record<string, string> = {
-    custom: "自制战役",
-    wol: "自由之翼",
-    hots: "虫群之心",
-    hotsevolution: "虫群之心 · 进化",
-    lotv: "虚空之遗",
-    lotvprologue: "虚空之遗 · 序章",
-    nova: "诺娃隐秘行动",
-  };
-
-  /** 一行：一个已启用的战役/版本（可能还没有组），或一个旧组。 */
-  interface SaveRow {
-    key: string;
-    label: string;
-    group: SaveBackup | null;
-    enabled: boolean;
-    /** 归属（老组里没归属的显示成未分类）。 */
-    loose?: boolean;
-  }
-
-  const labelOf = (group: SaveBackup): string => {
-    const key = isolation.assignments[group.name];
-    const target = key ? targets.find((item) => item.key === key) : undefined;
-    if (target) return target.label;
-    if (group.legacy) return "未分类（升级前的存档）";
-    return group.label;
-  };
-
-  const rows: SaveRow[] = enabledTargets.map((item) => ({
-    key: item.key,
-    label: item.label,
-    group: groupByBinding.get(item.key) ?? null,
-    enabled: true,
-  }));
-
-  // 未启用/未分类的旧组：只留有内容的；标签跟已启用那行重复的丢掉（那是同一战役的空壳目录）；
-  // 分区按它们的标签前缀去找对应战役 —— 折在该战役下面，而不是全塞进一个「未分类」。
-  const enabledLabels = new Set(rows.map((row) => row.label));
-  const otherRows: SaveRow[] = groups
-    .filter((group) => {
-      const binding = isolation.assignments[group.name];
-      if (binding && usedKeys.has(binding)) return false;
-      if (group.files === 0) return false;
-      return !enabledLabels.has(labelOf(group));
-    })
-    .map((group) => ({
-      key: "group:" + group.name,
-      label: labelOf(group),
-      group,
-      enabled: false,
-      loose: !isolation.assignments[group.name],
-    }));
-
-  /** 老组属于哪个战役：看它的目录名/标签以哪个战役名开头。 */
-  const campaignOfLabel = (label: string): string | null => {
-    for (const [slug, name] of Object.entries(friendly)) {
-      if (label.startsWith(name)) return slug;
-    }
-    return null;
-  };
-  const sectionOf = (row: SaveRow): { key: string; name: string } => {
-    if (!row.enabled) {
-      const matched = campaignOfLabel(row.label);
-      if (matched) return { key: matched, name: friendly[matched] ?? matched };
-      return { key: "zz-other", name: "未分类 / 已停用" };
-    }
-    const slot = row.key.includes("/") ? row.key.split("/")[0] : row.key;
-    const base = targets.find((item) => item.key === slot);
-    return { key: slot, name: base ? base.label.replace("（原版）", "") : (friendly[slot] ?? slot) };
-  };
-
-  const sections: Array<{ key: string; name: string; rows: SaveRow[] }> = [];
-  for (const row of [...rows, ...(showOthers ? otherRows : [])]) {
-    const section = sectionOf(row);
-    const found = sections.find((item) => item.key === section.key);
-    if (found) found.rows.push(row);
-    else sections.push({ key: section.key, name: section.name, rows: [row] });
-  }
-  sections.sort((a, b) => (a.key === "zz-other" ? 1 : b.key === "zz-other" ? -1 : 0));
-
-  const banksText = !banks
-    ? "正在读取…"
-    : banks.missing
-      ? "还没有存档（还没玩过）"
-      : banks.files.length + " 个文件 · " + (banks.bytes / 1024).toFixed(0) + " KB";
-
-  const activeText = !isolation.enabled
-    ? "隔离关着"
-    : isolation.active
-      ? "「" + isolation.active + "」"
-      : "还没归过档";
+  const kb = (bytes: number) => (bytes / 1024).toFixed(0) + " KB";
 
   return (
     <div className="page">
@@ -167,129 +60,104 @@ export function SavesView({
         <div className="mb-3 flex items-center justify-between gap-4">
           <h2 className="m-0 text-base font-semibold text-on-surface">存档</h2>
           <div className="flex gap-1.5">
-            <Button disabled={busy} onClick={onRefresh}>
-              重新读取
+            <Button disabled={busy} loading={busy} onClick={onScan}>
+              重新扫描
             </Button>
-            {!isolation.enabled && (
-              <Button variant="tonal" onClick={onOpenSettings}>
-                去设置里打开
-              </Button>
-            )}
           </div>
         </div>
 
-        <p className="mb-3 max-w-[680px] text-[13px] leading-relaxed text-muted">
-          {isolation.enabled
-            ? "每个战役用自己的一份存档，换战役不会把上一部的进度冲掉。关掉之后不再动 Banks，已经存下的分类都留着。"
-            : "现在关着：启动器不碰 Banks（游戏里就那一份）。要按战役分开管，去设置里打开「按战役隔离存档」。"}
+        <p className="mb-3 max-w-[720px] text-[13px] leading-relaxed text-muted">
+          这里列的是游戏目录里真正的存档文件（<code>Documents/StarCraft II/Accounts/&lt;账号&gt;/&lt;地域&gt;/Saves</code>
+          下的 <code>.SC2Save</code>），和游戏里「加载游戏」看到的是同一批。
         </p>
 
-        <dl className="m-0 flex flex-col gap-1.5">
-          <div className="flex gap-3 text-[12.5px]">
-            <dt className="w-[84px] shrink-0 text-muted">游戏里这份</dt>
-            <dd className="m-0 break-all">{banksText}</dd>
+        {inventory === null ? (
+          <p className="m-0 text-[12.5px] text-muted">正在扫描…</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5 text-[12.5px]">
+            <span>
+              <span className="text-muted">存档</span>{" "}
+              <span className="font-semibold text-on-surface">{saves.length}</span> 份
+            </span>
+            <span>
+              <span className="text-muted">账号</span>{" "}
+              <span className="font-semibold text-on-surface">{inventory.accounts.length}</span> 个
+            </span>
+            <span>
+              <span className="text-muted">Banks</span>{" "}
+              <span className="font-semibold text-on-surface">{inventory.banks.length}</span> 份
+            </span>
+            {folder !== "all" && (
+              <span className="text-muted">筛选中：{folder}</span>
+            )}
           </div>
-          <div className="flex gap-3 text-[12.5px]">
-            <dt className="w-[84px] shrink-0 text-muted">当前在用</dt>
-            <dd className={isolation.enabled && isolation.active ? "m-0 font-semibold text-accent" : "m-0"}>
-              {activeText}
-            </dd>
-          </div>
-        </dl>
+        )}
       </section>
 
-      {sections.length === 0 && (
-        <section className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5">
-          <p className="saves__empty">
-            还没有存档分类
-            <span className="saves__empty-sub">
-              {isolation.enabled
-                ? "启用一个战役之后会自动建分类：官方战役会接着当前这份进度，自制战役从零开始。"
-                : "存档隔离关着的时候不分类。去设置里打开它，启用战役时就会自动建分类。"}
-            </span>
-          </p>
-        </section>
-      )}
-
-      {sections.map((section) => (
-        <section key={section.key} className="flex flex-col gap-2">
+      <section className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-baseline gap-2">
-            <h3 className="m-0 text-[13.5px] font-semibold text-on-surface">{section.name}</h3>
-            <span className="text-[11.5px] text-muted">{section.rows.length} 个分类</span>
+            <h3 className="m-0 text-[13.5px] font-semibold text-on-surface">存档列表</h3>
+            <span className="text-[11.5px] text-muted">{shown.length} 份</span>
           </div>
-          <ul className="saves__list">
-            {section.rows.map((row) => {
-              const group = row.group;
-              const active = group !== null && isolation.active === group.name;
-              const emptyRow = group === null || group.files === 0;
-              return (
-                <li
-                  key={row.key}
-                  className={"saves__row" + (active ? " saves__row--active" : "")}
-                >
-                  <div className="saves__info">
-                    <span className="saves__name">
-                      <span className="saves__title-text">{row.label}</span>
-                      {row.enabled && <span className="tag">已启用</span>}
-                      {active && <span className="tag">当前在用</span>}
-                      {row.loose && <span className="saves__loose">未指定</span>}
-                    </span>
-                    <span className="saves__meta">
-                      {emptyRow
-                        ? "还没有存档"
-                        : group.files + " 个文件 · " + (group.bytes / 1024).toFixed(0) + " KB"}
-                      {group ? " · " + group.name : ""}
-                    </span>
-                  </div>
-
-                  <div className="saves__ops">
-                    {group && (
-                      <span className="saves__name-btn">
-                        <Button
-                          variant="tonal"
-                          title={"打开「" + row.label + "」，看里面的存档、改其中某一份的归属"}
-                          onClick={() => openGroup(group.name, row.label)}
-                        >
-                          管理存档
-                        </Button>
-                      </span>
-                    )}                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ))}
-
-      {otherRows.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <Button variant="tonal" onClick={() => setShowOthers((was) => !was)}>
-            {showOthers ? "收起未启用 / 未分类" : "显示未启用 / 未分类（" + otherRows.length + "）"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-muted">账号</span>
+            <span className="inline-block w-[11rem]">
+            <Select
+              value={account}
+              placeholder="全部账号"
+              ariaLabel="按账号筛选"
+              options={[
+                { value: "all", label: "全部账号" },
+                ...(inventory?.accounts ?? []).map((id) => ({ value: id, label: id })),
+              ]}
+              onChange={setAccount}
+            />
+            </span>
+            <span className="text-[12px] text-muted">位置</span>
+            <span className="inline-block w-[13rem]">
+            <Select
+              value={folder}
+              placeholder="全部位置"
+              ariaLabel="按存档位置筛选"
+              options={[
+                { value: "all", label: "全部位置" },
+                ...folders.map((name) => ({ value: name, label: name })),
+              ]}
+              onChange={setFolder}
+            />
+            </span>
+          </div>
         </div>
-      )}
+
+        {shown.length === 0 ? (
+          <p className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5 text-[13px] text-muted">
+            {saves.length === 0
+              ? "没扫到存档。先在游戏里存一次档，或者确认游戏用的是哪个 Windows 账号的「文档」目录。"
+              : "当前筛选下没有存档。"}
+          </p>
+        ) : (
+          <ul className="saves__list">
+            {shown.map((item) => (
+              <li className="saves__row" key={item.path}>
+                <div className="saves__info">
+                  <span className="saves__name">
+                    <span className="saves__title-text">{item.name}</span>
+                  </span>
+                  <span className="saves__meta">
+                    {stamp(item.modified)} · {kb(item.bytes)} · {item.account}/{item.region} · {item.folder}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <p className="saves__foot">
-        这个页面只管「存档归哪个战役」。要让某个战役生效、或切换版本，去「战役 / 自制战役」页操作。
-        改某一份存档的归属，点「管理存档」打开它。
+        备份、归类和切换还在做 —— 这一版先把「读得到、筛得动」修好。
+        参考 HMCL 的做法：一个存档一条记录，操作都要你显式触发，不会偷偷替换你的文件。
       </p>
-
-      {detail && (
-        <GroupDetailDialog
-          groupLabel={detail.label}
-          files={detailFiles}
-          choices={targets.map((item) => ({ key: item.key, label: item.label }))}
-          busy={busy}
-          onMove={(file, key) => {
-            void (async () => {
-              await onMoveToKey(detail.name, file, key);
-              await loadGroup(detail.name);
-            })();
-          }}
-          onReload={() => void loadGroup(detail.name)}
-          onClose={() => setDetail(null)}
-        />
-      )}
     </div>
   );
 }

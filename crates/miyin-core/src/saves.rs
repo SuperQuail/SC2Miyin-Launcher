@@ -950,6 +950,239 @@ fn original_group(root: &Path) -> Result<Option<String>> {
         .map(|item| item.name))
 }
 
+// ---------------------------------------------------------------------------
+// 扫描**真机**的存档目录（Accounts/<账号>/<地域>/Saves 与 Banks）
+// ---------------------------------------------------------------------------
+
+/// 一个存档文件（`*.SC2Save`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SaveEntry {
+    /// 账号目录名（`Accounts/<账号>` 那一层，通常是数字 id）。
+    pub account: String,
+    /// 账号下那一层（`<地域>-<账号>`），同一账号可能有多个。
+    pub region: String,
+    /// 层级：带上 `Saves` 前缀的相对路径（`Saves` / `Saves/Campaign` / `Saves/Unsaved/Campaign` …）。
+    pub folder: String,
+    /// 文件名，**不含扩展名**。
+    pub name: String,
+    /// 绝对路径。
+    pub path: String,
+    pub bytes: u64,
+    /// 修改时间（Unix 秒）。
+    pub modified: u64,
+}
+
+/// 一个 Banks 文件（`*.SC2Bank`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BankEntry {
+    pub account: String,
+    pub region: String,
+    /// 地图 key：**父目录名**（`Banks/<地图 key>/*.SC2Bank`）；直接在 `Banks` 根下就是空串。
+    pub map: String,
+    /// 文件名，不含扩展名。
+    pub name: String,
+    pub path: String,
+    pub bytes: u64,
+    /// 修改时间（Unix 秒）。
+    pub modified: u64,
+}
+
+/// 扫出来的全部存档。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SaveInventory {
+    /// 账号目录名（数字 id），**按最近活跃排序**。
+    pub accounts: Vec<String>,
+    /// 所有 `*.SC2Save`，按修改时间降序。
+    pub saves: Vec<SaveEntry>,
+    /// 所有 `*.SC2Bank`，按修改时间降序。
+    pub banks: Vec<BankEntry>,
+}
+
+/// 递归时跳过的目录名：这些跟存档无关，收进来只会让界面变脏。
+const SKIP_DIRS: [&str; 4] = ["Hotkeys", "Cache", "logs", "Logs"];
+
+/// 扫一遍**真机**的存档位置。
+///
+/// 真机结构（2026-10 核实，scnexus 没做存档管理，没得抄）：
+/// ```text
+/// <Documents>/StarCraft II/Accounts/<账号>/<地域>/Saves/**/*.SC2Save
+/// <Documents>/StarCraft II/Accounts/<账号>/<地域>/Banks/<地图 key>/*.SC2Bank
+/// ```
+/// 注意：**没有** `<Documents>/StarCraft II/Banks` 这个目录 —— 旧代码读的就是它，
+/// 所以真机上永远是 0 个。别再加回去。
+///
+/// 读不到 / 目录不存在一律当空（不是错误）；`documents` 传 `Installation::documents_root`
+/// （即用户文档目录下的 `StarCraft II`）。
+pub fn scan(documents: &Path) -> SaveInventory {
+    let mut inventory = SaveInventory::default();
+    let accounts_root = documents.join("Accounts");
+    let Ok(accounts) = std::fs::read_dir(&accounts_root) else {
+        return inventory;
+    };
+
+    for account in accounts.flatten() {
+        if !account.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let account_name = account.file_name().to_string_lossy().into_owned();
+        let Ok(regions) = std::fs::read_dir(account.path()) else {
+            continue;
+        };
+        for region in regions.flatten() {
+            if !region.file_type().is_ok_and(|kind| kind.is_dir()) {
+                continue;
+            }
+            let region_name = region.file_name().to_string_lossy().into_owned();
+            // 只看 Saves 和 Banks：别的目录（Hotkeys 之类）跟存档无关
+            let saves_root = region.path().join("Saves");
+            let banks_root = region.path().join("Banks");
+            if !saves_root.is_dir() && !banks_root.is_dir() {
+                continue;
+            }
+            scan_saves_dir(
+                &saves_root,
+                &account_name,
+                &region_name,
+                "Saves",
+                &mut inventory.saves,
+            );
+            scan_banks_dir(
+                &banks_root,
+                &account_name,
+                &region_name,
+                "",
+                &mut inventory.banks,
+            );
+            if !inventory.accounts.contains(&account_name) {
+                inventory.accounts.push(account_name.clone());
+            }
+        }
+    }
+
+    // 新的在前
+    inventory.saves.sort_by(|a, b| b.modified.cmp(&a.modified));
+    inventory.banks.sort_by(|a, b| b.modified.cmp(&a.modified));
+    // 账号按「它下面最新那份存档」排序：最近玩过的排前面
+    let mut scored: Vec<(String, u64)> = inventory
+        .accounts
+        .iter()
+        .map(|account| {
+            let newest = inventory
+                .saves
+                .iter()
+                .filter(|item| &item.account == account)
+                .map(|item| item.modified)
+                .chain(
+                    inventory
+                        .banks
+                        .iter()
+                        .filter(|item| &item.account == account)
+                        .map(|item| item.modified),
+                )
+                .max()
+                .unwrap_or(0);
+            (account.clone(), newest)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    inventory.accounts = scored.into_iter().map(|(account, _)| account).collect();
+    inventory
+}
+
+/// 递归收 `Saves` 下的 `*.SC2Save`；`folder` 是带前缀的相对路径。
+fn scan_saves_dir(dir: &Path, account: &str, region: &str, folder: &str, out: &mut Vec<SaveEntry>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            if SKIP_DIRS
+                .iter()
+                .any(|skip| skip.eq_ignore_ascii_case(&name))
+            {
+                continue;
+            }
+            scan_saves_dir(&path, account, region, &format!("{folder}/{name}"), out);
+            continue;
+        }
+        let Some(stem) = save_stem(&path, "SC2Save") else {
+            continue;
+        };
+        out.push(SaveEntry {
+            account: account.to_string(),
+            region: region.to_string(),
+            folder: folder.to_string(),
+            name: stem,
+            path: path.to_string_lossy().into_owned(),
+            bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+            modified: modified_secs(&entry),
+        });
+    }
+}
+
+/// 递归收 `Banks` 下的 `*.SC2Bank`；地图 key = **第一层目录名**（父目录）。
+fn scan_banks_dir(dir: &Path, account: &str, region: &str, map: &str, out: &mut Vec<BankEntry>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            if SKIP_DIRS
+                .iter()
+                .any(|skip| skip.eq_ignore_ascii_case(&name))
+            {
+                continue;
+            }
+            // 第一层子目录就是地图 key；再深也只记这一层
+            let next = if map.is_empty() {
+                name.clone()
+            } else {
+                map.to_string()
+            };
+            scan_banks_dir(&path, account, region, &next, out);
+            continue;
+        }
+        let Some(stem) = save_stem(&path, "SC2Bank") else {
+            continue;
+        };
+        out.push(BankEntry {
+            account: account.to_string(),
+            region: region.to_string(),
+            map: map.to_string(),
+            name: stem,
+            path: path.to_string_lossy().into_owned(),
+            bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
+            modified: modified_secs(&entry),
+        });
+    }
+}
+
+/// 这个文件是不是 `.<extension>`；是就返回去掉扩展名的文件名。
+fn save_stem(path: &Path, extension: &str) -> Option<String> {
+    if !path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case(extension))
+    {
+        return None;
+    }
+    Some(path.file_stem()?.to_string_lossy().into_owned())
+}
+
+/// 文件的修改时间（Unix 秒）；取不到就是 0（排序会沉到后面，不影响别的）。
+fn modified_secs(entry: &std::fs::DirEntry) -> u64 {
+    entry
+        .metadata()
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -2206,5 +2439,115 @@ mod tests {
                 .filter(|item| !item.key.contains('/'))
                 .all(|item| item.enabled)
         );
+    }
+
+    /// 改文件的修改时间（排序测试用）。
+    fn set_mtime(path: &Path, secs: u64) {
+        let file = std::fs::File::options()
+            .append(true)
+            .open(path)
+            .expect("打开");
+        file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+            .expect("改时间");
+    }
+
+    #[test]
+    fn scan_reads_the_real_account_layout() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let docs = tmp.path().join("StarCraft II");
+        let account = docs.join("Accounts/12345/美服-12345");
+
+        // Saves：顶层 + Campaign + Unsaved/Campaign 都要收到
+        write(&account.join("Saves"), "top.SC2Save", "save");
+        write(&account.join("Saves/Campaign"), "campaign.SC2Save", "save");
+        write(
+            &account.join("Saves/Unsaved/Campaign"),
+            "unsaved.SC2Save",
+            "save",
+        );
+        // 干扰项：别的扩展名、别的目录（Hotkeys）
+        write(&account.join("Saves"), "notes.txt", "x");
+        write(&account.join("Hotkeys"), "hot.SC2Save", "x");
+        write(&account.join("Saves/Hotkeys"), "hot2.SC2Save", "x");
+
+        // Banks：按地图 key 分子目录；再深一层仍然算第一层那个 key
+        write(&account.join("Banks/地图A"), "a.SC2Bank", "bank");
+        write(&account.join("Banks/地图A/备份"), "b.SC2Bank", "bank");
+        write(&account.join("Banks"), "root.SC2Bank", "bank");
+        write(&account.join("Banks/地图A"), "ignore.txt", "x");
+
+        // 第二个账号：有 Saves 目录但一个存档都没有
+        std::fs::create_dir_all(docs.join("Accounts/99999/亚服-99999/Saves")).expect("建");
+
+        // 时间：top 最新，campaign 次之，unsaved 最老
+        set_mtime(&account.join("Saves/top.SC2Save"), 1_700_000_300);
+        set_mtime(
+            &account.join("Saves/Campaign/campaign.SC2Save"),
+            1_700_000_200,
+        );
+        set_mtime(
+            &account.join("Saves/Unsaved/Campaign/unsaved.SC2Save"),
+            1_700_000_100,
+        );
+
+        let inventory = scan(&docs);
+
+        let names: Vec<&str> = inventory
+            .saves
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["top", "campaign", "unsaved"],
+            "只收 .SC2Save，而且按修改时间降序"
+        );
+        let folders: Vec<&str> = inventory
+            .saves
+            .iter()
+            .map(|item| item.folder.as_str())
+            .collect();
+        assert_eq!(
+            folders,
+            vec!["Saves", "Saves/Campaign", "Saves/Unsaved/Campaign"]
+        );
+        assert!(inventory.saves.iter().all(|item| item.account == "12345"));
+        assert!(
+            inventory
+                .saves
+                .iter()
+                .all(|item| item.region == "美服-12345")
+        );
+        assert!(
+            inventory.saves.iter().all(|item| item.bytes > 0),
+            "字节数要读出来"
+        );
+
+        assert_eq!(inventory.banks.len(), 3, "Hotkeys 和非 .SC2Bank 都不收");
+        let map_a = inventory
+            .banks
+            .iter()
+            .filter(|item| item.map == "地图A")
+            .count();
+        assert_eq!(map_a, 2, "父目录名当地图 key（再深的子目录也算同一张图）");
+        assert!(
+            inventory.banks.iter().any(|item| item.map.is_empty()),
+            "直接在 Banks 根下的 map key 是空串"
+        );
+
+        // 两个账号都列出来，最近活跃的在前
+        assert_eq!(
+            inventory.accounts,
+            vec!["12345".to_string(), "99999".to_string()]
+        );
+    }
+
+    #[test]
+    fn scan_without_documents_is_empty_not_a_panic() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let inventory = scan(&tmp.path().join("根本没有这个目录"));
+        assert!(inventory.saves.is_empty());
+        assert!(inventory.banks.is_empty());
+        assert!(inventory.accounts.is_empty());
     }
 }

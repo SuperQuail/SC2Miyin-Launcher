@@ -363,6 +363,24 @@ fn move_save_to_key(
         .map_err(|error| error.to_string())
 }
 
+/// 扫用户文档目录里**真实**的存档（`Accounts/<账号>/<地域>/Saves` 与 `Banks`）。
+///
+/// 只读：不写盘、不改任何东西。**这是新的扫描** —— 真机上根本没有
+/// `Documents/StarCraft II/Banks` 这个目录，旧的那套读法永远是 0 个。
+#[tauri::command(async)]
+fn scan_saves(state: State<'_, AppState>) -> Result<miyin_core::saves::SaveInventory, String> {
+    let installation = state
+        .installation
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    let documents = installation
+        .as_ref()
+        .and_then(|installation| installation.documents_root.clone())
+        .ok_or_else(|| "找不到星际争霸 II 的用户文档目录".to_string())?;
+    Ok(miyin_core::saves::scan(&documents))
+}
+
 /// 现在的存档里有什么（`Documents\StarCraft II\Banks`）。
 #[tauri::command(async)]
 fn list_saves(state: State<'_, AppState>) -> Result<library_saves::SaveSet, String> {
@@ -2089,6 +2107,7 @@ pub fn run() {
             save_group_files,
             move_save_file,
             move_save_to_key,
+            scan_saves,
             switch_save_profile,
             assign_save_profile,
             backup_saves,

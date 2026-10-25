@@ -42,8 +42,11 @@ import type {
   InstalledCampaign,
   LauncherApi,
   Preview,
+  BankEntry,
   SaveBackup,
+  SaveEntry,
   SaveFile,
+  SaveInventory,
   SaveIsolation,
   SaveTarget,
   SaveSet,
@@ -76,6 +79,7 @@ const desktop: LauncherApi = {
   listSaveBackups: () => invoke<SaveBackup[]>("list_save_backups"),
   restoreSaves: (name) => invoke<string>("restore_saves", { name }),
   saveIntoProfile: (name) => invoke<SaveIsolation>("save_into_profile", { name }),
+  scanSaves: () => invoke<SaveInventory>("scan_saves"),
   savesTargets: () => invoke<SaveTarget[]>("saves_targets"),
   saveGroupFiles: (name) => invoke<SaveFile[]>("save_group_files", { name }),
   moveSaveFile: (from, file, to) => invoke<void>("move_save_file", { from, file, to }),
@@ -634,6 +638,69 @@ function demoIsInstalled(slot: string, variantId: string): boolean {
 }
 
 /**
+ * 演示模式的「真实存档」清单：两个账号、含 `Unsaved/Campaign`，十几份存档 + 几份 Banks。
+ *
+ * 目录形状照真机来（`Accounts/<账号>/<地域>/Saves/**`、`Banks/<地图 key>/`）——
+ * 界面在演示模式里看到的层级、账号分组和真机一致。
+ */
+function demoSaveInventory(): SaveInventory {
+  const base = "C:\\Users\\演示\\Documents\\StarCraft II";
+  const main = { account: "123456789", region: "美服-123456789" };
+  const second = { account: "987654321", region: "亚服-987654321" };
+
+  const save = (
+    owner: { account: string; region: string },
+    folder: string,
+    name: string,
+    modified: number,
+    bytes: number,
+  ): SaveEntry => ({
+    ...owner,
+    folder,
+    name,
+    path: base + "\\Accounts\\" + owner.account + "\\" + owner.region + "\\" + folder.replace(/\//g, "\\") + "\\" + name + ".SC2Save",
+    bytes,
+    modified,
+  });
+
+  const saves: SaveEntry[] = [
+    save(main, "Saves/Unsaved/Campaign", "虚空之遗 战役 08", 1_729_800_400, 52_300),
+    save(main, "Saves/Unsaved/Campaign", "虚空之遗 战役 07", 1_729_700_100, 51_800),
+    save(main, "Saves/Unsaved/Campaign", "虚空之遗 战役 06", 1_729_600_900, 50_100),
+    save(main, "Saves/Campaign", "虫群之心 战役 04", 1_729_500_300, 47_700),
+    save(main, "Saves/Campaign", "虫群之心 战役 03", 1_729_400_200, 46_900),
+    save(main, "Saves", "自由之翼 战役 02", 1_729_300_500, 44_200),
+    save(main, "Saves", "自由之翼 战役 01", 1_729_200_700, 43_800),
+    save(main, "Saves/Unsaved/Campaign", "诺娃 战役 02", 1_729_100_400, 49_600),
+    save(main, "Saves/Unsaved/Campaign", "诺娃 战役 01", 1_729_000_100, 48_900),
+    save(second, "Saves/Campaign", "虚空之遗 战役 03", 1_728_900_800, 45_300),
+    save(second, "Saves/Unsaved/Campaign", "虚空之遗 战役 02", 1_728_800_600, 44_700),
+    save(second, "Saves", "虫群之心 战役 01", 1_728_700_200, 41_200),
+  ];
+  saves.sort((a, b) => b.modified - a.modified);
+
+  const bank = (map: string, name: string, modified: number, bytes: number): BankEntry => ({
+    ...main,
+    map,
+    name,
+    path: base + "\\Accounts\\" + main.account + "\\" + main.region + "\\Banks\\" + map + "\\" + name + ".SC2Bank",
+    bytes,
+    modified,
+  });
+
+  const banks: BankEntry[] = [
+    bank("虚空之遗战役", "VoidCampaign", 1_729_800_400, 12_300),
+    bank("虫群之心战役", "SwarmCampaign", 1_729_500_300, 9_800),
+    bank("自由之翼战役", "LibertyCampaign", 1_729_300_500, 8_400),
+    bank("诺娃战役", "NovaCampaign", 1_729_100_400, 7_600),
+    bank("虚空之遗战役", "VoidCampaign.backup", 1_728_500_000, 11_900),
+  ];
+  banks.sort((a, b) => b.modified - a.modified);
+
+  return { accounts: [main.account, second.account], saves, banks };
+}
+
+/**
  * 演示模式的隔离键 —— 和后端同规则：**有版本就是 `槽位/身份`**（官方改版也一样），
  * 原版才是槽位本身；身份优先注册 ID、没有就用版本 id。
  */
@@ -910,6 +977,7 @@ const demo: LauncherApi = {
       // 和后端一致：没有绑定的组标 legacy（名字不代表内容）
       legacy: !item.auto && !(item.name in demoSavesState.assignments),
     })),
+  scanSaves: async () => demoSaveInventory(),
   restoreSaves: async (name) => {
     // 和后端一样：还原前先留一份自动备份（它不是"用户意义上的组"）
     const safety = "还原前-" + (1790000400 + demoSaveGroups.length);
