@@ -35,6 +35,9 @@ struct Config {
 /// 网络设置的落盘文件名（与既有配置放在同一目录）。
 const NETWORK_FILE: &str = "network.json";
 
+/// panic 现场记录的位置（exe 同级）。release 没有控制台，用户报障只能靠它。
+const CRASH_LOG: &str = "miyin-crash.log";
+
 struct AppState {
     installation: Mutex<Option<Installation>>,
     /// 启动时算好的合并案（有冲突时才留给界面问）—— 见 library::merge。
@@ -59,6 +62,24 @@ struct ProgressPayload {
     total: Option<u64>,
     /// 百分比；总长度未知时是 `None`。
     percent: Option<f64>,
+}
+
+/// 后台启动的结果。
+///
+/// 先 `manage` 上，前台的 `boot_ready` 靠它区分「还在准备」和「准备失败了」——
+/// 后台线程 panic 时 AppState 永远不会被 manage，没有这个就等于前端永远转圈。
+#[derive(Default)]
+struct BootStatus {
+    /// Some(文本) = 数据准备失败（bootstrap panic 了）。成功时一直是 None。
+    error: Mutex<Option<String>>,
+}
+
+thread_local! {
+    /// 当前线程 panic 时**不要**弹原生框。
+    ///
+    /// 后台启动线程的 panic 会被 `catch_unwind` 接住、原因走 `boot_ready` 显示在界面上；
+    /// 再从 hook 里弹一个框，只会挡在真正的原因前面。
+    static PANIC_QUIET: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 impl AppState {
@@ -2062,8 +2083,165 @@ fn merge_apply(
     Ok(report)
 }
 
+/// 往 exe 同级的 `miyin-crash.log` 追加一段现场。写不进去就算了 —— 这里**绝不能**再出事。
+fn append_crash_log(text: &str) {
+    let Some(path) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(|dir| dir.join(CRASH_LOG)))
+    else {
+        return;
+    };
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+    use std::io::Write;
+
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|span| span.as_secs())
+        .unwrap_or(0);
+    let _ = writeln!(file, "==== {at}\n{text}");
+}
+
+/// panic 的载荷一般是 &str 或 String，别的类型就只能含糊一点了。
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "（panic 没有文本信息）".to_string()
+    }
+}
+
+/// 装 panic 现场记录：写进 exe 同级的 `miyin-crash.log`，再弹一个原生框。
+///
+/// 为什么要它：release 版是 `windows_subsystem = "windows"`（main.rs:2），没有控制台，
+/// stderr 是黑洞。用户报「白屏 / 双击没反应」时，这个文件是唯一能拿到现场的东西。
+///
+/// 规矩：hook 里只做加法、失败一律忽略 —— 在这里再 panic 就是递归，会直接把进程带走。
+fn install_crash_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let name = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .to_string();
+        let location = info
+            .location()
+            .map(|spot| format!("{}:{}:{}", spot.file(), spot.line(), spot.column()))
+            .unwrap_or_else(|| "位置未知".to_string());
+        let message = panic_text(info.payload());
+        let text = format!("[线程 {name}] {location}\n{message}");
+
+        eprintln!("[miyin] panic：{text}");
+        append_crash_log(&text);
+
+        // 后台启动线程的 panic 有更合适的出口（boot_ready -> 界面上那页失败说明）
+        if PANIC_QUIET.try_with(std::cell::Cell::get).unwrap_or(false) {
+            return;
+        }
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("弥音启动器出错了")
+            .set_description(format!(
+                "启动器遇到了一个没处理的问题。原因已经写进程序目录的 {CRASH_LOG}，\n\
+                 反馈时可以把它一起发给我们。\n\n{text}"
+            ))
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+    }));
+}
+
+/// 绿色版不带安装器：这台机器上可能压根没有 WebView2 运行时。
+///
+/// 缺它时 Tauri 要到**建窗口**那一步才会失败（tauri-runtime-wry 2.11.4 src/lib.rs:4757
+/// 会先弹一个英文框），随后整个进程 panic —— 用户看到的是「闪一下就没」。
+/// 这里在进 Tauri 之前先问一句，缺了就给一句中文说明 + 下载地址。
+#[cfg(windows)]
+fn webview2_ready() -> bool {
+    match tauri::webview_version() {
+        Ok(version) => {
+            eprintln!("[miyin] WebView2 {version}");
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// 等后端把数据准备好（启动时的数据目录迁移 / 合并跑在后台线程上，见 [`run`]）。
+///
+/// 前端在这条命令返回之前只画「正在准备数据」——**在它返回之前，任何碰 [`AppState`]
+/// 的命令都会 panic**（状态还没 manage 上），所以它必须排在所有数据命令前面。
+#[tauri::command(async)]
+fn boot_ready(app: tauri::AppHandle) -> Result<(), String> {
+    // 阻塞的是线程池里的线程，不是主线程（同步命令体 + `(async)` = spawn_blocking）
+    loop {
+        if app.try_state::<AppState>().is_some() {
+            return Ok(());
+        }
+        // 后台线程 panic 了：AppState 永远不会就绪，得把原因交给界面，不能让它转圈到死
+        if let Some(error) = boot_error(&app) {
+            return Err(error);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(40));
+    }
+}
+
+/// 后台启动失败的原因（还在准备 / 成功时都是 `None`）。
+fn boot_error(app: &tauri::AppHandle) -> Option<String> {
+    let status = app.try_state::<BootStatus>()?;
+    status.error.lock().ok()?.clone()
+}
+
+/// 记下后台启动失败的原因，`boot_ready` 会把它交给界面。
+fn mark_boot_failed(app: &tauri::AppHandle, text: String) {
+    let Some(status) = app.try_state::<BootStatus>() else {
+        return;
+    };
+    let Ok(mut slot) = status.error.lock() else {
+        return;
+    };
+    *slot = Some(text);
+}
+
 /// 启动应用。
+///
+/// 另有一条和「白屏」有关的窗口设置写在 `tauri.conf.json` 里：`additionalBrowserArgs`
+/// 显式带上了 `CalculateNativeWinOcclusion`（关掉 Chromium 的原生窗口遮挡计算 ——
+/// 窗口被别的窗口盖住 / 最小化 / 被系统判成「不可见」时，Chromium 会停掉渲染，
+/// 再回来可能是一片白）。
+///
+/// **依据**：wry 的默认参数是 `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`
+/// （wry 0.55.1 src/webview2/mod.rs:297），一旦自己传这个参数，那三个默认项就丢了 ——
+/// 所以四项必须一起写（见 tauri-utils 2.9.3 config.rs:2081 的字段说明）。
+/// **不确定**：`CalculateNativeWinOcclusion` 是 Chromium 的 feature 名，关掉它是社区对付
+/// 「切回来白屏」的惯用做法；我们没有在真机上复现过遮挡后白屏，这条属于低风险的预防。
 pub fn run() {
+    // 先装现场记录：下面任何一步 panic，用户和我们都拿得到原因（release 没有控制台）
+    install_crash_hook();
+
+    // 绿色版没有安装器 —— 机器上可能压根没装 WebView2 运行时。
+    // 缺它时窗口建不出来，进程直接没了；这里先问一句，缺了就给一句人话再退出。
+    #[cfg(windows)]
+    if !webview2_ready() {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("缺少 WebView2 运行时")
+            .set_description(
+                "弥音启动器要靠 Microsoft Edge WebView2 运行时才能显示界面，这台机器上没有装。\n\n\
+                 请打开 https://go.microsoft.com/fwlink/p/?LinkId=2124703 下载并安装「常青版」\
+                 （Evergreen Runtime），装好之后再打开启动器。\n\n\
+                 Windows 10/11 一般自带；重装过系统或精简版系统上可能需要手动装。",
+            )
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+        return;
+    }
+
     tauri::Builder::default()
         .setup(|app| {
             let config_path = app
@@ -2075,7 +2253,37 @@ pub fn run() {
             // 数据根在 bootstrap 里定（要先知道游戏装在哪）—— 这里只把 exe 路径递进去
             let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("miyin-launcher.exe"));
 
-            app.manage(AppState::bootstrap(config_path, executable));
+            // **数据准备不能压在主线程上。**
+            //
+            // Tauri 在调用这段 setup 之前就已经把窗口和 webview 建好了（tauri 2.11
+            // src/app.rs:2524），而 setup 本身跑在主线程的事件循环里（app.rs:1425）。
+            // bootstrap 会做数据目录迁移（library/mod.rs:1256 -> platform::move_path，
+            // 跨盘时是「复制 + 删源」，GB 级）与启动时的合并 —— 主线程一卡，WebView2
+            // 连第一帧都画不出来，用户看到的就是「启动后白屏」，白多久取决于库有多大。
+            //
+            // 所以这里只起线程，状态等它准备好再 manage；前端用 `boot_ready` 等它。
+            //
+            // 失败（磁盘满、权限不足、目录解析炸了）时不能就这么算了 —— 那时 AppState
+            // 永远不会就绪，前端会一直停在「正在准备数据」。catch_unwind 接住原因，
+            // 交给先 manage 上的 BootStatus，boot_ready 把文本还给界面。
+            app.manage(BootStatus::default());
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // 这个线程上的 panic 不弹原生框：原因会走 boot_ready 显示在界面上
+                PANIC_QUIET.with(|quiet| quiet.set(true));
+
+                match std::panic::catch_unwind(move || AppState::bootstrap(config_path, executable))
+                {
+                    Ok(state) => {
+                        handle.manage(state);
+                    }
+                    Err(payload) => {
+                        let text = panic_text(&*payload);
+                        eprintln!("[miyin] 启动失败：{text}");
+                        mark_boot_failed(&handle, text);
+                    }
+                }
+            });
 
             // 让它不像浏览器：关掉 WebView2 自己的浏览器加速键与原生右键菜单（见 tame_webview）
             #[cfg(windows)]
@@ -2087,6 +2295,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            boot_ready,
             dev_scan,
             merge_status,
             merge_apply,

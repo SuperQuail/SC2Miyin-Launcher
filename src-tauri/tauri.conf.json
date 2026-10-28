@@ -20,6 +20,7 @@
         "center": true,
         "resizable": true,
         "dragDropEnabled": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion",
         "decorations": false,
         "transparent": false,
         "shadow": true

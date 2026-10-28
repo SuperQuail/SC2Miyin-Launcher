@@ -326,3 +326,84 @@ textarea {
   display: flex;
   gap: 6px;
 }
+
+/* ---------- 启动兜底：加载中 / 启动失败 ----------
+ *
+ * 这两页要在**外壳之外**能看：启动阶段 React 还可能是空的，.app 那套样式用不上。
+ * 由两处渲染，所以样式必须放全局：
+ * 1. react/app/BootGate.tsx（等后端准备数据）与 react/app/ErrorBoundary.tsx；
+ * 2. react/app/startup.ts 里手写的那页 DOM —— React 已经死了时才走它。
+ */
+.boot,
+.boot-fail {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: var(--surface);
+  color: var(--on-surface);
+}
+
+.boot {
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+
+.boot__spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.6;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+.boot__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.boot__hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+.boot-fail__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.boot-fail__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.boot-fail__text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+/* 原始错误文本：等宽、可选中、超长自己滚 */
+.boot-fail__reason {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #0e1220;
+  color: #b9c4dd;
+  font: 12px/1.55 ui-monospace, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
