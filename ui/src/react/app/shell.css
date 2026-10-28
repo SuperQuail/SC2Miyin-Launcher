@@ -299,15 +299,31 @@
   padding: 24px 26px 40px;
 }
 
-/* 切页：旧的走了新的淡入上移（mode="out-in" 的进场那一半）。 */
+/* 切页：旧的走了新的淡入上移（mode="out-in" 的进场那一半）。
+   **不要加 animation-fill-mode: both** —— 加了之后动画结束也一直"生效"，transform
+   的计算值被定成 identity matrix 而不是 none，而**有 transform 的祖先会成为
+   position: fixed 的包含块**：页面里的遮罩弹窗会按这个页面的内容框居中、跟着内容滚，
+   地图一多就得先滚下去才看得见弹窗（删除确认框踩过）。去掉 fill 之后动画一结束
+   transform 就回到 none，fixed 元素重新以视口定位。 */
 .view {
-  animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 @keyframes view-in {
   from {
     opacity: 0;
     transform: translateY(10px);
+  }
+
+  /* 收尾那一帧必须显式写 none。
+     只写 from（收尾回到元素自己的值）时，animation-fill-mode: both 会把动画结束后的
+     计算值定成 identity transform（matrix(1,0,0,1,0,0)）而不是 none ——
+     而**有 transform 的祖先会成为 position: fixed 的包含块**：页面里的遮罩弹窗于是
+     按这个页面的内容框居中、跟着内容一起滚，地图一多用户就得先滚下去才看得见弹窗
+     （删除确认框踩过，§17 的界面规矩管不到这种浏览器行为）。 */
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 

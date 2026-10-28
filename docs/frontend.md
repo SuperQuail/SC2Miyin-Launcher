@@ -72,6 +72,21 @@ ui/src/
 - 弹窗、菜单只有一份实现（`react/ui/Sheet`、`react/app/ContextMenu`）。
 - 颜色只从令牌拿；页面里不写 CSS。
 
+### 布局：别给滚动内容容器留 transform / filter / contain
+
+**每个有 `transform`、`filter`、`backdrop-filter`、`perspective`、`contain: paint` 的祖先
+都会成为 `position: fixed` 的包含块。** 页面内容一长（比如自制战役地图很多），
+固定定位的遮罩弹窗就不再按视口居中，而是按那一大坨内容居中、跟着内容滚 ——
+用户得先滚下去才看得见「确定 / 删除」。2026-10 删除确认框就是这么坏的。
+
+- `.view` 的进场动画 `view-in` **不能带 `animation-fill-mode: both`**：
+  动画结束后 transform 会残留成 identity matrix（`matrix(1,0,0,1,0,0)`，不是 `none`），
+  见 `react/app/shell.css`。
+- 给滚动容器加 `filter` / `backdrop-filter` 之前先想一遍：里面有没有 fixed 弹层。
+  有的话把弹层搬进 portal（`Select` 已经是这个做法），或者别加这个属性。
+- 验的办法很短：把页面撑到比视口高（`.view { min-height: 2000px }`），打开弹窗量
+  `.sheet` 的 `getBoundingClientRect()` —— 应该等于视口，不是内容框。
+
 ## 为什么现在是这个样子（历史，2026-10 体检）
 
 改之前的数字：用户侧是 Vue；`useLauncher` **697 行 / 26 个导出**、`App.vue` **1109 行**、`ModsView` **1312 行**；
