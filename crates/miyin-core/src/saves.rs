@@ -4,10 +4,10 @@
 //! （那个闸门只管安装目录里的文件）。但同样守两条：**动之前先备份**、
 //! **先给人看**（[`SaveSet`] 就是给人看的那一份）。
 //!
-//! **存档隔离**：**默认开着**，每个战役用自己的那份 Banks，切换战役时自动换档。
-//! 官方战役按**槽位**共用一组（同一部的各个改版本来就该共用进度）；
-//! 自制战役**每部一组**（键是 `custom/<身份>`，见 [`isolation_key`]）。
-//! 关掉之后启动器不再动 Banks，已经存下的组都留着。
+//! **存档隔离**：**默认关着**，用户主动打开才生效；打开之后每个战役用自己的那份
+//! Banks，切换战役时自动换档。官方战役按**槽位**共用一组（同一部的各个改版本来
+//! 就该共用进度）；自制战役**每部一组**（键是 `custom/<身份>`，见 [`isolation_key`]）。
+//! 关着的时候启动器一律不碰 Banks；关掉之后已经存下的组都留着。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -334,14 +334,14 @@ pub fn move_save_to_key(root: &Path, from: &str, file: &str, key: &str) -> Resul
 
 /// 隔离状态。存在 `<data>/saves/state.json`。
 ///
-/// **默认开**（2026-10 用户要求）：一上来就按战役分开管，换战役不会把上一部的进度冲掉。
-/// 关掉之后启动器不再动 Banks，已经存下的组一个都不删。
+/// **默认关**（2026-10 产品决定）：版本管理还没做完，不替用户动 Banks；用户在设置页
+/// 主动打开之后才按战役分开管，换战役不会把上一部的进度冲掉。关掉只是不再自动切，
+/// 已经存下的组一个都不删。
 ///
-/// **老用户升级也不会丢进度**：没有 state.json 时 `enabled = true` 但 `active = None`，
-/// 而任何一次切组 / 存回之前都会先 `save_active` —— 也就是先把游戏里这份收成「原版」。
-/// 所以第一次启用某个战役时，「原版」和那个战役组会**同时**有这份进度（刻意的：
-/// 谁也没被顶掉，用户之后自己决定留哪份）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// **没有 state.json 就是关着**（`enabled = false`、`active = None`）。用户打开的那一刻
+/// 还没归过档，而任何一次切组 / 存回之前都会先 `save_active` —— 也就是先把游戏里这份
+/// 收成「原版」。所以打开隔离不会丢进度。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Isolation {
     pub enabled: bool,
     /// 现在游戏里这份 Banks 属于哪个组。没有组名表示还没归过档。
@@ -349,16 +349,6 @@ pub struct Isolation {
     /// 组 -> 战役槽位。**反查**得到"这个战役用哪份存档"。
     #[serde(default)]
     pub assignments: BTreeMap<String, String>,
-}
-
-impl Default for Isolation {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            active: None,
-            assignments: BTreeMap::new(),
-        }
-    }
 }
 
 /// 「原版」组的名字。打开隔离时第一份就是它。
@@ -390,12 +380,17 @@ fn write_isolation(root: &Path, state: &Isolation) -> Result<()> {
 /// 打开 / 关掉隔离。
 ///
 /// 打开时若还没归过档，**先把现在这份 Banks 存成「原版」** —— 这就是
-/// "初始存档按照原版存"。关掉只是不再自动切，已经存下的组一个都不删。
+/// "初始存档按照原版存"。Banks 还是空的（还没玩过）就只把开关打开：没有东西可收，
+/// 第一份进度会在第一次存回时归成「原版」。关掉只是不再自动切，已经存下的组一个都不删。
 pub fn set_isolation(root: &Path, banks: &Path, enabled: bool) -> Result<Isolation> {
     let mut state = isolation(root)?;
     if enabled && state.active.is_none() {
-        let name = backup(banks, root, ORIGINAL)?;
-        state.active = Some(name);
+        // 还没玩过（Banks 不存在 / 是空的）就**没有可收的**，开关照常打开；
+        // 第一份进度会在第一次存回时归成「原版」。
+        // 其它失败（权限、磁盘满）照旧往上抛 —— 不能把「没存成」说成「存好了」。
+        if !snapshot(banks)?.files.is_empty() {
+            state.active = Some(backup(banks, root, ORIGINAL)?);
+        }
     }
     state.enabled = enabled;
     write_isolation(root, &state)?;
@@ -470,7 +465,7 @@ pub fn switch(root: &Path, banks: &Path, name: &str) -> Result<Isolation> {
 
     // 现在这份先回自己的组。
     //
-    // **没归过档也要先收成「原版」** —— 隔离默认开启之后，老用户升级第一次切组
+    // **没归过档也要先收成「原版」** —— 用户刚打开隔离、还没归过档时第一次切组
     // 走的就是这条路；少收这一步，那段进度就只剩 restore() 里那份「还原前」
     // 安全备份，界面上找不到「原版」组，用户会以为进度没了。
     // 只有 Banks 完全是空的时候才跳过（没东西可存）。
@@ -1211,6 +1206,18 @@ mod tests {
         std::fs::write(dir.join(name), body).expect("写");
     }
 
+    /// 直接把隔离开着写进 state.json（模拟"打开过开关、但还没归过档"）。
+    ///
+    /// 这几个用例要的是「Banks 里已经有进度、但还没有任何组」的状态；走
+    /// `set_isolation(true)` 会先把它收成「原版」，正是这些用例要避开的。
+    fn enable_isolation(root: &Path) {
+        let state = Isolation {
+            enabled: true,
+            ..Default::default()
+        };
+        write_isolation(root, &state).expect("开隔离");
+    }
+
     #[test]
     fn missing_banks_is_not_an_error() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1260,14 +1267,18 @@ mod tests {
     }
 
     #[test]
-    fn isolation_defaults_to_enabled() {
+    fn isolation_defaults_to_disabled() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let library = tmp.path().join("data");
 
-        // 没有 state.json 时：默认**开着**，但还没归过档
+        // 没有 state.json 时：默认**关着**，什么归属都没有
         let state = isolation(&library).expect("读");
-        assert!(state.enabled, "没有 state.json 时默认就是开着的");
+        assert!(
+            !state.enabled,
+            "没有 state.json 时默认关着（不替用户动 Banks）"
+        );
         assert!(state.active.is_none(), "还没归过档");
+        assert!(state.assignments.is_empty(), "也不该有归属");
     }
 
     #[test]
@@ -1289,16 +1300,29 @@ mod tests {
     }
 
     #[test]
+    fn opening_isolation_without_any_saves_still_works() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let banks = tmp.path().join("Banks");
+        let library = tmp.path().join("data");
+
+        // 还没玩过（Banks 不存在）：打开开关不能被"没有存档可备份"挡回去
+        let state = set_isolation(&library, &banks, true).expect("打开");
+        assert!(state.enabled);
+        assert!(state.active.is_none(), "没东西可收，先空着");
+    }
+
+    #[test]
     fn official_slot_without_record_inherits_the_current_saves() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "玩到第三章");
+        enable_isolation(&library);
 
         // 没有记录时启用官方战役：当前这份收成它的组（不是空组）
         let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
             .expect("切换")
-            .expect("默认开着就该切");
+            .expect("开着隔离就该切");
         assert!(profile.contains("自由之翼"), "组名带战役名：{profile}");
 
         let group = snapshot(&root(&library).join(&profile)).expect("快照");
@@ -1330,11 +1354,12 @@ mod tests {
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "原版进度");
+        enable_isolation(&library);
 
         // 自制战役各自独立：没有记录时**不继承**当前存档
         let profile = ensure_for_slot(&library, &banks, "custom", "自制战役")
             .expect("切换")
-            .expect("默认开着就该切");
+            .expect("开着隔离就该切");
         assert!(
             snapshot(&banks).expect("快照").files.is_empty(),
             "自制战役该从零开始"
@@ -1366,6 +1391,7 @@ mod tests {
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "原版第一章");
+        enable_isolation(&library);
 
         // 官方战役第一次启用：接着当前这份进度（见上一个用例）
         let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
@@ -1440,9 +1466,10 @@ mod tests {
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
         write(&banks, "进度.SC2Bank", "原版");
+        enable_isolation(&library);
         let profile = ensure_for_slot(&library, &banks, "wol", "自由之翼")
             .expect("切换")
-            .expect("默认开着就该切");
+            .expect("开着隔离就该切");
 
         // 现在游戏里换成另一份内容，把它存进那个组
         write(&banks, "进度.SC2Bank", "最新进度");
@@ -1464,23 +1491,34 @@ mod tests {
     }
 
     #[test]
-    fn nothing_happens_while_isolation_is_off() {
+    fn default_off_leaves_banks_and_state_alone() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let banks = tmp.path().join("Banks");
         let library = tmp.path().join("data");
-        write(&banks, "进度.SC2Bank", "原版");
-        // 现在默认是开着的：这个用例要测"关掉之后"，就显式关一下
-        set_isolation(&library, &banks, false).expect("关掉");
+        write(&banks, "进度.SC2Bank", "玩到第三章");
+        let before = std::fs::read(banks.join("进度.SC2Bank")).expect("读");
 
+        // 用户没打开隔离（没有 state.json）：启用战役一律不碰 Banks
         assert_eq!(
             ensure_for_slot(&library, &banks, "wol", "自由之翼").expect("调"),
             None,
-            "没开隔离就不该碰存档"
+            "默认关着就不该切档"
         );
         assert_eq!(
-            std::fs::read_to_string(banks.join("进度.SC2Bank")).expect("读"),
-            "原版"
+            std::fs::read(banks.join("进度.SC2Bank")).expect("读"),
+            before,
+            "Banks 一个字节都不能动"
         );
+        assert_eq!(
+            snapshot(&banks).expect("快照").files.len(),
+            1,
+            "文件不多不少"
+        );
+        assert!(
+            !state_file(&library).exists(),
+            "默认关着时连 state.json 都不写"
+        );
+        assert!(backups(&library).expect("列").is_empty(), "也不该凭空建组");
     }
 
     /// 造一个库，里面只有一个自制槽位、若干版本。
@@ -1522,6 +1560,7 @@ mod tests {
         let data = tmp.path().join("data");
         let banks = tmp.path().join("Banks");
         let library = library_with_custom(&data, &[("甲", "战役甲", None), ("乙", "战役乙", None)]);
+        set_isolation(&data, &banks, true).expect("开隔离");
 
         let a = ensure_for_slot(
             &data,
@@ -1583,6 +1622,7 @@ mod tests {
             ],
         );
 
+        set_isolation(&data, &banks, true).expect("开隔离");
         let key1 = isolation_key(&library, "custom", Some("v1"));
         let key2 = isolation_key(&library, "custom", Some("v2"));
         assert_eq!(key1, key2, "注册 ID 一样就得是同一个键");
@@ -1857,6 +1897,7 @@ mod tests {
         let banks = tmp.path().join("Banks");
         write(&banks, "原版进度.SC2Bank", "玩到第三章");
         let library = library_with_custom(&data, &[]);
+        set_isolation(&data, &banks, true).expect("开隔离");
 
         // 原版一份（键 = 槽位），改版一份（键 = 槽位/身份）
         let vanilla = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
@@ -1922,6 +1963,7 @@ mod tests {
         );
         library.save_index(&index).expect("写索引");
 
+        set_isolation(&data, &banks, true).expect("开隔离");
         let key1 = isolation_key(&library, "lotv", Some("肉鸽 v1"));
         let key2 = isolation_key(&library, "lotv", Some("肉鸽 v2"));
         assert_eq!(key1, key2, "同一部改版换版本 -> 同一个键");
@@ -1965,6 +2007,7 @@ mod tests {
         );
         library.save_index(&index).expect("写索引");
 
+        set_isolation(&data, &banks, true).expect("开隔离");
         let a = ensure_for_slot(
             &data,
             &banks,
@@ -2245,6 +2288,7 @@ mod tests {
         let _library = library_with_lotv_mod_active(&data, None);
         // 当年开隔离时自动收下的老组：有内容、没有任何绑定
         write(&root(&data).join("原版-1"), "a.SC2Bank", "原版进度");
+        set_isolation(&data, &banks, true).expect("开隔离");
 
         let name = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
             .expect("切原版")
@@ -2291,6 +2335,7 @@ mod tests {
         let data = tmp.path().join("data");
         let banks = tmp.path().join("Banks");
         let _library = library_with_lotv_mod_active(&data, None);
+        set_isolation(&data, &banks, true).expect("开隔离");
 
         let name = ensure_for_slot(&data, &banks, "lotv", "虚空之遗")
             .expect("切原版")

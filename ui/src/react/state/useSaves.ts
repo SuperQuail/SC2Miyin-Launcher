@@ -59,10 +59,10 @@ export function useSaves(options: SavesOptions): SavesApi {
   const [saves, setSaves] = useState<SaveSet | null>(null);
   const [saveBackups, setSaveBackups] = useState<SaveBackup[]>([]);
   const [saveTargets, setSaveTargets] = useState<SaveTarget[]>([]);
-  // 后端现在**默认开着**（老用户升级也不丢进度，见 saves.rs）：初始值跟着来，
-  // 免得刷新的一瞬间界面先闪一下"关着"。
+  // 后端**默认关着**（用户主动打开才生效，见 saves.rs）：初始值跟着来，
+  // 免得刷新的一瞬间界面先闪一下"开着"。
   const [saveIsolation, setSaveIsolation] = useState<SaveIsolation>({
-    enabled: true,
+    enabled: false,
     active: null,
     assignments: {},
   });
@@ -125,21 +125,23 @@ export function useSaves(options: SavesOptions): SavesApi {
   /**
    * 打开 / 关掉隔离。
    *
-   * **默认就是开着的**；关掉之后不再动 Banks，已经存下的组都留着。
+   * **默认关着**，用户主动打开才生效；关掉之后不再动 Banks，已经存下的组都留着。
    * 打开的一刻后端会把现在这份 Banks 收成「原版」。
    */
   const toggleSaveIsolation = useCallback(
     (enabled: boolean) =>
       busy(async () => {
         try {
-          setSaveIsolation(await api.setSaveIsolation(enabled));
+          const state = await api.setSaveIsolation(enabled);
+          setSaveIsolation(state);
           await refreshSaves();
-          notify(
-            "success",
-            enabled
-              ? "存档隔离已打开 —— 当前进度存成了「原版」"
-              : "存档隔离已关掉：不再动 Banks，已有的组都留着",
-          );
+          // 还没有存档时后端不会收「原版」（没东西可收），别顺着话术说已经收好了
+          const message = !enabled
+            ? "存档隔离已关掉：不再动 Banks，已有的组都留着"
+            : state.active
+              ? "存档隔离已打开 —— 现在这份进度存成了「原版」"
+              : "存档隔离已打开 —— 还没有存档，玩过之后第一份进度会收成「原版」";
+          notify("success", message);
         } catch (error) {
           notify("error", errorText(error));
         }

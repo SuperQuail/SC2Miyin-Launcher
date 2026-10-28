@@ -566,7 +566,10 @@ const demoSaveGroups: SaveBackup[] = [
   },
 ];
 const demoSavesState: SaveIsolation = {
-  enabled: true,
+  // 初始要跟**真实默认**一致：关着（见 saves.rs 的 Isolation::default）。
+  // 组照常列出来，用户在设置页打开开关之后切组 / 归属的演示都能走（demoEnsureSaves 认 enabled）。
+  enabled: false,
+  // 已经归过档（跟真机上「打开过、后来关掉」的状态一样），所以打开开关不会再收一份「原版」
   active: "原版-1790000000",
   // 键的规则和后端一致：原版 = 槽位；有版本 = 槽位/身份
   assignments: { "自由之翼 · 重生 v1.4.2-1790000100": "wol/自由之翼：重生 v1.4.2" },
