@@ -4,7 +4,6 @@ import { MIYIN } from "../../api/art";
 import { api } from "../../api/bridge";
 import { useAppState } from "../state/AppState";
 import type { ViewId } from "../lib/router";
-import { RESOURCE_SITE } from "../state/useSiteLinks";
 
 const TABS: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
@@ -136,15 +135,6 @@ export function TopBar({ preview }: { preview: boolean }) {
               {tab.label}
             </button>
           ))}
-          {/* 资源网站：**不是视图**，点了也不切页 —— 先问一句，确认了才交给系统浏览器 */}
-          <button
-            className="tab tab--site"
-            type="button"
-            title="资源网站（用系统默认浏览器打开）"
-            onClick={() => void app.sites.requestSite(RESOURCE_SITE)}
-          >
-            资源网站
-          </button>
           {/* 开发者页是独立入口（整页跳过去），不是这个 SPA 里的视图 */}
           <button
             className="tab tab--dev"
@@ -186,7 +176,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           </span>
         )}
         {app.installation.installation && (
-          <span className="tag" title="星际争霸 II 版本">
+          <span className="tag tag--sc2" title="星际争霸 II 版本">
             SC2 {app.installation.installation.version}
           </span>
         )}
