@@ -109,3 +109,5 @@ Desktop.ini
 
 # 出方案期的预览件，不入库
 /ui/src/preview/
+
+/.tmp/
