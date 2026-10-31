@@ -3,7 +3,9 @@ import { useState, type ReactNode } from "react";
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
-import { Button, Field, Sheet } from "../../ui";
+import { useAppState } from "../../state/AppState";
+import { Button, Choice, Field, Progress, Sheet } from "../../ui";
+import { ToastCandidates } from "./toast-lab/ToastCandidates";
 
 /**
  * 开发者房间 · **用户侧**。
@@ -66,10 +68,17 @@ export function UserSidePage() {
   const [backdropSheet, setBackdropSheet] = useState(false);
   const [demoText, setDemoText] = useState("演示文本");
   const [dismissed, setDismissed] = useState("");
+  // 提示（正式版）演示：直接推真的 notify，走的就是生产那条路
+  const { notify } = useAppState();
+  // Choice 演示：安装页那个「覆盖更新 / 重命名后导入」就是它
+  const [conflict, setConflict] = useState<"overwrite" | "rename">("overwrite");
 
   return (
     <>
-      <Card title="控件层 · Button" note="react/ui/Button —— 变体、尺寸、禁用态。">
+      <Card
+        title="控件层 · Button"
+        note="react/ui/Button —— 变体（primary / tonal / outline / text / danger）、尺寸、禁用态。"
+      >
         <div className="room__row">
           <span className="room__label">variant</span>
           <Button variant="primary">primary</Button>
@@ -89,7 +98,10 @@ export function UserSidePage() {
         </div>
       </Card>
 
-      <Card title="控件层 · Field" note="react/ui/Field —— 标签、提示、错误、整行。">
+      <Card
+        title="控件层 · Field"
+        note="react/ui/Field —— 标签、提示、错误、下拉，以及「标签左、值右」的属性行。"
+      >
         <div className="room__fields">
           <Field label="普通输入">
             <input type="text" value={demoText} onChange={(event) => setDemoText(event.target.value)} />
@@ -111,6 +123,88 @@ export function UserSidePage() {
           <textarea rows={2} defaultValue="" />
         </Field>
       </Card>
+
+      <Card
+        title="控件层 · Choice / Progress / 处理中按钮 / 属性行"
+        note="react/ui —— 单选得看得出是单选；进度条以前只活在 settings.css 里，别处要用就再手搓一条。"
+      >
+        <div className="room__col">
+          <Choice
+            label="库里已有这一版，怎么办"
+            value={conflict}
+            onChange={setConflict}
+            options={[
+              { value: "overwrite", label: "覆盖更新", hint: "沿用原目录名" },
+              { value: "rename", label: "重命名后导入", hint: "两个版本并存" },
+            ]}
+            hint="覆盖更新会替换掉旧版本的文件；重命名则两份都留着，各自启用互不影响。"
+          />
+          <Progress value={62} label="正在打包" detail="123 / 2331" />
+          <Progress value={null} label="不确定进度（没有事件流时用它）" />
+        </div>
+        <div className="room__row">
+          <Button variant="primary" loading>
+            安装中…
+          </Button>
+          <Button variant="outline" loading>
+            重新扫描
+          </Button>
+          <span className="room__note">loading = 转圈 + 禁用 + aria-busy</span>
+        </div>
+        <Field label="整合包名称" row>
+          <input defaultValue="Starcraft Mass Recall" />
+        </Field>
+        <Field label="版本" row hint="属性表那样：标签左、值右">
+          <input defaultValue="8.0" />
+        </Field>
+      </Card>
+
+      <Card
+        title="正式控件 · 提示（右下角那一叠）"
+        note="react/ui/Toast + state/useNotify —— 照着候选 C 做的正式版，位置在右下角。点下面这些按钮推的是真的 notify，走的就是生产那条路。"
+      >
+        <div className="room__row">
+          <Button variant="outline" onClick={() => notify("success", "已启用 Starcraft Mass Recall 8.0")}>
+            成功
+          </Button>
+          <Button variant="danger" onClick={() => notify("error", "导入失败：包里没有找到地图文件")}>
+            失败
+          </Button>
+          <Button variant="outline" onClick={() => notify("warning", "先选一个整合包")}>
+            警告
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() =>
+              notify(
+                "info",
+                "导入「Starcraft Mass Recall 8.0」时发现库里已经有一个 7.4 —— 两个版本的注册 ID 相同，" +
+                  "覆盖更新会沿用原来的目录名并替换全部文件，重命名后导入则两份都留在库里各自启用。",
+              )
+            }
+          >
+            长文案
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              notify("success", "已启用 Starcraft Mass Recall 8.0");
+              notify("warning", "有 1 个版本未启用：库里还有 7.4");
+              notify("error", "导入失败：包里没有找到地图文件");
+              notify("info", "这条会顶掉最旧的那条 —— 同时最多 3 条");
+            }}
+          >
+            连推 4 条（看上限）
+          </Button>
+        </div>
+        <p className="room__card-note">
+          同时最多 3 条：第 4 条进来会挤掉最旧的（旧的往左上叠、压暗、只露一行字）；
+          只有最前那条有 ✕。鼠标压在那一叠上，整叠暂停消失，移开接着走。
+          切页（去战役页再回来）提示不丢 —— 它挂在 <code>AppShell</code> 上、不在 <code>.view</code> 里。
+        </p>
+      </Card>
+
+      <ToastCandidates />
 
       <Card
         title="控件层 · Sheet"
@@ -145,6 +239,7 @@ export function UserSidePage() {
             active={false}
             selected={false}
             onPick={() => setDismissed("")}
+            onActivate={() => setDismissed("")}
             onDrop={() => setDismissed("")}
             onMenu={() => setDismissed("")}
           />
@@ -154,6 +249,7 @@ export function UserSidePage() {
             active
             selected
             onPick={() => setDismissed("")}
+            onActivate={() => setDismissed("")}
             onDrop={() => setDismissed("")}
             onMenu={() => setDismissed("")}
           />

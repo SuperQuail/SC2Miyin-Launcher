@@ -1,7 +1,8 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type MouseEvent as ReactMouseEvent } from "react";
 
 import { MIYIN } from "../../../api/art";
-import { ImportDialog } from "./ImportDialog";
+import { api } from "../../../api/bridge";
+import { errorText } from "../../../api/errors";
 import { SlotMenu } from "./SlotMenu";
 import { SlotCard } from "../../components/SlotCard";
 import { findSlot, officialSlots, useCampaigns } from "./useCampaigns";
@@ -16,17 +17,7 @@ import "./campaigns.css";
  */
 export function CampaignsView(host: CampaignsHost) {
   const view = useCampaigns(host);
-  const [importNonce, setImportNonce] = useState(0);
-  /** 导入对话框在不在跑（核对 / 处理中），用来禁用那两个入口按钮。 */
-  const [importBusy, setImportBusy] = useState(false);
-
   const openSlot = findSlot(host.slots, view.opened);
-
-  /** 导入还是更新 —— 两个按钮共用同一个对话框。 */
-  function startImport(mode: "import" | "update"): void {
-    view.setImportMode(mode);
-    setImportNonce((value) => value + 1);
-  }
 
   /** 页面空白处的右键菜单。 */
   function showPageMenu(event: ReactMouseEvent): void {
@@ -34,12 +25,14 @@ export function CampaignsView(host: CampaignsHost) {
       event,
       [
         { id: "import", label: "导入战役包…" },
+        { id: "importFolder", label: "从文件夹导入…" },
         { id: "reload", label: "重新读取战役库" },
         { id: "cheats", label: "作弊码查询", separatorBefore: true },
         { id: "settings", label: "设置" },
       ],
       (id) => {
-        if (id === "import") startImport("import");
+        if (id === "import") host.openInstall();
+        if (id === "importFolder") host.openInstallFolder();
         if (id === "reload") host.refresh();
         if (id === "cheats") host.openCheats();
         if (id === "settings") host.openSettings();
@@ -47,24 +40,32 @@ export function CampaignsView(host: CampaignsHost) {
     );
   }
 
-  /** 顶部「小工具」：作弊码这类查询工具挂这里，不单开标签页。 */
+  /** 顶部「工具」：作弊码这类查询工具挂这里，不单开标签页。 */
   function openTools(event: ReactMouseEvent): void {
     host.showMenu(
       event,
       [
         { id: "cheats", label: "作弊码查询" },
+        { id: "sevenzip", label: "解压工具（7-Zip）" },
         { id: "reload", label: "重新读取战役库", separatorBefore: true },
       ],
       (id) => {
         if (id === "cheats") host.openCheats();
+        if (id === "sevenzip") {
+          void api.openSevenZip().catch((error: unknown) => host.notify("error", errorText(error)));
+        }
         if (id === "reload") host.refresh();
       },
     );
   }
 
+  // 顺序固定（AGENTS §14.2：由 CampaignType.MENU 定，不许改）—— 官方四张不参与拖动排序
   const official = officialSlots(host.slots);
   const modCount = host.slots.reduce((total, slot) => total + slot.variants.length, 0);
-  const activeCount = host.slots.filter((slot) => slot.active !== null).length;
+  // 「已启用」按安装清单算；演示数据没带清单字段时退回 active，避免演示页显示 0
+  const installedCount = (slot: (typeof host.slots)[number]) =>
+    (slot.enabled_variants?.length ?? (slot.active !== null ? 1 : 0)) > 0;
+  const activeCount = host.slots.filter(installedCount).length;
 
   // 点进某个战役就是它自己的菜单页（不是弹窗）
   if (openSlot) {
@@ -82,10 +83,10 @@ export function CampaignsView(host: CampaignsHost) {
         {!host.installation ? (
           <section className="empty card">
             <img className="empty__art" src={MIYIN.cry} alt="" />
-            <h2 className="empty__title">还没有找到星际争霸 II</h2>
+            <h2 className="empty__title">未检测到星际争霸 II</h2>
             <p className="empty__text">
-              启动器会先读取注册表里的安装位置。如果没有找到，请手动指定游戏根目录
-              （即包含 <code>StarCraft II.exe</code> 的那一层）。
+              启动器会先尝试从注册表读取安装位置。如果未找到，请手动选择游戏根目录
+              （含 <code>StarCraft II.exe</code> 的文件夹层级）。
             </p>
             <div className="empty__actions">
               <button className="btn btn-primary btn-lg" type="button" onClick={host.chooseGameDirectory}>
@@ -102,7 +103,7 @@ export function CampaignsView(host: CampaignsHost) {
             <section className="hero card">
               <div className="hero__body">
                 <p className="hero__eyebrow">星际争霸 II · {regionLabel(host.installation.branch)}</p>
-                <h2 className="hero__title">{host.installation.version ?? "版本未知"}</h2>
+                <h2 className="hero__title">{host.installation.version ?? "未知版本"}</h2>
                 <p className="hero__path" title={host.installation.root}>
                   {host.installation.root}
                 </p>
@@ -122,16 +123,16 @@ export function CampaignsView(host: CampaignsHost) {
 
                 <dl className="hero__stats">
                   <div className="stat">
-                    <dt>官方战役</dt>
-                    {/* 自制战役不算"官方" —— slots 里含它，所以这里要滤掉 */}
+                    <dt>原版战役</dt>
+                    {/* 自制战役不算「原版」—— slots 里含它，所以这里要滤掉 */}
                     <dd>{official.length}</dd>
                   </div>
                   <div className="stat">
-                    <dt>已导入版本</dt>
+                    <dt>已导入</dt>
                     <dd>{modCount}</dd>
                   </div>
                   <div className="stat">
-                    <dt>已切换</dt>
+                    <dt>已启用</dt>
                     <dd>{activeCount}</dd>
                   </div>
                 </dl>
@@ -153,21 +154,28 @@ export function CampaignsView(host: CampaignsHost) {
                   {host.loading ? "读取中…" : "重新读取"}
                 </button>
                 <button className="btn btn-text" type="button" onClick={openTools}>
-                  小工具 ▾
+                  工具 ▾
                 </button>
                 <button
                   className="btn btn-outline"
                   type="button"
-                  disabled={importBusy}
-                  onClick={() => startImport("update")}
+                  onClick={() => host.openInstall()}
                 >
-                  更新战役包…
+                  更新已安装战役包…
+                </button>
+                <button
+                  className="btn btn-outline"
+                  type="button"
+                  disabled={view.busy !== null}
+                  onClick={() => host.openInstallFolder()}
+                >
+                  从文件夹导入
                 </button>
                 <button
                   className="btn btn-primary"
                   type="button"
                   disabled={view.busy !== null}
-                  onClick={() => startImport("import")}
+                  onClick={() => host.openInstall()}
                 >
                   ＋ 导入战役包
                 </button>
@@ -175,22 +183,10 @@ export function CampaignsView(host: CampaignsHost) {
             </div>
 
             <p className="section-hint">
-              导入时启动器会读取包里的战役信息，自动归入对应的战役；每部战役默认是原版，
-              点开可以导入并切换不同玩家制作的版本，多个版本同时保留、互不覆盖。
+              导入时启动器会读取包内信息并归入对应战役。每部战役默认使用原版；
+              点开后可导入并切换玩家制作的改版，多个改版同时保留、互不覆盖。
             </p>
 
-            <ImportDialog
-              entry="campaign"
-              mode={view.importMode}
-              importNonce={importNonce}
-              slots={host.slots}
-              droppedPackage={host.droppedPackage}
-              consumeDropped={host.consumeDropped}
-              notify={host.notify}
-              refresh={host.refresh}
-              onImported={(slug) => view.setOpened(slug)}
-              onBusy={setImportBusy}
-            />
 
             <div className="grid">
               {official.map((slot) => (

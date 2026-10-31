@@ -42,11 +42,19 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
       const updated = await api.installTool(id, version);
       setTools((current) => current.map((item) => (item.id === id ? updated : item)));
       setPicking(null);
-      notify("success", updated.name + " " + (updated.version ?? "") + " 已装好");
+      notify("success", updated.name + " " + (updated.version ?? "") + " 已安装");
     } catch (error) {
       notify("error", errorText(error));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function openSevenZip(): Promise<void> {
+    try {
+      await api.openSevenZip();
+    } catch (error) {
+      notify("error", errorText(error));
     }
   }
 
@@ -94,8 +102,25 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
     <section className="card panel">
       <header className="panel__head">
         <h3 className="panel__title">可选工具</h3>
-        <span className="panel__hint">不装也能正常用</span>
+        <span className="panel__hint">不安装也可正常使用启动器</span>
       </header>
+
+      <article className="tool">
+        <div className="tool__head">
+          <div className="tool__title">
+            <span className="tool__name">7-Zip 解压工具</span>
+            <span className="tag tag--ok">已内置</span>
+          </div>
+          <div className="tool__actions">
+            <Button variant="primary" onClick={() => void openSevenZip()}>
+              <span className="btn--tiny">打开 7-Zip</span>
+            </Button>
+          </div>
+        </div>
+        <p className="tool__about">
+          导入 7z / rar 等压缩包时启动器会自动用它解压；也可以从这里打开 7-Zip 的完整界面，做解压、压缩、测试等操作。
+        </p>
+      </article>
 
       {loading && <p className="notes__empty">正在读取…</p>}
 
@@ -115,7 +140,7 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
               </Button>
               <Button variant="primary" disabled={busy !== null} onClick={() => void install(tool.id, null)}>
                 <span className="btn--tiny">
-                  {busy === tool.id ? "处理中…" : tool.installed ? "更新到最新" : "一键安装"}
+                  {busy === tool.id ? "处理中…" : tool.installed ? "更新" : "安装"}
                 </span>
               </Button>
               {tool.installed && (
@@ -132,7 +157,7 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
           {tool.auto_failed && (
             <p className="tool__failed">
               上次自动安装失败{tool.auto_error ? "：" + tool.auto_error : ""}。
-              <strong>之后启动不会再自动尝试</strong> —— 想装的话点上面的「一键安装」。
+              <strong>后续启动不会再自动尝试</strong>；如需安装，请点上方「安装」。
             </p>
           )}
           {tool.installed && tool.path && (
@@ -147,7 +172,7 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
               {busy === tool.id ? (
                 <li className="versions__empty">正在查询…</li>
               ) : !(releases[tool.id] ?? []).length ? (
-                <li className="versions__empty">这个工具还没有可安装的版本</li>
+                <li className="versions__empty">此工具暂无可安装版本</li>
               ) : (
                 (releases[tool.id] ?? []).map((release) => (
                   <li key={release.tag} className="version">
@@ -156,7 +181,7 @@ export function ToolsPanel({ notify }: { notify: (kind: "success" | "error", tex
                       disabled={busy !== null || !release.has_asset}
                       onClick={() => void install(tool.id, release.version)}
                     >
-                      <span className="btn--tiny">{release.has_asset ? "装这个版本" : "此版本没有附件"}</span>
+                      <span className="btn--tiny">{release.has_asset ? "安装此版本" : "此版本无附件"}</span>
                     </Button>
                   </li>
                 ))

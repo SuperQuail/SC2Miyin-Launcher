@@ -1,6 +1,7 @@
 import type { MouseEvent, SVGAttributes } from "react";
 
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import ButtonToolbar from "@jetbrains/ring-ui-built/components/button-toolbar/button-toolbar";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Tooltip from "@jetbrains/ring-ui-built/components/tooltip/tooltip";
 import addIcon from "@jetbrains/icons/add";
@@ -79,6 +80,10 @@ export type ToolbarProps = {
   onSearch: (value: string) => void;
   canExport: boolean;
   onExport: () => void;
+  /** 正在导出 —— 按钮转成 loader 态 */
+  exporting: boolean;
+  /** 正在重新扫描目录 */
+  scanning: boolean;
   maximized: boolean;
   onMinimize: () => void;
   onToggleMaximize: () => void;
@@ -96,6 +101,8 @@ export function Toolbar({
   onSearch,
   canExport,
   onExport,
+  exporting,
+  scanning,
   maximized,
   onMinimize,
   onToggleMaximize,
@@ -103,8 +110,13 @@ export function Toolbar({
 }: ToolbarProps) {
   return (
     <div className="tb" data-tauri-drag-region onMouseDown={startWindowDrag}>
-      <Button icon={arrowLeftIcon} onClick={onHome}>返回启动器</Button>
-      <span className="tsep" />
+      {/* 左组：导航 + 目录。按 ButtonToolbar 分组 —— 组与组之间的间隔由它自己给 */}
+      <ButtonToolbar>
+        <Button icon={arrowLeftIcon} onClick={onHome}>返回启动器</Button>
+        <Button icon={updateIcon} loader={scanning} onClick={onRescan}>重新扫描</Button>
+        <Button icon={addIcon} onClick={onAddDirectory}>添加目录…</Button>
+      </ButtonToolbar>
+
       <Tooltip title="这个包的名字 —— 提交历史和导出都用它">
         <label className="pkgnamectl">
           <span>包名</span>
@@ -118,10 +130,8 @@ export function Toolbar({
           />
         </label>
       </Tooltip>
-      <span className="tsep" />
-      <Button icon={updateIcon} onClick={onRescan}>重新扫描</Button>
-      <Button icon={addIcon} onClick={onAddDirectory}>添加目录…</Button>
       <span className="tspacer" />
+
       <Input
         className="tsearch"
         size={Size.S}
@@ -130,7 +140,10 @@ export function Toolbar({
         onChange={(event) => onSearch(event.target.value)}
         placeholder="搜索"
       />
-      <Button primary icon={exportIcon} disabled={!canExport} onClick={onExport}>导出压缩包</Button>
+      {/* 打包是几十秒到几分钟的活：按钮自己转 loader，别让人猜是不是没点上 */}
+      <Button primary icon={exportIcon} loader={exporting} disabled={!canExport} onClick={onExport}>
+        {exporting ? "导出中…" : "导出压缩包"}
+      </Button>
 
       {/* 窗口按钮：这页用的是同一个无边框窗口，不画就没有最小化/关闭 */}
       <div className="winctl">

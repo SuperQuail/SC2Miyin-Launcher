@@ -1,18 +1,25 @@
-import { Suspense, lazy, type ComponentType } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 
 import { BACKDROP } from "../../api/art";
+import { api } from "../../api/bridge";
 import { showContextMenu } from "../lib/contextMenu";
 import { useAppState } from "../state/AppState";
+import { Toast } from "../ui";
+import { ActivationConflictDialog } from "../views/campaigns/ActivationConflictDialog";
 import { CampaignsView } from "../views/campaigns/CampaignsView";
 import type { CampaignsHost } from "../views/campaigns/host";
 import { CheatsView } from "../views/cheats/CheatsView";
 import { CustomView } from "../views/custom/CustomView";
+import { InstallView } from "../views/install/InstallView";
+import { MergeDialog } from "../views/merge/MergeDialog";
 import type { CustomHost } from "../views/custom/host";
 import { ModsView } from "../views/mods/ModsView";
 import type { ModsHost } from "../views/mods/useMods";
 import { RoomView } from "../views/room/RoomView";
+import { SavesView } from "../views/saves/SavesView";
 import { SettingsView, type SettingsViewProps } from "../views/settings/SettingsView";
 import { UpdateNotice } from "../views/update/UpdateNotice";
+import { reportMountWarnings } from "./boot";
 import { ContextMenu } from "./ContextMenu";
 import { Dialogs } from "./Dialogs";
 import { TopBar } from "./TopBar";
@@ -49,14 +56,36 @@ export function AppShell() {
   const { dragging } = useShellEffects();
   const hasPreview = PreviewView !== null;
 
+  // 后端启动时自动挂载模组，没挂全的提示攒着等这里取一次（失败静默）。
+  // BootGate 只管等后端就绪，toast 队列在外壳里 —— 挂载后的第一刻才两样都有。
+  useEffect(() => {
+    void api.takeMountWarnings().then(
+      (warnings) => reportMountWarnings(app.notify, warnings),
+      () => undefined,
+    );
+  }, [app.notify]);
+
+  /**
+   * 从文件夹导入：先选目录，再进安装页 —— 那一页会自己预检。
+   *
+   * 走的还是「拖进来」那条通道（`droppedPackages`），安装页不用为此多一条入口。
+   */
+  async function importFromFolder(entry: "campaign" | "custom"): Promise<void> {
+    const path = await api.pickPackageFolder();
+    if (!path) return;
+    app.library.setDroppedPackages([path]);
+    app.nav.openInstall(entry);
+  }
+
   const campaignsHost: CampaignsHost = {
     installation: app.installation.installation,
     slots: app.library.slots,
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
     busy: app.busy,
-    droppedPackage: app.library.droppedPackage,
-    consumeDropped: () => app.library.setDroppedPackage(null),
+    // 战役页那个导入对话框还是单包（views/campaigns/host.ts 不在本次范围内）：拖进来的话给它第一个
+    droppedPackage: app.library.droppedPackages[0] ?? null,
+    consumeDropped: () => app.library.setDroppedPackages([]),
     notify: app.notify,
     reveal: app.installation.reveal,
     bootstrap: () => void app.installation.bootstrap(),
@@ -71,16 +100,25 @@ export function AppShell() {
     cancelActivation: app.library.cancelActivation,
     openCheats: app.nav.openCheats,
     openSettings: () => app.nav.setView("settings"),
+    openInstall: () => app.nav.openInstall("campaign"),
+    openInstallFolder: () => void importFromFolder("campaign"),
   };
 
   const customHost: CustomHost = {
+    openInstall: () => app.nav.openInstall("custom"),
+    openInstallFolder: () => void importFromFolder("custom"),
     slots: app.library.slots,
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
+    busy: app.busy,
     notify: app.notify,
     bootstrap: () => void app.installation.bootstrap(),
     refresh: () => void app.library.refresh(),
     activate: app.library.requestActivation,
+    // 自制战役页也要那两道确认（预演 / 冲突）—— 以前这里没有，点了启用像没反应
+    pendingActivation: app.library.pendingActivation,
+    confirmActivation: app.library.confirmActivation,
+    cancelActivation: app.library.cancelActivation,
     removeVariant: app.library.removeVariant,
     showMenu: showContextMenu,
     openCheats: app.nav.openCheats,
@@ -103,6 +141,8 @@ export function AppShell() {
     saves: app.saves.saves,
     saveBackups: app.saves.saveBackups,
     saveIsolation: app.saves.saveIsolation,
+    // 状态文件读不出来时不静默当关闭：设置页的隔离卡要把这条提示摆出来
+    saveIsolationWarning: app.saves.saveIsolation.warning ?? null,
     slots: app.library.slots,
     busy: app.busy,
     launcherVersion: app.installation.launcherVersion,
@@ -150,10 +190,10 @@ export function AppShell() {
       {dragging && (
         <div className="dropzone">
           <div className="dropzone__card">
-            <div className="dropzone__title">松手即可导入</div>
+            <div className="dropzone__title">松开即可导入</div>
             <div className="dropzone__text">
-              支持 zip / 7z / rar / tar —— 启动器会自动判断它属于哪部战役，
-              认不出来会让你选，不会瞎猜。
+              支持 zip / 7z / rar / tar。启动器会尝试自动判断所属战役；
+              无法识别时会请你选择。
             </div>
           </div>
         </div>
@@ -168,17 +208,78 @@ export function AppShell() {
           // 切页时淡入上移，免得页面像被"啪"地换掉
           <div className="view" key={view}>
             {view === "campaigns" && <CampaignsView {...campaignsHost} />}
+            {view === "install" && (
+              <InstallView
+                entry={app.nav.installEntry}
+                slots={app.library.slots}
+                droppedPackages={app.library.droppedPackages}
+                consumeDropped={() => app.library.setDroppedPackages([])}
+                notify={app.notify}
+                onBack={() => app.nav.back()}
+                onInstalled={(slug) => {
+                  void app.library.refresh();
+                  // 装完回到进来之前那一处 —— back() 就够了，安装页不需要知道从哪来
+                  app.nav.back();
+                  void slug;
+                }}
+              />
+            )}
             {view === "custom" && <CustomView {...customHost} />}
             {view === "mods" && <ModsView {...modsHost} />}
+            {view === "saves" && (
+              <SavesView
+                inventory={app.saves.inventory}
+                busy={app.busy}
+                onScan={() => void app.saves.scanSaves()}
+              />
+            )}
             {view === "settings" && <SettingsView {...settingsProps} />}
             {view === "room" && <RoomView onBack={() => app.nav.setView("settings")} />}
           </div>
         )}
       </main>
 
-      {app.toast && <div className={"toast toast--" + app.toast.kind}>{app.toast.message}</div>}
+      {/* 提示：挂在 .view **外面** —— 里面那个 view-in 动画会让 .view 变成
+          position: fixed 的包含块，提示会掉到屏幕外；切页时也不该丢 */}
+      <Toast
+        toasts={app.toasts}
+        onClose={app.dismiss}
+        onPause={app.pauseToasts}
+        onResume={app.resumeToasts}
+      />
 
-      {/* 作弊码：战役页 / 自制战役页的「小工具」里弹出来 */}
+      {/* 启动时发现另一份 data：不冲突的后端直接并，冲突的在这里让用户选 */}
+      {app.merge.status && (
+        <MergeDialog
+          status={app.merge.status}
+          choices={app.merge.choices}
+          applying={app.merge.applying}
+          onChoose={app.merge.setChoice}
+          onApply={() => void app.merge.apply()}
+          onLater={app.merge.dismiss}
+        />
+      )}
+
+      {/* 启用时会覆盖另一个已启用战役：先问一句。**这个框出现时一个字节都还没写盘** */}
+      {app.library.pendingConflict &&
+        (() => {
+          const pending = app.library.pendingConflict;
+          const slot = app.library.slots.find((item) => item.slug === pending.slot);
+          const variant = slot?.variants.find((item) => item.id === pending.variantId);
+          const other = pending.conflicts[0];
+          return (
+            <ActivationConflictDialog
+              conflicts={pending.conflicts}
+              newCampaign={variant?.name ?? slot?.display_name ?? pending.slot}
+              otherCampaign={other ? other.slot_name + " · " + other.variant_name : ""}
+              busy={app.busy}
+              onUseNew={() => void app.library.confirmConflict()}
+              onKeepOther={app.library.cancelConflict}
+            />
+          );
+        })()}
+
+      {/* 作弊码：战役页 / 自制战役页的「工具」里弹出来 */}
       {app.nav.cheatsOpen && <CheatsView notify={app.notify} onClose={app.nav.closeCheats} />}
 
       {/* 全局右键菜单：任何地方调 showContextMenu() 就能弹 */}

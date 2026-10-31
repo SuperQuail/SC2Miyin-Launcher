@@ -5,6 +5,7 @@ import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
 import type { DocInfo, MainMapChoice, MapEntry, ModEntry, Variant } from "../../../api/types";
 import { copyText } from "../../lib/clipboard";
+import { usePermissionGate } from "../../state/usePermission";
 import type { CampaignMenuItem } from "./host";
 import "./custom-campaign.css";
 
@@ -12,7 +13,7 @@ import "./custom-campaign.css";
  * 自制战役的操作面板（React 版，从 `components/CustomCampaignPanel.vue` 整块迁过来）。
  *
  * 自制战役会整包装进 `Maps/CustomCampaigns/<战役目录>/`，模组进 `Mods/`。
- * **想卸下来就点「停用」** —— 只撤我们记过账的文件。
+ * **模组由启动器自己管**：这里只只读展示「将挂载哪些模组」，勾选在「模组」页。
  */
 export function CustomCampaignPanel({
   slot,
@@ -22,17 +23,25 @@ export function CustomCampaignPanel({
   notify,
   showMenu,
   onOpenDoc,
+  activate,
 }: {
   slot: string;
   variant: Variant;
-  /** 这个版本是不是当前启用的那个。 */
+  /** 这个版本是不是当前启用 / 选中的那个。 */
   active: boolean;
   /** 动过库之后让外壳重新读一遍。 */
   refresh: () => void;
   notify: (kind: "info" | "success" | "error", text: string) => void;
   showMenu: (event: ReactMouseEvent, items: CampaignMenuItem[], onPick: (id: string) => void) => void;
   onOpenDoc: (doc: DocInfo) => void;
+  /**
+   * 外壳统一的启用流程（含预演 / 冲突确认）；不传时退回直连 API。
+   * 调用点接上 `host.activate` 即可复用那条流程（见 SlotMenu / CustomView）。
+   */
+  activate?: (slot: string, variantId: string | null) => Promise<boolean>;
 }) {
+  /** 提权闸门：没接线 host.activate 时的直连路径也要过它。 */
+  const permission = usePermissionGate();
   const [maps, setMaps] = useState<MapEntry[]>([]);
   const [mods, setMods] = useState<ModEntry[]>([]);
   const [choice, setChoice] = useState<MainMapChoice | null>(null);
@@ -44,8 +53,6 @@ export function CustomCampaignPanel({
   const [keyword, setKeyword] = useState("");
   /** 折叠起来的章节；默认全展开。 */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  /** 没挂模组就点启动时的警告。 */
-  const [showMountWarning, setShowMountWarning] = useState(false);
 
   /** 读这个版本的地图 / 模组 / 主地图 / 说明。 */
   async function load(): Promise<void> {
@@ -108,8 +115,9 @@ export function CustomCampaignPanel({
     return [...buckets.entries()].map(([title, entries]) => ({ title, maps: entries }));
   }, [filtered]);
 
-  const mountedCount = mods.filter((item) => item.mounted).length;
-  const hasMods = mods.length > 0;
+  /** 面板只展示**会被同步**的模组；勾选状态在「模组」页。 */
+  const mountedMods = mods.filter((entry) => entry.mounted);
+  const unmountedCount = mods.length - mountedMods.length;
   const mainMap = choice?.path ?? null;
 
   function toggleGroup(title: string): void {
@@ -119,32 +127,25 @@ export function CustomCampaignPanel({
     setCollapsed(next);
   }
 
-  /** 启用 / 停用这个版本（停用就是把装进去的东西撤回来）。 */
+  /**
+   * 启用 / 停用这个版本（停用就是把装进去的东西撤回来）。
+   *
+   * 走 host 的统一流程时，成功提示与刷新由那边负责；没接线时退回直连 API。
+   */
   async function toggleActive(): Promise<void> {
     setBusy(true);
     try {
-      await api.activateVariant(slot, active ? null : variant.id);
+      if (activate) {
+        const ok = await activate(slot, active ? null : variant.id);
+        if (ok) refresh();
+        return;
+      }
+      await permission.run(() => api.activateVariant(slot, active ? null : variant.id), {
+        op: "activate",
+        args: { slot, variantId: active ? null : variant.id },
+      });
       refresh();
-      notify("success", active ? "已停用，装进去的文件都撤回了" : "已启用");
-    } catch (error) {
-      notify("error", errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** 勾 / 取消一个模组。 */
-  async function toggleMod(entry: ModEntry): Promise<void> {
-    const next = mods
-      .map((item) => (item.path === entry.path ? !item.mounted : item.mounted))
-      .map((mounted, index) => (mounted ? mods[index].path : null))
-      .filter((path): path is string => path !== null);
-
-    setBusy(true);
-    try {
-      await api.setMountedMods(slot, variant.id, next);
-      setMods(mods.map((item) => ({ ...item, mounted: next.includes(item.path) })));
-      notify("success", next.length ? "已挂载 " + next.length + " 个模组" : "已全部取消挂载");
+      notify("success", active ? "已停用，已从游戏目录移除本战役写入的文件" : "已启用");
     } catch (error) {
       notify("error", errorText(error));
     } finally {
@@ -158,7 +159,7 @@ export function CustomCampaignPanel({
     try {
       await api.setMainMap(slot, variant.id, map.path);
       await load();
-      notify("success", "已把「" + map.name + "」设为主地图");
+      notify("success", "已将「" + map.name + "」设为主地图");
     } catch (error) {
       notify("error", errorText(error));
     } finally {
@@ -170,20 +171,14 @@ export function CustomCampaignPanel({
   async function copyMapPath(map: MapEntry): Promise<void> {
     const text = map.path;
     const ok = await copyText(text);
-    notify(ok ? "success" : "info", ok ? "已复制：" + text : text);
+    notify(ok ? "success" : "info", ok ? "已复制路径：" + text : text);
   }
 
-  /** 启动：没挂模组先警告，然后直接启动星际争霸进这张图（不经过编辑器）。 */
+  /** 启动：直接启动星际争霸进这张图（不经过编辑器）。 */
   async function launch(map?: string): Promise<void> {
     const target = map ?? mainMap;
     if (!target) {
-      notify("info", "还没定主地图 —— 在地图列表里挑一张，点「设为主地图」");
-      return;
-    }
-
-    // 带了模组却一个都没挂：地图的依赖找不到，进游戏就是一堆丢失的资源
-    if (hasMods && mountedCount === 0) {
-      setShowMountWarning(true);
+      notify("info", "尚未设置主地图。请在地图列表中选择一张，并点击「设为主地图」");
       return;
     }
 
@@ -191,23 +186,6 @@ export function CustomCampaignPanel({
     try {
       const result = await api.launchGameWithMap(slot, variant.id, target);
       refresh();
-      notify("success", result.guidance);
-    } catch (error) {
-      notify("error", errorText(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** 收到警告后仍然要试。 */
-  async function launchAnyway(): Promise<void> {
-    setShowMountWarning(false);
-    const target = mainMap;
-    if (!target) return;
-
-    setBusy(true);
-    try {
-      const result = await api.launchGameWithMap(slot, variant.id, target);
       notify("success", result.guidance);
     } catch (error) {
       notify("error", errorText(error));
@@ -249,9 +227,9 @@ export function CustomCampaignPanel({
             <h3 className="banner__title">{variant.name}</h3>
             <p className="banner__sub">
               {active
-                ? "已装进游戏目录，点右边那个绿色的可以停用卸下。"
-                : "还没装进游戏目录 —— 点右边那个把它装进去，就能直接启动游戏。"}
-              {maps.length > 0 && <>共 {maps.length} 张地图。</>}
+                ? "已启用。再次点击按钮可停用，并从游戏目录移除本战役写入的文件。"
+                : "尚未启用。点「已停用」按钮启用后，即可直接启动游戏。"}
+              {maps.length > 0 && <>共 {maps.length} 张地图</>}
             </p>
           </div>
           <div className="banner__actions">
@@ -268,7 +246,7 @@ export function CustomCampaignPanel({
               className={"btn btn-text banner__btn banner__state " + (active ? "is-on" : "is-off")}
               type="button"
               disabled={busy || loading}
-              title={active ? "点击停用：把装进游戏目录的文件撤回" : "点击启用：装进游戏目录"}
+              title={active ? "点击停用：从游戏目录移除本战役写入的文件" : "点击启用：将本战役写入游戏目录"}
               onClick={() => void toggleActive()}
             >
               {active ? "已启用" : "已停用"}
@@ -287,47 +265,46 @@ export function CustomCampaignPanel({
         {mainMap ? (
           <p className="custom__main">
             主地图：<code>{mainMap}</code>
-            {choice?.automatic && <span className="custom__auto">（这个版本只有一张，自动选的）</span>}
+            {choice?.automatic && <span className="custom__auto">（此版本仅有一张地图，已自动选择）</span>}
           </p>
         ) : choice?.warning ? (
           <p className="custom__warn">{choice.warning}</p>
         ) : (
           <p className="custom__warn">
-            还没定主地图。挑一张点「设为主地图」，之后「启动」按钮就打开它。
+            尚未设置主地图。请在地图列表中选择一张，并点击「设为主地图」。
           </p>
         )}
 
-        {/* 挂载模组 */}
-        {hasMods && (
-          <div className="mount">
-            <div className="mount__head">
-              <span className="mount__title">挂载模组</span>
-              <span className="mount__count">
-                已挂 {mountedCount} / {mods.length}
-              </span>
-            </div>
-            <p className="mount__hint">
-              地图需要这些模组才能正常打开。不同战役的模组可能互相冲突，按需勾选即可；
-              <strong>一个都不挂的话，地图打开会报错</strong>。
-            </p>
+        {/* 模组只读：勾选在「模组」页，启动器在启动时自己同步 */}
+        <div className="mount">
+          <div className="mount__head">
+            <span className="mount__title">已勾选的模组</span>
+            {mountedMods.length > 0 && <span className="mount__count">{mountedMods.length} 个</span>}
+          </div>
+          <p className="mount__hint">
+            模组由启动器自动管理，这里只展示已勾选的模组；需要调整请到「模组」页。
+          </p>
+          {mountedMods.length > 0 ? (
             <ul className="mount__list">
-              {mods.map((entry) => (
+              {mountedMods.map((entry) => (
                 <li key={entry.path} className="mod">
-                  <label className="mod__label">
-                    <input
-                      type="checkbox"
-                      checked={entry.mounted}
-                      disabled={busy}
-                      onChange={() => void toggleMod(entry)}
-                    />
-                    <span className="mod__name">{entry.name}</span>
-                  </label>
+                  <span className="mod__name">{entry.name}</span>
                   <code className="mod__path">{entry.path}</code>
+                  <span className={"mod__status" + (entry.in_game ? " mod__status--on" : "")}>
+                    {entry.in_game ? "已生效" : "待生效"}
+                  </span>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          ) : (
+            <p className="mount__empty">这个战役没有已勾选的模组。</p>
+          )}
+          {unmountedCount > 0 && (
+            <p className="mount__hint">
+              另有 {unmountedCount} 个模组未勾选，不会随这个战役同步；需要的话请到「模组」页勾选。
+            </p>
+          )}
+        </div>
 
         {/* 地图列表 */}
         <div className="maplist">
@@ -346,9 +323,9 @@ export function CustomCampaignPanel({
           </div>
 
           {loading ? (
-            <p className="maplist__empty">正在读取库里地图…</p>
+            <p className="maplist__empty">正在读取地图…</p>
           ) : maps.length === 0 ? (
-            <p className="maplist__empty">这个版本里没有 .SC2Map 地图。</p>
+            <p className="maplist__empty">此版本中没有地图文件（.SC2Map）。</p>
           ) : filtered.length === 0 ? (
             <p className="maplist__empty">没有匹配的地图。</p>
           ) : null}
@@ -391,7 +368,7 @@ export function CustomCampaignPanel({
                           disabled={busy}
                           onClick={() => void launch(map.path)}
                         >
-                          启动这张
+                          启动此地图
                         </button>
                       </div>
                     </li>
@@ -402,37 +379,6 @@ export function CustomCampaignPanel({
           ))}
         </div>
       </div>
-
-      {/* 没挂模组就点启动 */}
-      {showMountWarning && (
-        <div className="sheet" onClick={(event) => event.target === event.currentTarget && setShowMountWarning(false)}>
-          <div className="sheet__card">
-            <div className="sheet__badge sheet__badge--warn">
-              <svg className="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3.5 2.5 20h19L12 3.5Z" />
-                <path d="M12 10v4.5" />
-                <path d="M12 17.4v.1" />
-              </svg>
-            </div>
-            <h3 className="sheet__title">一个模组都没挂</h3>
-            <p className="sheet__text">
-              这个战役带了 <strong>{mods.length}</strong> 个模组，而你一个都没勾。
-              <br />
-              <br />
-              地图需要它们才能正常打开，现在直接启动，
-              <strong>多半会报错或者出现紫色方块</strong>。
-            </p>
-            <div className="sheet__actions">
-              <button className="btn btn-text" type="button" onClick={() => setShowMountWarning(false)}>
-                我去挂上
-              </button>
-              <button className="btn btn-primary" type="button" onClick={() => void launchAnyway()}>
-                还是打开
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

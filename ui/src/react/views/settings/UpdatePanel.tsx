@@ -104,8 +104,8 @@ export function UpdatePanel(props: UpdatePanelProps) {
       </header>
 
       <p className="panel__note">
-        启动时会<strong>自动检查</strong>一次更新，有新版本会在右上角显示下载标记。
-        国内直连较慢时会自动并发试多个镜像；代理被限流时会自动改直连重试。
+        启动时会<strong>自动检查</strong>一次更新；有新版本时右上角会显示下载标记。
+        直连较慢时会并发尝试多个镜像；代理被限流时会自动改用直连重试。
       </p>
 
       <div className="row">
@@ -169,11 +169,11 @@ export function UpdatePanel(props: UpdatePanelProps) {
       <div className="console">
         <div className="console__head">
           <span className="console__title">更新日志</span>
-          <span className="console__hint">这里能看到刚才到底做了什么</span>
+          <span className="console__hint">显示本次更新的完整过程</span>
         </div>
         <div ref={logBox} className="console__body">
           {logs.length === 0 ? (
-            <p className="console__empty">还没有日志。启动时的自动检查跑完就会有内容。</p>
+            <p className="console__empty">暂无日志。启动时自动检查完成后将显示日志。</p>
           ) : (
             logs.map((line, index) => (
               <p key={index} className="console__line">
@@ -197,7 +197,7 @@ export function UpdatePanel(props: UpdatePanelProps) {
             setNetwork({ ...network, proxy_mode: event.target.value as NetworkSettings["proxy_mode"] })
           }
         >
-          <option value="auto">自动（环境变量 → 系统代理 → 直连）</option>
+          <option value="auto">自动（依次尝试：环境变量、系统代理、直连）</option>
           <option value="off">不使用代理</option>
           <option value="manual">手动指定</option>
         </select>
@@ -222,7 +222,7 @@ export function UpdatePanel(props: UpdatePanelProps) {
           checked={network.use_mirrors}
           onChange={(event) => setNetwork({ ...network, use_mirrors: event.target.checked })}
         />
-        <span>下载时自动尝试 GitHub 镜像加速（国内推荐）</span>
+        <span>下载时自动尝试 GitHub 镜像加速（中国大陆网络推荐）</span>
       </label>
 
       <label className="check">

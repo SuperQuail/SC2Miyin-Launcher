@@ -1,4 +1,5 @@
 import ProgressBar from "@jetbrains/ring-ui-built/components/progress-bar/progress-bar";
+import ScrollableSection from "@jetbrains/ring-ui-built/components/scrollable-section/scrollable-section";
 
 import type { DevEntry, ExportProgress, FilePreview } from "../../api";
 import { formatBytes } from "../../lib/format";
@@ -32,13 +33,16 @@ export function EditorPane({
 
       <div className="pbody pbody--flat">
         {!preview && (
-          <div className="unsupported">
-            <p className="utitle">左边点一个文件</p>
-            <p className="utext">
-              文本直接按行打开；图片直接显示；<br />
-              二进制（地图、模组这类）会告诉你打不开、可以怎么打开。
-            </p>
-          </div>
+          /* 空状态用 ScrollableSection 兜住：窗口矮的时候这两行字得能滚到 */
+          <ScrollableSection className="fill">
+            <div className="unsupported">
+              <p className="utitle">左边点一个文件</p>
+              <p className="utext">
+                文本直接按行打开；图片直接显示；<br />
+                二进制（地图、模组这类）会告诉你打不开、可以怎么打开。
+              </p>
+            </div>
+          </ScrollableSection>
         )}
 
         {preview?.kind === "text" && (
@@ -54,17 +58,19 @@ export function EditorPane({
         )}
 
         {preview?.kind === "binary" && (
-          <div className="unsupported">
-            <svg className="i" width="44" height="44" viewBox="0 0 16 16">
-              <path d="M8 3.5h6v9H8zM3 6.5h4v6H3z" />
-            </svg>
-            <p className="utitle">二进制文件</p>
-            <p className="utext">
-              这个文件不是文本，编辑器没法按行显示它。<br />
-              地图和模组是 MPQ 归档，要改内容请在游戏编辑器里打开。
-            </p>
-            <p className="uhint">大小 {formatBytes(preview.bytes)}</p>
-          </div>
+          <ScrollableSection className="fill">
+            <div className="unsupported">
+              <svg className="i" width="44" height="44" viewBox="0 0 16 16">
+                <path d="M8 3.5h6v9H8zM3 6.5h4v6H3z" />
+              </svg>
+              <p className="utitle">二进制文件</p>
+              <p className="utext">
+                这个文件不是文本，编辑器没法按行显示它。<br />
+                地图和模组是 MPQ 归档，要改内容请在游戏编辑器里打开。
+              </p>
+              <p className="uhint">大小 {formatBytes(preview.bytes)}</p>
+            </div>
+          </ScrollableSection>
         )}
 
         {preview?.kind === "image" && (

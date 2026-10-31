@@ -77,7 +77,7 @@ export function UpdateNotice({
       onClose={onDismiss}
       actions={
         <>
-          <Button onClick={muted ? onMute : onDismiss}>以后再说</Button>
+          <Button onClick={muted ? onMute : onDismiss}>暂不更新</Button>
           <Button variant="primary" disabled={downloading} onClick={onDownload}>
             下载并安装
           </Button>
@@ -106,7 +106,7 @@ export function UpdateNotice({
         {body ? (
           <div className="markdown" onClick={onBodyClick} dangerouslySetInnerHTML={{ __html: body }} />
         ) : (
-          <p className="notice__empty">这个版本没有写更新说明。</p>
+          <p className="notice__empty">此版本未提供更新说明。</p>
         )}
       </div>
 

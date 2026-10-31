@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
 import Button from "@jetbrains/ring-ui-built/components/button/button";
+import ControlLabel, { LabelType } from "@jetbrains/ring-ui-built/components/control-label/control-label";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
 import Select from "@jetbrains/ring-ui-built/components/select/select";
+import TagsInput from "@jetbrains/ring-ui-built/components/tags-input/tags-input";
 
-import { formatBytes } from "../../lib/format";
+import { formatBytes, joinList, parseList } from "../../lib/format";
 import type { DevMeta } from "../../lib/settings";
 
 const CAMPAIGN_OPTIONS = [
@@ -43,13 +45,65 @@ function Choice({
   );
 }
 
-/** 一行表单：左边固定宽度的标签，右边控件（Input 这类可点标签聚焦的用它）。 */
-function Row({ label, full = false, children }: { label: string; full?: boolean; children: ReactNode }) {
+/**
+ * 一行表单：左边是 Ring UI 的 `ControlLabel`（点标签聚焦控件），右边是控件。
+ * Select / TagsInput 这类不带 htmlFor 的控件用 `labelId` 走 aria-labelledby。
+ */
+function Row({
+  label,
+  full = false,
+  labelId,
+  children,
+}: {
+  label: string;
+  full?: boolean;
+  labelId?: string;
+  children: ReactNode;
+}) {
+  const labelNode = (
+    <ControlLabel className="field__label" type={LabelType.FORM} id={labelId}>
+      {label}
+    </ControlLabel>
+  );
+  if (labelId) {
+    return (
+      <div className={"field" + (full ? " field--full" : "")}>
+        {labelNode}
+        {children}
+      </div>
+    );
+  }
   return (
     <label className={"field" + (full ? " field--full" : "")}>
-      <span>{label}</span>
+      {labelNode}
       {children}
     </label>
+  );
+}
+
+/**
+ * 逗号分隔的那些字段（标签 / 依赖模组）用 Ring UI 的 `TagsInput`：
+ * 每个值是一枚可删的标签，回车或空格加一个，不用再让人猜"逗号是中文还是英文"。
+ *
+ * 控件内部的建议列表我们不用（`dataSource` 给空），但 `allowAddNewTags` 得开 ——
+ * 不然打进去的字加不成标签。
+ */
+function TagSet({ value, onChange, placeholder }: { value: string; onChange: (next: string) => void; placeholder: string }) {
+  const tags = parseList(value).map((tag) => ({ key: tag, label: tag }));
+  const labels = tags.map((tag) => tag.label);
+  return (
+    <TagsInput
+      className="field__ctl"
+      size={Size.S}
+      tags={tags}
+      placeholder={placeholder}
+      allowAddNewTags
+      dataSource={() => []}
+      // 库里两个回调都把标签包在 `{ tag }` 里递出来（ToggleTagParams）—— 运行时的
+      // `tag` 就是我们传进去的 `{ key, label }`，类型声明里少写了 label
+      onAddTag={(params) => onChange(joinList([...labels, String(params.tag.label ?? "")]))}
+      onRemoveTag={(params) => onChange(joinList(labels.filter((label) => label !== params.tag.label)))}
+    />
   );
 }
 
@@ -64,6 +118,9 @@ export type MetaPaneProps = {
   docPath: string;
   onPickCover: () => void;
   onPickDoc: () => void;
+  /** 正在挑封面 / 说明书 —— 按钮转 loader */
+  pickingCover: boolean;
+  pickingDoc: boolean;
   /** 已勾选的 .SC2Map 路径（选主地图用） */
   maps: string[];
   pickedCount: number;
@@ -81,6 +138,8 @@ export function MetaPane({
   docPath,
   onPickCover,
   onPickDoc,
+  pickingCover,
+  pickingDoc,
   maps,
   pickedCount,
   pickedBytes,
@@ -135,26 +194,22 @@ export function MetaPane({
           />
         </Row>
         <Row label="标签">
-          <Input
-            className="field__ctl"
-            size={Size.S}
+          <TagSet
             value={meta.tags}
-            onChange={(event) => onMeta({ ...meta, tags: event.target.value })}
-            placeholder="逗号分开，比如 重制, 剧情"
+            onChange={(tags) => onMeta({ ...meta, tags })}
+            placeholder="回车加一个，比如 重制"
           />
         </Row>
-        <div className="field">
-          <span>归属战役</span>
+        <Row label="归属战役" labelId="meta-campaign">
           <Choice
             value={meta.campaign}
             options={CAMPAIGN_OPTIONS}
             onChange={(value) => onMeta({ ...meta, campaign: value })}
           />
-        </div>
-        <div className="field">
-          <span>类型</span>
+        </Row>
+        <Row label="类型" labelId="meta-kind">
           <Choice value={meta.kind} options={KIND_OPTIONS} onChange={(value) => onMeta({ ...meta, kind: value })} />
-        </div>
+        </Row>
         <Row label="模组 ID">
           <Input
             className="field__ctl"
@@ -165,12 +220,10 @@ export function MetaPane({
           />
         </Row>
         <Row label="依赖模组">
-          <Input
-            className="field__ctl"
-            size={Size.S}
+          <TagSet
             value={meta.mods}
-            onChange={(event) => onMeta({ ...meta, mods: event.target.value })}
-            placeholder="逗号分开；这张地图要靠哪些模组"
+            onChange={(mods) => onMeta({ ...meta, mods })}
+            placeholder="回车加一个；这张地图要靠哪些模组"
           />
         </Row>
         <Row label="说明" full>
@@ -184,23 +237,20 @@ export function MetaPane({
             placeholder="一两句说清这个包是什么"
           />
         </Row>
-        <div className="field field--full">
-          <span>封面图</span>
-          <Button onClick={onPickCover}>选图片…</Button>
+        <Row label="封面图" full labelId="meta-cover">
+          <Button loader={pickingCover} onClick={onPickCover}>选图片…</Button>
           <span className="field__file">
             {coverPath ? coverPath.split(/[\\/]/).pop() : "没选（用官方美术）"}
           </span>
-        </div>
-        <div className="field field--full">
-          <span>说明书</span>
-          <Button onClick={onPickDoc}>选 PDF…</Button>
+        </Row>
+        <Row label="说明书" full labelId="meta-doc">
+          <Button loader={pickingDoc} onClick={onPickDoc}>选 PDF…</Button>
           <span className="field__file">{docPath ? docPath.split(/[\\/]/).pop() : "没选"}</span>
-        </div>
+        </Row>
         {meta.campaign === "" && (
-          <div className="field field--full">
-            <span>主地图</span>
+          <Row label="主地图" full labelId="meta-mainmap">
             <Choice value={meta.mainMap} options={mainMapOptions} onChange={(value) => onMeta({ ...meta, mainMap: value })} />
-          </div>
+          </Row>
         )}
         <p className="hintbox">
           自制战役建议指定主地图 —— 它是玩家从启动器进游戏的入口。

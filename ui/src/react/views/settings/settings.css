@@ -37,36 +37,6 @@
   font-size: 12px;
 }
 
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.panel {
-  padding: 20px 24px 22px;
-}
-
-.panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.panel__title {
-  margin: 0;
-  font-size: 16px;
-}
-
-.panel__actions {
-  display: flex;
-  gap: 6px;
-}
-
 .rows {
   display: flex;
   flex-direction: column;

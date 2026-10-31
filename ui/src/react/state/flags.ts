@@ -11,10 +11,10 @@
  */
 
 /** 顶层视图。"room" 是开发者房间：它不在页签里，从设置页的开发者模式进。 */
-export type ViewId = "campaigns" | "custom" | "mods" | "settings" | "room";
+export type ViewId = "campaigns" | "custom" | "mods" | "settings" | "room" | "install";
 
 /** 页签里认得的那几页；room 只能从设置页进。 */
-const VIEWS: ViewId[] = ["campaigns", "custom", "mods", "settings"];
+const VIEWS: ViewId[] = ["campaigns", "custom", "mods", "settings", "install"];
 
 /** `?view=` 指向的顶层页；认不出来就是战役页。 */
 export function viewFromSearch(search: string): ViewId {

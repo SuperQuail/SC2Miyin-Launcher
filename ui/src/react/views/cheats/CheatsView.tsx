@@ -41,7 +41,7 @@ export function CheatsView({ notify, onClose }: CheatsHandlers) {
   async function copy(cheat: Cheat): Promise<void> {
     const ok = await copyText(cheat.code);
     if (!ok) {
-      notify("error", "复制失败，请手动选中");
+      notify("error", "复制失败，请手动选中文本");
       return;
     }
     setCopied(cheat.code);
@@ -88,7 +88,7 @@ export function CheatsView({ notify, onClose }: CheatsHandlers) {
         </div>
 
         {list.length === 0 ? (
-          <p className="cheats__empty">没有匹配的作弊码。换个关键词试试，或者点「全部」。</p>
+          <p className="cheats__empty">没有匹配的作弊码。可更换关键词，或点「全部」查看所有作弊码。</p>
         ) : (
           <ul className="cheats__list">
             {list.map((cheat) => (
@@ -115,7 +115,7 @@ export function CheatsView({ notify, onClose }: CheatsHandlers) {
         )}
 
         <footer className="cheats__foot">
-          共 {CHEATS.length} 条。带战役名的只在对应战役里生效，其余通用。
+          共 {CHEATS.length} 条。标注战役的作弊码仅在该战役中生效，其余为通用。
         </footer>
       </section>
     </div>

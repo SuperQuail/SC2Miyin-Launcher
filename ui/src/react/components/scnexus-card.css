@@ -1,0 +1,39 @@
+.scnexus-card {
+  cursor: default;
+}
+
+.scnexus-card:hover {
+  transform: none;
+}
+
+.scnexus-card__badge {
+  background: color-mix(in srgb, var(--accent) 88%, transparent);
+}
+
+.scnexus-card__desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.scnexus-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.scnexus-card__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}

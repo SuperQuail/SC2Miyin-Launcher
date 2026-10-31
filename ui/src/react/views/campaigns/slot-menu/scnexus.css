@@ -1,0 +1,179 @@
+/* 「来自星际枢纽」与导出向导的样式。
+   都挂在 .campaigns-menu 下，避免和全局同名类打架；颜色只走令牌。 */
+
+.campaigns-menu .hub-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.campaigns-menu .hub-check input {
+  margin-top: 2px;
+}
+
+.campaigns-menu .hub-check em {
+  display: block;
+  margin-top: 1px;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.campaigns-menu .hub-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.campaigns-menu .hub-warn {
+  margin: 8px 0 0;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.campaigns-menu .hub-warn code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+/* ---------- 导出向导 ---------- */
+
+.campaigns-menu .export-formats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.campaigns-menu .export-format {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 46px 13px 16px;
+  border-radius: var(--radius-md);
+  border: 2px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  background: var(--surface-2);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration) var(--ease), background var(--duration) var(--ease);
+}
+
+.campaigns-menu .export-format:hover {
+  border-color: var(--accent);
+}
+
+.campaigns-menu .export-format:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.campaigns-menu .export-format--on {
+  border-color: var(--accent);
+  background: var(--accent-softer);
+}
+
+.campaigns-menu .export-format__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campaigns-menu .export-format__title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.campaigns-menu .export-format__tag {
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.campaigns-menu .export-format__desc {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--on-surface-variant);
+}
+
+.campaigns-menu .export-format__arrow {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.campaigns-menu .export-losses {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning-soft) 62%, var(--surface-1));
+}
+
+.campaigns-menu .export-losses__title {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--warning);
+}
+
+.campaigns-menu .export-losses__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.campaigns-menu .export-losses__warn {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.campaigns-menu .export-losses__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.campaigns-menu .export-losses__item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.campaigns-menu .export-losses__item strong {
+  color: var(--on-surface);
+}
+
+.campaigns-menu .export-losses__item span {
+  color: var(--on-surface-variant);
+}
+
+/* 「来自星际枢纽」区块里的卡片：标题跟版本区一致，但卡片本身不发光 */
+.campaigns-menu .hub-section .grid {
+  margin-top: 2px;
+}

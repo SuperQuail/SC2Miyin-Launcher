@@ -40,3 +40,21 @@
   font-style: normal;
   color: var(--on-surface-variant);
 }
+
+/* 标签左、控件右（安装页的属性表就是它） */
+.field--row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.field--row > .field__label {
+  margin: 0;
+}
+
+/* row 是两列网格：提示/错误必须落在第 2 列，否则它会跑到标签底下，
+   把整行撑成两行、右侧控件又顶在第一行 —— 看起来就是歪的 */
+.field--row > .field__hint,
+.field--row > .field__error {
+  grid-column: 2;
+}

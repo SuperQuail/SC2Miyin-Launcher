@@ -31,12 +31,17 @@ jobs:
 
       - name: 前端产物
         run: |
+          # 任何一步失败就让整个 job 红 —— 别再发出只有说明文件的空包
+          $ErrorActionPreference = 'Stop'
           pnpm -C ui install --frozen-lockfile
           pnpm -C ui build
 
       - name: 构建 release
         # release 必须带 custom-protocol，否则不会把 ui/dist 内嵌进二进制
-        run: cargo build --release -p miyin-launcher --features custom-protocol
+        run: |
+          cargo build --release -p miyin-launcher --features custom-protocol
+          # CLI 给别的工具链用，一起发出去
+          cargo build --release -p miyin-cli
 
       - name: 打包绿色版
         shell: pwsh
@@ -45,10 +50,20 @@ jobs:
           if (-not $version) { $version = '0.0.0-dev' }
           $stage = "SC2Miyin-Launcher-$version-win64"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字
-          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin Launcher.exe"
+          # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字。
+          # **名字里不能有空格**：wry 会把 exe 名传给 WebView2（--webview-exe-name），
+          # 带空格的 exe 名会让 msedgewebview2 启动即崩（白屏/闪退），实测 a12 与当前版本都如此。
+          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin-Launcher.exe"
+          if (-not (Test-Path "$stage/SC2Miyin-Launcher.exe")) { throw '启动器没拷进 staging，拒绝出包' }
           Copy-Item 'docs/使用说明.txt' "$stage/"
           Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
+          # CLI 单独打一个包 —— 只有开发者用，别塞进普通用户下载的主包
+          $cli = "miyin-cli-$version"
+          New-Item -ItemType Directory -Path $cli -Force | Out-Null
+          Copy-Item 'target/release/miyin-cli.exe' "$cli/"
+          Compress-Archive -Path "$cli/*" -DestinationPath "$cli.zip" -Force
+          "CLI_ASSET=$cli.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
           $mb = [math]::Round((Get-Item "$stage.zip").Length / 1MB, 2)
           Write-Host "打包完成: $stage.zip ($mb MB)"
           "ASSET=$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -61,7 +76,9 @@ jobs:
       - name: 附到 Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ASSET }}
+          files: |
+            ${{ env.ASSET }}
+            ${{ env.CLI_ASSET }}
           # 自动按 PR / commit 归类生成说明，再拼上人工写的发行说明
           generate_release_notes: true
           body_path: docs/release-notes/${{ github.ref_name }}.md

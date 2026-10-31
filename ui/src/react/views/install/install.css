@@ -1,0 +1,242 @@
+/* 安装整合包（独立一页）：照 HMCL 的居中属性表 */
+
+.install {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  padding: 24px 20px 40px;
+}
+
+.install__head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 760px;
+}
+
+.install__title {
+  flex: 1;
+  margin: 0;
+  text-align: center;
+  font-size: 17px;
+}
+
+.install__drop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 760px;
+  min-height: 220px;
+  padding: 32px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-1) 70%, transparent);
+  color: var(--on-surface);
+  cursor: pointer;
+}
+
+.install__drop:hover {
+  border-color: var(--accent);
+}
+
+.install__drop-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.install__drop-hint {
+  max-width: 460px;
+  font-size: 12.5px;
+  color: var(--on-surface-variant);
+}
+
+/* 拖放区底下那排「或者从文件夹导入」 */
+.install__drop-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.install__card {
+  width: 100%;
+  max-width: 760px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+}
+
+.install__cover {
+  position: relative;
+  height: 132px;
+  background-size: cover;
+  background-position: center 30%;
+}
+
+.install__cover-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 10%), var(--surface-1));
+}
+
+.install__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px;
+}
+
+.install__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+
+.install__tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 11.5px;
+}
+
+.install__hint {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.install__why {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.install__conflict {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.install__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 22px 18px;
+}
+
+.install__foot-left {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ---------- 批量清单（一次拖进来好几个包）---------- */
+
+.install__list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.install__list-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.install__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.install__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.install__row--ok {
+  border-left-color: var(--accent);
+}
+
+.install__row--bad {
+  border-left-color: var(--danger);
+}
+
+.install__row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.install__row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.install__row-meta {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.install__row-why {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--on-surface-variant);
+}
+
+.install__row-good {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.install__row-bad {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--danger);
+}
+
+.install__row-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.install__row-select {
+  max-width: 150px;
+}
+
+.install__tag--warn {
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
+}

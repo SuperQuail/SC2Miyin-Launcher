@@ -1,0 +1,125 @@
+/* ---------- 主体 ---------- */
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.rail {
+  flex: none;
+  width: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 5px 0;
+  background: var(--rail);
+  border-right: 1px solid var(--line);
+}
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.work {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface-1);
+  border-right: 1px solid var(--line);
+}
+.pane--tree {
+  flex: none;
+  width: 360px;
+}
+.pane--meta {
+  flex: none;
+  width: 296px;
+  border-right: none;
+}
+.pane--editor {
+  flex: 1;
+}
+.pane--log {
+  flex: none;
+  height: 34%;
+  border-top: 1px solid var(--line);
+  border-right: none;
+}
+
+/* ---------- 面板头 / 内容 / 状态栏 ---------- */
+.pbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.ptitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+.psub {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.ptools {
+  margin-left: auto;
+  display: flex;
+  gap: 1px;
+}
+.pbody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px;
+}
+/* 内容自带滚动的面板（文件树 / 代码预览）：这里只当布局行，滚动的名分让给里层的
+   ScrollableSection —— 它要在自己身上看到溢出才会画那条阴影边 */
+.pbody--flat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.pbody--flat > * {
+  flex: 1;
+  min-height: 0;
+}
+/* 树行跟着父级伸缩会被拉成一路等高的横条（文件看着"飞散了"），所以两轴都别伸 */
+.pbody--flat .tnode {
+  flex: none;
+}
+/* 空状态用（编辑器中间那两句提示）*/
+.fill {
+  min-height: 0;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 26px;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.sspacer {
+  flex: 1;
+}
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pxbar {
+  width: 140px;
+}
