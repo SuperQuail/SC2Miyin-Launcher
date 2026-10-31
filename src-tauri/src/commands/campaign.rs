@@ -421,21 +421,18 @@ pub(crate) fn update_variant(
         .map_err(|error| error.to_string())
 }
 
-/// 把某个版本导出成 CCM 也能读的战役包。
+/// 把某个版本导出成战役包（弥音包 / 星际枢纽兼容包）。
 #[tauri::command(async)]
 pub(crate) fn export_variant(
     slot: String,
     variant_id: String,
     destination: String,
     merge_patches: Option<bool>,
+    format: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<library::export::ExportReport, String> {
-    let index = state.library.index();
-    let variant = index
-        .slots
-        .get(&slot)
-        .and_then(|entry| entry.variants.iter().find(|v| v.id == variant_id).cloned())
-        .ok_or_else(|| "找不到这个版本".to_string())?;
+    let variant = find_variant(&state, &slot, &variant_id)?;
+    let format = parse_export_format(format.as_deref())?;
 
     library::export::export(
         &state.library,
@@ -444,9 +441,61 @@ pub(crate) fn export_variant(
         &library::export::ExportOptions {
             destination: std::path::PathBuf::from(destination),
             merge_patches: merge_patches.unwrap_or(false),
+            format,
         },
     )
     .map_err(|error| error.to_string())
+}
+
+/// 导出预览：会带什么、会丢什么。**不写盘。**
+#[tauri::command(async)]
+pub(crate) fn preview_export_variant(
+    slot: String,
+    variant_id: String,
+    merge_patches: Option<bool>,
+    format: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<library::export::ExportPreview, String> {
+    let variant = find_variant(&state, &slot, &variant_id)?;
+    let format = parse_export_format(format.as_deref())?;
+    library::export::preview(
+        &state.library,
+        &slot,
+        &variant,
+        merge_patches.unwrap_or(false),
+        format,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 找到库里的某个版本。
+fn find_variant(
+    state: &State<'_, AppState>,
+    slot: &str,
+    variant_id: &str,
+) -> Result<Variant, String> {
+    state
+        .library
+        .index()
+        .slots
+        .get(slot)
+        .and_then(|entry| {
+            entry
+                .variants
+                .iter()
+                .find(|item| item.id == variant_id)
+                .cloned()
+        })
+        .ok_or_else(|| "找不到这个版本".to_string())
+}
+
+/// 解析前端传来的导出格式；不认识就报错，别默默当弥音包。
+fn parse_export_format(raw: Option<&str>) -> Result<library::export::ExportFormat, String> {
+    match raw {
+        None | Some("") => Ok(library::export::ExportFormat::Miyin),
+        Some(value) => library::export::ExportFormat::parse(value)
+            .ok_or_else(|| format!("不认识的导出格式：{value}")),
+    }
 }
 
 /// 弹出"另存为"对话框选导出位置。

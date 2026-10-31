@@ -9,6 +9,7 @@ pub(crate) mod dev;
 pub(crate) mod mods;
 pub(crate) mod patch;
 pub(crate) mod saves;
+pub(crate) mod scnexus;
 pub(crate) mod settings;
 pub(crate) mod ui;
 pub(crate) mod window;

@@ -1,6 +1,10 @@
 // 演示后端：安装、战役库、启用 / 导入 / 导出与启动。
 import type {
   ActivationConflict,
+  ConvertedScnexus,
+  ExportFormat,
+  ExportLoss,
+  ExportPreview,
   GameModEntry,
   Installation,
   LauncherApi,
@@ -13,6 +17,7 @@ import type {
   ModEntry,
   PackageInspection,
   Preview,
+  ScnexusCampaign,
 } from "../types";
 
 import {
@@ -266,6 +271,100 @@ export function demoActivationConflicts(slot: string, variantId: string): Activa
   }));
 }
 
+/** 演示用的星际枢纽托管战役；转换成功后从这里移走。 */
+const demoScnexus: ScnexusCampaign[] = [
+  {
+    id: "scnexus-wol-remake",
+    name: "自由之翼：星际复刻",
+    author: "星际枢纽社区",
+    version: "1.3.0",
+    description: "在星际枢纽里安装的标准战役包。",
+    campaign: "wol",
+    source: "library",
+    path: "D:\\Game\\BLZ\\StarCraft II\\SCNexusCampaign\\自由之翼：星际复刻",
+    active: true,
+    maps: 28,
+    mods: 2,
+    size_bytes: 1_120_000_000,
+  },
+  {
+    id: "scnexus-hots-omega",
+    name: "虫群之心：欧米伽",
+    author: "Omega Works",
+    version: "0.8",
+    description: null,
+    campaign: "hots",
+    source: "library",
+    path: "D:\\Game\\BLZ\\StarCraft II\\SCNexusCampaign\\虫群之心：欧米伽",
+    active: false,
+    maps: 12,
+    mods: 1,
+    size_bytes: 420_000_000,
+  },
+  {
+    id: "scnexus-ccm-frontier",
+    name: "边境之地（CCM）",
+    author: null,
+    version: "1.0",
+    description: "星际枢纽托管的 CCM 战役。",
+    campaign: "hots",
+    source: "ccm",
+    path: "D:\\Game\\BLZ\\StarCraft II\\Maps\\CustomCampaigns\\边境之地",
+    active: false,
+    maps: 12,
+    mods: 0,
+    size_bytes: 300_000_000,
+  },
+];
+
+/** 星际枢纽格式会丢哪些东西 —— 和 core 的 loss 分类对齐。 */
+function demoExportLosses(slot: string, mergePatches: boolean): ExportLoss[] {
+  const losses: ExportLoss[] = [
+    {
+      kind: "mounted_mods",
+      label: "模组的勾选配置",
+      detail: "星际枢纽按它自己的规则挂载模组，不保存这份配置。",
+    },
+    { kind: "cover", label: "包内封面图", detail: "星际枢纽的元数据没有封面字段。" },
+  ];
+  if (slot === "custom") {
+    losses.unshift({
+      kind: "custom_campaign",
+      label: "自制战役",
+      detail: "星际枢纽标准只支持原版战役的改版，不支持独立的自制战役。",
+    });
+  }
+  if (!mergePatches) {
+    losses.push({
+      kind: "patch",
+      label: "已启用的补丁",
+      detail: "没有勾选「包含补丁」，补丁不会合并进导出包。",
+    });
+  }
+  return losses;
+}
+
+function demoExportPreview(
+  slot: string,
+  variantId: string,
+  mergePatches: boolean,
+  format: ExportFormat,
+): ExportPreview {
+  const found = demoslots.find((item) => item.slug === slot)?.variants.find((item) => item.id === variantId);
+  const maps = found?.map_count ?? 8;
+  const mods = found?.mod_count ?? 1;
+  if (format === "miyin") {
+    return { maps, mods, files: maps + mods + 3, losses: [], supported: true };
+  }
+  return {
+    maps,
+    mods,
+    files: maps + mods,
+    losses: demoExportLosses(slot, mergePatches),
+    supported: slot !== "custom",
+  };
+}
+
 export const campaignDemo = {
   detectInstallation: () => delay(demoInstallation as Installation | null),
   setInstallation: () => delay(demoInstallation),
@@ -409,6 +508,29 @@ export const campaignDemo = {
   // 演示数据没有真实图片文件，统一返回 null，界面会退回官方美术
   variantCover: () => delay(null),
   listInstalledCampaigns: async () => [],
+  listScnexusCampaigns: () => delay(demoScnexus.map((item) => ({ ...item }))),
+  convertScnexusCampaign: (id, removeSource) =>
+    delay(
+      (() => {
+        const index = demoScnexus.findIndex((item) => item.id === id);
+        if (index < 0) throw new Error("这个星际枢纽战役已经不在列表里了");
+        const [found] = demoScnexus.splice(index, 1);
+        // 和后端一致：落点按 campaign 字段定，CCM 条目也归到对应官方资料片
+        const slot = found.campaign;
+        const created = variant(
+          found.name + "（已转换）",
+          found.name,
+          found.author ?? "未知作者",
+          found.version ?? "1.0",
+          found.maps,
+          found.size_bytes,
+        );
+        const target = demoslots.find((item) => item.slug === slot) ?? demoslots[0];
+        target.variants.unshift(created);
+        void removeSource;
+        return { slot, variant: created, warnings: [] } as ConvertedScnexus;
+      })(),
+    ),
   prepareImport: (path, entry, password) =>
     delay({
       path,
@@ -500,14 +622,23 @@ export const campaignDemo = {
   listLibraryMods: () => delay(demoLibraryMods()),
   listGameMods: () => delay(demoGameMods()),
   readDoc: () => delay(new ArrayBuffer(0)),
-  exportVariant: (_slot, _variantId, destination, mergePatches) =>
-    delay({
-      path: destination,
-      files: 12,
-      maps: 8,
-      mods: 1,
-      expanded: [],
-      patches: mergePatches ? ["幼儿园补丁 V3"] : [],
-    }),
+  previewExportVariant: (slot, variantId, mergePatches, format) =>
+    delay(demoExportPreview(slot, variantId, mergePatches, format)),
+  exportVariant: (slot, variantId, destination, mergePatches, format) =>
+    delay(
+      (() => {
+        const preview = demoExportPreview(slot, variantId, mergePatches, format ?? "miyin");
+        return {
+          path: destination,
+          files: preview.files,
+          maps: preview.maps,
+          mods: preview.mods,
+          expanded: [],
+          patches: mergePatches ? ["幼儿园补丁 V3"] : [],
+          format: format ?? "miyin",
+          losses: preview.losses,
+        };
+      })(),
+    ),
   pickExportPath: (defaultName) => delay("D:\\\\Downloads\\\\" + defaultName + ".zip"),
 } satisfies Partial<LauncherApi>;

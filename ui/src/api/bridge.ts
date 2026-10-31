@@ -12,7 +12,10 @@ import { delay, demo, demoActivationConflicts } from "./demo";
 import type {
   BoundPatch,
   Composition,
+  ConvertedScnexus,
   DetectedProxy,
+  ExportPreview,
+  ScnexusCampaign,
   DocInfo,
   EditorLaunch,
   ExportReport,
@@ -101,6 +104,9 @@ const desktop: LauncherApi = {
   variantCover: (slot, variantId) => invoke<string | null>("variant_cover", { slot, variantId }),
 
   listInstalledCampaigns: () => invoke<InstalledCampaign[]>("list_installed_campaigns"),
+  listScnexusCampaigns: () => invoke<ScnexusCampaign[]>("list_scnexus_campaigns"),
+  convertScnexusCampaign: (id, removeSource) =>
+    invoke<ConvertedScnexus>("convert_scnexus_campaign", { id, removeSource }),
   prepareImport: (path, entry, password) =>
     invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null, password: password ?? null }),
   importPackageWith: (path, slot, mode, password) =>
@@ -125,8 +131,16 @@ const desktop: LauncherApi = {
   previewComposition: (slot, variantId) =>
     invoke<Composition>("preview_composition", { slot, variantId }),
 
-  exportVariant: (slot, variantId, destination, mergePatches) =>
-    invoke<ExportReport>("export_variant", { slot, variantId, destination, mergePatches }),
+  previewExportVariant: (slot, variantId, mergePatches, format) =>
+    invoke<ExportPreview>("preview_export_variant", { slot, variantId, mergePatches, format }),
+  exportVariant: (slot, variantId, destination, mergePatches, format) =>
+    invoke<ExportReport>("export_variant", {
+      slot,
+      variantId,
+      destination,
+      mergePatches,
+      format: format ?? "miyin",
+    }),
   pickExportPath: (defaultName) => invoke<string | null>("pick_export_path", { defaultName }),
 
   variantMaps: (slot, variantId) => invoke<MapEntry[]>("variant_maps", { slot, variantId }),

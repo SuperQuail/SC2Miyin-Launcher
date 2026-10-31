@@ -14,7 +14,7 @@ use miyin_core::update::net::NetworkSettings;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 
-use commands::{campaign, dev, mods, patch, saves, settings, ui, window};
+use commands::{campaign, dev, mods, patch, saves, scnexus, settings, ui, window};
 use platform::{install_crash_hook, panic_text};
 
 // 命令层按领域拆到 commands/，平台相关实现拆到 platform.rs —— 这里只留状态与启动。
@@ -533,6 +533,7 @@ pub fn run() {
             campaign::library_root,
             campaign::list_slots,
             campaign::export_variant,
+            campaign::preview_export_variant,
             campaign::pick_export_path,
             settings::app_version,
             settings::network_settings,
@@ -606,6 +607,8 @@ pub fn run() {
             worker::privileged_op,
             sevenzip::open_sevenzip,
             sevenzip::close_sevenzip,
+            scnexus::list_scnexus_campaigns,
+            scnexus::convert_scnexus_campaign,
         ])
         .run(tauri::generate_context!());
 

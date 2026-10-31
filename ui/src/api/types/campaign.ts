@@ -247,6 +247,29 @@ export interface Composition {
   overridden: ComposedFile[];
 }
 
+/** 导出格式：我们的完整格式 / 星际枢纽能直接导入的标准格式。 */
+export type ExportFormat = "miyin" | "scnexus";
+
+/** 导出时会丢失的一项内容（不静默丢，逐条给用户看）。 */
+export interface ExportLoss {
+  /** 机器可读的分类，例如 custom_campaign / cover / patch。 */
+  kind: string;
+  /** 一句话说明丢的是什么。 */
+  label: string;
+  /** 具体丢掉了哪些内容 / 为什么。 */
+  detail: string;
+}
+
+/** 导出的预检（不写盘）：会带走什么、会丢什么。 */
+export interface ExportPreview {
+  maps: number;
+  mods: number;
+  files: number;
+  losses: ExportLoss[];
+  /** 这个版本能不能用这种格式导出；false 时只能换格式。 */
+  supported: boolean;
+}
+
 /** 导出结果。 */
 export interface ExportReport {
   path: string;
@@ -257,6 +280,10 @@ export interface ExportReport {
   expanded: string[];
   /** 一起带走的补丁名。 */
   patches: string[];
+  /** 导出格式；补丁导出没有这一项。 */
+  format?: ExportFormat;
+  /** 星际枢纽格式下没带过去的内容；弥音格式为空。 */
+  losses?: ExportLoss[];
 }
 
 /** 版本里的一张地图。 */

@@ -6,5 +6,6 @@ export * from "./types/bridge";
 export * from "./types/campaign";
 export * from "./types/install";
 export * from "./types/mod";
+export * from "./types/scnexus";
 export * from "./types/saves";
 export * from "./types/update";

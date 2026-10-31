@@ -4,6 +4,7 @@
 
 mod activate;
 mod data_root;
+mod export;
 mod fixture;
 mod import;
 mod main_map;
