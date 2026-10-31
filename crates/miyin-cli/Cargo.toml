@@ -1,0 +1,22 @@
+[package]
+name = "miyin-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "弥音启动器命令行工具：把战役包的预检结果以 JSON + 退出码暴露给其它工具与 agent"
+
+[[bin]]
+name = "miyin-cli"
+path = "src/main.rs"
+
+[dependencies]
+miyin-core = { path = "../miyin-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+# 集成测试要自己**造**测试包（真实战役包是游戏版权内容，不进仓库），
+# 而且必须真的把二进制跑起来验退出码 —— 退出码是这份 CLI 的对外契约。
+tempfile = "3.27.0"
+zip = "7.2.0"

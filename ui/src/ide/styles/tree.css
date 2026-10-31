@@ -1,0 +1,81 @@
+/* ---------- 文件树（开发者页左栏） ---------- */
+.tnode {
+  user-select: none;
+}
+.trow2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-right: 8px;
+  font-size: 12.5px;
+  cursor: default;
+}
+.trow2:hover {
+  background: var(--accent-softer);
+}
+.trow2.is-open {
+  background: var(--accent-soft);
+}
+/* 展开按钮：判定区保到 18×18，别让人拿鼠标追那一个小三角 */
+.tcaret {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--on-surface-variant);
+}
+.tcaret:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
+}
+.tcaret--leaf {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.tcheck {
+  flex: none;
+}
+/* 名字要能被挤扁（min-width:0），否则长路径会把右边那列顶出去 */
+.tname {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tname--ext {
+  color: var(--warning);
+}
+/* 名字现在是个 Ring UI Button：外观仍当纯文本用（这是"行内文本按钮"的唯一一处约定） */
+.tname--btn {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  justify-content: flex-start;
+}
+.tname--btn span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tsize {
+  flex: none;
+  width: 72px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}

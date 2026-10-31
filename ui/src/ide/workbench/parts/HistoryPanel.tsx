@@ -1,5 +1,6 @@
 import Button from "@jetbrains/ring-ui-built/components/button/button";
 import Input, { Size } from "@jetbrains/ring-ui-built/components/input/input";
+import ScrollableSection from "@jetbrains/ring-ui-built/components/scrollable-section/scrollable-section";
 import Tag from "@jetbrains/ring-ui-built/components/tag/tag";
 
 import type { CommitRecord, HistoryDiff } from "../../api";
@@ -32,11 +33,13 @@ export type HistoryPanelProps = {
   message: string;
   onMessage: (value: string) => void;
   onSubmit: () => void;
+  /** 提交是 IPC 往返 —— 按钮转 loader */
+  submitting: boolean;
   logPicked: number | null;
   pendingDiff: HistoryDiff | null;
   onPickWorktree: () => void;
   onPick: (item: CommitRecord, previous: CommitRecord | undefined) => void;
-  onContextMenu: (item: CommitRecord, x: number, y: number) => void;
+  onContextMenu: (item: CommitRecord, event: { clientX: number; clientY: number }) => void;
   onApply: (item: CommitRecord) => void;
 };
 
@@ -55,6 +58,7 @@ export function HistoryPanel({
   message,
   onMessage,
   onSubmit,
+  submitting,
   logPicked,
   pendingDiff,
   onPickWorktree,
@@ -77,19 +81,26 @@ export function HistoryPanel({
             onChange={(event) => onMessage(event.target.value)}
             placeholder="这次改了什么"
           />
-          <Button disabled={!pkg.trim() || picked.length === 0 || !message.trim()} onClick={onSubmit}>
-            提交
+          <Button
+            loader={submitting}
+            disabled={!pkg.trim() || picked.length === 0 || !message.trim()}
+            onClick={onSubmit}
+          >
+            {submitting ? "提交中…" : "提交"}
           </Button>
         </span>
       </header>
-      <div className="pbody pbody--flat logwrap">
+      {/* 日志区两边都能滚动：ScrollableSection 在滚出边界的那一侧加阴影线 */}
+      <ScrollableSection className="pbody pbody--flat logwrap">
         <ul className="tree">
-          <li className="trow" onClick={onPickWorktree}>
-            <Graph color={PALETTE[0]} head />
-            <span className="tver">未提交</span>
-            <span className="tmsg">工作区里勾选的 {picked.length} 个文件</span>
-            <span className="refs">{picked.length > 0 ? <Tag>未提交</Tag> : null}</span>
-            <span className="twhen">现在</span>
+          <li>
+            <Button className="trow" onClick={onPickWorktree}>
+              <Graph color={PALETTE[0]} head />
+              <span className="tver">未提交</span>
+              <span className="tmsg">工作区里勾选的 {picked.length} 个文件</span>
+              <span className="refs">{picked.length > 0 ? <Tag>未提交</Tag> : null}</span>
+              <span className="twhen">现在</span>
+            </Button>
           </li>
           {[...commits].reverse().map((item, index) => (
             <li
@@ -98,15 +109,19 @@ export function HistoryPanel({
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onContextMenu(item, event.clientX, event.clientY);
+                onContextMenu(item, event);
               }}
-              onClick={() => onPick(item, [...commits].reverse()[index + 1])}
             >
-              <Graph color={PALETTE[index % PALETTE.length]} last={index === commits.length - 1} />
-              <span className="tver">{item.label ?? "#" + item.id}</span>
-              <span className="tmsg">{item.message || "（没写说明）"}</span>
-              <span className="refs">{index === 0 ? <Tag>最新</Tag> : null}</span>
-              <span className="twhen">{when(item.at)}</span>
+              <Button
+                className={"trow" + (logPicked === item.id ? " is-picked" : "")}
+                onClick={() => onPick(item, [...commits].reverse()[index + 1])}
+              >
+                <Graph color={PALETTE[index % PALETTE.length]} last={index === commits.length - 1} />
+                <span className="tver">{item.label ?? "#" + item.id}</span>
+                <span className="tmsg">{item.message || "（没写说明）"}</span>
+                <span className="refs">{index === 0 ? <Tag>最新</Tag> : null}</span>
+                <span className="twhen">{when(item.at)}</span>
+              </Button>
             </li>
           ))}
         </ul>
@@ -156,7 +171,7 @@ export function HistoryPanel({
             })()
           )}
         </aside>
-      </div>
+      </ScrollableSection>
     </section>
   );
 }

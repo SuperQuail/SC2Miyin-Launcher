@@ -89,9 +89,11 @@ HSCL/                          # 仓库根（目录名待后续统一为 miyin-l
 │       ├── campaign/            # 包：metadata / sanitize / package / contents / identify（§14.5-14.8）
 │       ├── library/             # **战役库**：索引 / 合成 / 安装 / 激活 / 导出 / 命名 / 已知战役（§14）
 │       ├── update/              # 自动更新：version / mirror / net / check / apply（§15）
-│       └── saves.rs             # 存档备份与还原（§14.10）
+│       └── saves/              # 存档备份与还原（§14.10）
 ├── src-tauri/                 # Tauri 2 桌面壳：状态持有 + 命令转发
-│   ├── src/lib.rs             # 全部 #[tauri::command]，一律带 (async)（§16）
+│   ├── src/lib.rs             # AppState / run() / 命令注册（命令在各子模块，一律带 (async)，§16）
+│   ├── src/commands/          # 按域拆开的 #[tauri::command]（campaign / mods / saves / …）
+│   ├── src/platform.rs        # 平台实现：开浏览器、资源管理器选中、WebView2 调教、崩溃钩子
 │   └── tauri.conf.json + icons/   # icons 由 scripts/prepare-icons.py 生成
 ├── ui/                        # React 18 前端，两个入口 —— 结构与边界见 docs/frontend.md
 ├── scripts/                   # prepare-assets.py / prepare-icons.py / check-file-size.py
@@ -158,6 +160,9 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
   - 单元测试放同文件 `#[cfg(test)] mod tests`；集成测试放 `tests/`。
   - 涉及文件系统的一律用 `tempfile`，**禁止**在真实 SC2 安装目录里做测试。
   - 修复 Bug 时必须补一个能复现该 Bug 的测试。
+- **文件大小**：单份源码文件（**含内联测试**）不得超过 **800 行** —— 超过就是严重过耦合，必须拆。
+  门禁：`python scripts/check-file-size.py 800`（只告警；提交前应为空，或你知道每一份为什么留着）。
+  拆分时公共 API 用 `pub use` 原样转发，别顺手改调用方。
 
 ---
 
@@ -180,6 +185,10 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 > **代理不许代替维护者 merge。** PR 只能由维护者自己合 —— 代理负责的是：开 PR、
 > 跑门禁、把**真跑过的**验证输出贴进 PR 描述，然后停下等。合不合、什么时候合，由人决定。
 > （这条是用户明确定下的规矩：合并是"接收这份改动"的动作，只有人能做。）
+
+> [!IMPORTANT]
+> **不要每改一点就往远端推。** 提交先留在本地，等维护者说「推」的时候再**一次性**推上去。
+> （2026-10 维护者明确：改完别顺手 push。代理的默认动作是本地提交，不是同步远端。）
 
 > [!IMPORTANT]
 > **不要直接往 `dev` / `main` / `release` 推。** 三个分支都开了分支保护，
@@ -399,7 +408,7 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 | 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + React 前端（见 §4） |
 | 功能范围 | 首个版本聚焦**战役管理与安装**（扫描 / 预检 / 安装 / 卸载），不含下载站与账号功能 |
 | 美术风格 | 只参考 **HMCL 的视觉语言**（Material 3 + **蓝色主色** + 大圆角卡片），**不参考其布局**；看板娘为弥音立绘（见 §13） |
-| 战役数据 | **存放在软件同级的 data 目录**（绿色版），支持同一战役多版本共存与自由切换（见 §14） |
+| 战役数据 | **存放在星际争霸安装目录同级的 `miyin_launcher_data/`**（多个启动器实例共用一份），支持同一战役多版本共存与自由切换（见 §14.1） |
 | 主菜单范围 | 只列**四大战役**（自由之翼 / 虫群之心 / 虚空之遗 / 诺娃），进化与序章归并到父战役 |
 
 ### 12.2 待确认（TODO）
@@ -457,18 +466,30 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 
 ## 14. 战役库（多版本共存）
 
-### 14.1 为什么放在软件目录而不是游戏目录
+### 14.1 为什么放在游戏安装目录旁边，而不是软件目录
 
 游戏目录里的 `Maps/CustomCampaigns` 只能放「当前这一份」，装第二个版本就得先删第一个。
-所以库放在**软件可执行文件同级的 `data/` 目录**（绿色版，随软件走，见 `library::default_root`）：
+所以库放在**星际争霸安装目录的同级** `miyin_launcher_data/`（见 `library::data_root`）：
 
 ```text
-<启动器目录>/data/
+<游戏安装目录的同级>/miyin_launcher_data/
 ├── library.json               # 索引：每个槽位下有哪些版本、当前启用哪个
 ├── active.json                # 激活清单：我们往游戏目录放了什么、挪走了什么
 ├── campaigns/<槽位>/<版本>/    # 各版本的完整内容
 └── backup/<槽位>/              # 被挪走的官方文件，切回原版时原样还原
 ```
+
+**为什么挂在安装目录旁边而不是 exe 同级**：绿色版可以拷好几份、也可以装在不同位置 ——
+各自一份 `data/` 就互不相通。挂在安装目录旁边之后，同一台机器上的**所有启动器实例共用一份战役库**。
+
+两条必须保留的兜底：
+
+1. **找不到安装目录**（全新机器第一次启动、注册表里也没有）→ 退回 **exe 同级的 `data/`**，
+   程序必须能起来。
+2. **旧数据迁移**：新根不存在、而程序旁边还留着旧的 `data/` 时，启动时**搬过去**
+   （同盘 rename，跨盘 copy + 删，见 `platform::move_path`）。新根**已经有内容就一律不动** ——
+   不覆盖、不合并，只写一行日志（数据是用户的，宁可让他自己看一眼）。
+   搬迁失败时**退回旧根继续用** —— 不能因为搬不动就没了库。
 
 ### 14.2 五个菜单项：原版战役 + 自制战役
 
@@ -484,6 +505,13 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 
 顺序由 `CampaignType::MAIN` / `MENU` 固定，**不要**改成按名字排序
 （那样虚空之遗会排到诺娃后面）。
+
+#### 术语：改版 vs 版本
+
+玩家**基于官方四大战役**做的修改（重制、换单位、加关卡）叫**改版**：
+界面上「原版战役」以外的条目一律写「改版」，不要再叫「版本」。
+自制战役（独立整部）导入的多个条目、模组自身的版本号、启动器版本仍叫「版本」。
+代码里的 `Variant` / `version` 字段不改名 —— 这条只约束用户可见文案。
 
 #### 落盘位置也不一样
 
@@ -541,6 +569,12 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 
 判错的后果：进化地图被摆到虫心主目录、序章地图被摆进虚空之遗主目录，游戏都找不到。
 
+另一个真实样本（**AI盟友虫群之心**）：包内顶层就是 `evolution/…`，没有 `swarm/` 前缀。
+`evolution/` 是**相对虫群之心战役目录**的结构，必须**保留这一层**、落到
+`Maps/Campaign/swarm/evolution/…` —— 拍平到 `swarm/` 根，游戏在「进化」里就找不到这些地图。
+`metadata.txt` 直接放在 `evolution/` 里的包同理（内容根就是 evolution）。
+普通分类目录（`maps/`）仍然拍平，别把这条规则扩大化。
+
 另一个坑：包内可能是**游戏目录镜像**（顶层有 `Maps/` 或 `Mods/`）。
 这时内容根必须是**包根**，否则 metadata 所在的那一层会把同包的其它目录切掉 ——
 真实案例：metadata 在 `Maps/Campaign/void/`，内容却还包含 `Maps/Campaign/voidprologue/`。
@@ -583,9 +617,20 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 
 ### 14.8 任意打包形式与导入三层
 
-- **容器不挑**：zip 原生读；7z / rar / tar / … 交给系统自带的 `tar`
-  （Windows 10 1803+ 的 bsdtar/libarchive，一个工具覆盖一大片），
-  找不到再试 7-Zip、UnRAR。见 `campaign/contents.rs`。
+- **容器不挑**：zip 原生读；7z / rar / tar / … 统一交给内嵌 7-Zip（见下），
+  不再调用系统自带的 `tar` / `unrar`。见 `campaign/contents.rs`。
+- **内嵌 7-Zip**：7-Zip 26.05 的 `7z.exe` / `7z.dll` / `7zFM.exe` / `7zG.exe` 放在
+  `src-tauri/assets/7zip/`，构建时 `include_bytes!` 进 exe，运行时解到
+  `%LOCALAPPDATA%\net.miyin.launcher\tools\7zip-2605\`，并通过 `MIYIN_7Z` 让 core 优先用
+  内嵌的 7z（用户不用装 7-Zip 也能解 7z/rar）。许可证与来源见 `docs/third-party.md`。
+- **解压工具**：战役页「工具 ▾」与设置页「可选工具」都有「7-Zip 解压工具」入口，点开是
+  **内嵌的 7-Zip 文件管理器窗口**：`src-tauri/src/sevenzip.rs` 用 `SetParent` 把 `7zFM.exe`
+  嵌到主窗口**顶栏下方**；WebView2 的 DirectComposition 会盖住普通子窗口，所以用
+  `SetWindowRgn` 把 `WRY_WEBVIEW` 裁到只剩顶栏 —— 我们的顶栏仍由页面渲染，顶栏里会出现
+  「退出 7-Zip」按钮（`close_sevenzip` 给 7zFM 发 WM_CLOSE）。压缩/解压/测试都用 7-Zip
+  自己的界面，不另写一套。
+- **解压只走内置 7-Zip**：`UNPACKERS` 只剩内嵌的 `7z.exe`，不再调用系统 `tar` / `unrar`；
+  加密包也用 7z 的 `-p`。
 - **导入三层**：包内元数据（**以数据为准**）→ 证据链自动识别（**尽力而为**）→ 用户手动指定。
 - **手动指定永远可用，且优先级最高**：`import_package` 传了 slot 就按传的来。
   界面上始终要有"导入到哪部战役"的选择，默认填自动识别的结果。
@@ -596,32 +641,141 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 - **release 必须带 `--features custom-protocol`**（已写进 `src-tauri/Cargo.toml` 的
   `[features]`）。不带的话 Tauri 不会内嵌 `ui/dist`，程序会去连 devUrl，
   用户机器上没有 dev server -> 白屏 + ERR_CONNECTION_REFUSED。
-- 绿色版：exe 与 `data/` 同级，整个文件夹拷走即可。
+- 绿色版：exe 独立一个文件夹即可；战役库在**游戏安装目录同级**的 `miyin_launcher_data/`。
 - 出包前先 `pnpm -C ui build`，否则内嵌的是旧前端。
+- **三个 `dist` 不是一回事**（踩过混淆）：
+  - `ui/dist`：Vite 前端产物（`tauri.conf.json` 的 `frontendDist`），构建时内嵌进 exe；
+  - `target/release/`：`cargo build --release` 的产物，真正的 exe 在这里；
+  - 仓库根的 `dist/`：**本地投放目录**（`.gitignore` 里的 `dist/`），
+    **只放启动器的单独 exe**：`dist/SC2Miyin-Launcher.exe`（由 `target/release/miyin-launcher.exe` 改名/复制而来）。
+    **不放 zip、CLI、预览图、临时包或其它文件。** exe 名不能带空格 —— wry 把 exe 名传给
+    WebView2，带空格会让 msedgewebview2 启动即崩。CI 发布物（两个 zip）由
+    `.github/workflows/release.yml` 生成，与本地 `dist/` 不是一回事。
+    它**不会自动更新** —— 要测最新版时重新构建后复制 exe 进来。
+
+#### 14.9.1 绿色版首次在没有 WebView2 的机器上启动
+
+Windows 10/11 一般自带 WebView2 运行时，但**重装过系统、精简版、某些企业镜像上没有**。
+没有它，Tauri 连窗口都建不出来，用户看到的就是「双击一闪就没」。
+
+现在启动器会**自己补这个环境**（`src-tauri/src/webview2_install.rs`，在 `run()` 里跑在
+建窗口之前）：
+
+- **检测**：`tauri::webview_version()`（Tauri 官方探测），读不到再查注册表
+  `HKLM|HKCU\SOFTWARE[\WOW6432Node]\Microsoft\EdgeUpdate\Clients\{F3017226-…}\pv` 兜底。
+  检测「不在了」才动手，已经装好的一步都不多做。
+- **安装源**：微软官方 Evergreen 引导程序
+  `https://go.microsoft.com/fwlink/p/?LinkId=2124703`（302 到 `MicrosoftEdgeWebview2Setup.exe`）。
+  走系统代理设置（环境变量 → Windows 系统代理 → 直连，与 §15.2 同一套），**不写死任何代理地址**。
+- **进度界面是原生 Win32**（因为这时还没有 WebView2，画不了 Tauri 窗口）：
+  STATIC 说明 + 进度条 + 取消按钮，文案逐段走
+  「正在检测 → 正在下载安装包（xx%，xx MB/xx MB）→ 正在安装（可能弹 UAC，请点「是」）→
+  安装完成，正在启动启动器」。下载/安装在后台线程，UI 线程只跑消息循环。
+  原生窗口建不出来时退回 MessageBox（同样说清在做什么 + 手动链接）。
+- **安装**：先直接 `/silent /install`（再试 `--silent /install`），需要时用
+  `ShellExecuteW("runas")` 提权；完成后轮询检测，进程退出但检测仍失败会明确说「装是跑了，但系统里还是没有」。
+- **失败文案**：原因 + 手动下载链接 + 三条能动手的排查（UAC 点「是」、杀软放行 /
+  以管理员身份运行、装完重开）。
+
+> 调试开关：`MIYIN_WEBVIEW2_DEMO=1` 会在**已经装了**运行时的机器上强制再走一遍这个流程，
+> 只跳过「真的跑安装程序」那一步，用来验界面与文案。别在给用户的说明里提它。
+
+#### 14.9.2 单实例与按需提权
+
+**启动器永远以普通权限启动，启动时不弹 UAC。** WebView2 profile、`config.json`/`network.json`、
+临时文件都留在用户目录（`%LOCALAPPDATA%`/`%APPDATA%`/`%TEMP%`），不迁到数据根 ——
+否则 C 盘安装的用户连“看界面”都要提权。数据根仍然只放战役库（游戏安装目录同级）。
+
+- **单实例**：命名内核对象 `Local\net.miyin.launcher.single`（`CreateMutexW`/`CreateEventW`，
+  不写文件、不依赖目录权限）。第二个实例会聚焦已有「弥音启动器」窗口；找不到才提示后退出。
+- **按需提权**：写游戏目录 / 库根被拒（错误文本以 `[PERMISSION]` 开头）时，
+  UI 调 `request_privileged_worker()` 用 `ShellExecuteW(runas)` 拉起**同一个 exe** 的
+  `--privileged-worker` 模式（UAC 只弹一次，助手驻留复用），再用
+  `privileged_op(op,args)` 重放这一次操作；**UI 不重启、状态不丢**。
+  用户拒绝 UAC 时显示“需要管理员权限”对话框，可再次提权或保持现状，其余功能照常可用。
+- **助手范围**：只代理写游戏目录/库根的操作（activate/deactivate、import/update/delete、
+  补丁、模组铺盘与同步、merge_apply）；存档、导出、config/network 写留在 UI 进程。
+  游戏/编辑器始终由 UI（普通权限）启动。
+- **安全**：命名管道随机名 + 仅当前用户/SYSTEM 的 ACL + nonce 握手 + 客户端镜像路径/PID 校验
+  + 服务端路径白名单；`--privileged-worker` 不加载 Tauri/WebView2、不抢单实例锁。
+- **托盘**：进程活着时右下角始终有托盘图标（左键显示主界面，右键「显示主界面 / 退出启动器」）；
+  窗口异常消失时用户仍能直接退出，不必去任务管理器。
+- **起不来就退出**：setup 里发现没有有效 HWND 的 webview 窗口（WebView2 无法启动）→ 返回错误，
+  `run()` 收尾弹原生错误框后 `exit(1)`；不允许「窗口没了、进程还在」。
+- **低完整性检测**：启动时查进程令牌完整性（`platform::process_integrity_level`）；低于 Medium
+  （exe 放在低完整性目录/沙箱工作区）直接弹框说明“解压到普通文件夹”，不继续启动 ——
+  这种进程写不了 `%LOCALAPPDATA%` 的 WebView2 profile，硬起只会得到“窗口建不出来”。
 
 ### 14.10 存档管理（issue #20）
 
-实现在 `crates/miyin-core/src/saves.rs`：**看 / 备份 / 还原** `Documents\StarCraft II\Banks`。
+实现在 `crates/miyin-core/src/saves/`：**看 / 备份 / 还原** 游戏**真正读**的存档目录 ——
+不是单个 `Banks`，而是 `Documents\StarCraft II\Accounts/<账号>/<地域>/Banks`
+（本机核实，2026-10；可能有不止一个账号）。`Accounts` 结构完全不存在时才退回
+`Documents\StarCraft II\Banks`（老路径，通常为空、游戏不读）。
 
+- **一组 = 所有账号的 Banks 一起**（见 `SavesRoots`）：快照 / 备份 / 还原 / 切换都对
+  全部根整体操作，组里按 `Accounts/<账号>/<地域>/Banks/…` 的层级存，切回时原样铺回。
+  不按账号拆组 —— 同一部战役的进度本来就散在各账号里。
 - 存档是**用户数据**，不走游戏目录那套写盘闸门，但同样两条：**动之前先备份**、
   **先给人看**（`snapshot()` 就是给人看的那一份）。
 - **还原前自动把现在这份另存为 `还原前-<时间戳>`** —— 点错了还能退回来。
 - 还原会**先清空再铺**：不清的话备份里没有的旧文件会剩下来，两份混在一起。
 - 备份目录不适用的场景（还没玩过）返回 `missing`，**不建空目录** ——
   还原一个空备份只会让人以为"存档回来了"。
+- `state.json` 读不出来时**不再静默当「关着」**：`Isolation.warning` 带一条人话给界面，
+  坏文件在下次写盘前改名成 `state.json.corrupt-<时间戳>` 留证。
 
-按版本自动隔离（每个战役组合一套 Banks）要等游戏运行时探测接上再谈。
+按版本自动隔离（每个战役组合一套 Banks）已经做了，但**默认关着** ——
+用户在设置页主动打开才生效（打开那一刻把当前这份收成「原版」）。
+
+> [!WARNING]
+> **存档管理目前是 WIP**：组与战役的对应关系还没修好，启用存档隔离**可能导致存档损坏**。
+> 存档页与设置页的隔离卡必须保留醒目警示条与「开启前二次确认」；修好之前，
+> 任何文案都不许暗示「这个功能已经能放心用」。
 
 ### 14.11 切换的安全底线
 
 启用 / 停用**只操作清单里记过的文件**，绝不递归删除官方目录：
 
-1. `deactivate` 上一个版本：删掉我们放进去的文件、还原被挪走的官方文件。
-2. 目标位置若已有同名文件（多半是官方的），先挪进 `data/backup/` 并记账。
-3. 复制新版本的文件并逐条记账，最后写 `active.json`。
+1. 换版本时按**安装清单**撤掉该槽位**所有**已铺的东西（不只看 `slot.active`）：
+   删掉我们放的文件、还原被挪走的官方文件。
+2. 铺新版**失败就回滚**：清掉本次半装的文件、启用状态清空，返回「已回滚到原版」。
+3. 目标位置若已有同名文件（多半是官方的），先挪进 `data/backup/` 并记账。
+4. 复制新版本的文件并逐条记账，最后写 `installed.json`。
+5. 存档组跟着「当前启用的是谁」一起切 —— 所有会 `activate` 的路径共用同一个 core 函数。
 
 因此最坏情况是「多留了几个文件」，而不是「官方战役没了」。
-这部分由 `crates/miyin-core/src/library/tests.rs` 的端到端测试覆盖。
+这部分由 `crates/miyin-core/src/library/tests/` 的端到端测试覆盖。
+
+### 14.12 模组挂载：配置与实际铺盘是两件事
+
+`ModEntry` / `LibraryMod` 上有两个布尔，**不要混用**：
+
+| 字段 | 含义 | 谁来决定 |
+| --- | --- | --- |
+| `mounted` | **用户配置**里挂着它（勾选框状态） | `Variant::mounted_mods`，`None` = 没配过 = 全挂 |
+| `in_game` | **真的铺进 `<游戏>/Mods/`** | 安装清单 `installed.json`（按 owner 记账） |
+
+`variant_mods()` / `all_mods()` **不许再按 `slot.active` 门控 `mounted`** —— 曾经这么干过，
+后果是：没启用的版本一律显示未挂载，用户勾了下次读回来又变未勾；启动拦截读到全 false，
+把「配置里全挂着」误判成「一个都没挂」，自制战役直接被拦住启动（issue 反馈）。
+
+**挂载由启动器自己负责，不要指望用户手动点。**
+
+- 启动引导（`AppState::bootstrap`）会调 `activation::sync_mods()`：按激活清单 + 各槽位
+  当前选中的版本，把 `Mods/` 下的东西补齐 / 撤掉；幂等，已经一致就跳过；目标归别人或
+  被用户手动放的文件占着就跳过并告警（**不抢**）。`launch_game` 之前也会 sync 一次。
+- `sync_mods` 只动 `Mods/` 前缀（`Manifest::apply_scoped`），地图落点与补丁归
+  `activate` / 补丁那套管，互不越界。
+
+**不许给「进游戏」加「至少启用一个模组」之类的门槛。** 配了哪些模组是用户自己的事、
+铺不铺是启动器的责任；拦下来只会让自制战役根本打不开（issue 反馈）。
+自制战役页（`CustomCampaignPanel`）**只读展示**「已勾选的模组」（启动器会同步的那些），不提供勾选；
+导入对话框也不再问「要不要挂载」。勾选/启停只留在「模组」页（供排查问题），
+且有醒目提示「模组由启动器管理，非开发者请勿手动调整」。
+
+界面上「已勾选」（`mounted`）与「已生效」（`in_game`）是两个状态；`in_game` 为 false
+时不要写成「已启用」。
 
 ---
 
@@ -721,7 +875,8 @@ fn import_package(...) -> Result<...> { ... }
 `(async)` 让 Tauri 把同步函数体丢到线程池 —— 一个词的事，不用改写函数体。
 特别长的活（下载、查更新）再加一层 `async fn` + `tauri::async_runtime::spawn_blocking`。
 
-**自查**：`src-tauri/src/lib.rs` 里不应该再出现不带 `(async)` 的 `#[tauri::command]`。
+**自查**：`src-tauri/src/commands/` 里不应该出现不带 `(async)` 的 `#[tauri::command]`。
+新增命令写在对应域的 `commands/*.rs`，并在 `lib.rs` 的 `generate_handler` 里注册（命令名是 IPC 契约，改名等于改协议）。
 
 ---
 
@@ -825,7 +980,7 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
 > 房间在**用户侧入口**里（`ui/src/react/views/room/`），已按两套视觉语言**分成两页**：
 > 第一页用户侧控件（`react/ui/`），第二页开发者工具侧（`iframe` 嵌 `ide.html#gallery`）。
 
-### 18.2 右键菜单统一化，原生菜单一律不露
+### 18.2 右键菜单与快捷键：一律不露浏览器味儿
 
 **WebView 的原生右键菜单（另存为 / 检查 / 重新加载）与这个应用格格不入，
 而且会把用户导向一个跟它无关的世界。所以整个窗口一律拦掉。**
@@ -837,3 +992,14 @@ JS 回调）。拦"打包没完别走"要用页面内的按钮 + `beforeunload`�
   `event.defaultPrevented` 判定。
 - 新写右键菜单时：**在自己的 `onContextMenu` 里先 `preventDefault()`**，
   否则它会和兜底菜单叠在一起。
+
+**快捷键也是同一件事**（2026-10 补）：用户不该在这个应用里感觉到"我在用浏览器"。三层：
+
+| 层 | 在哪 | 管什么 |
+| --- | --- | --- |
+| **WebView2 硬开关** | `src-tauri/src/lib.rs` 的 `tame_webview` | `SetAreBrowserAcceleratorKeysEnabled(false)` —— **唯一**能彻底摘掉浏览器加速键（Ctrl+F/P/U/R、F5、Ctrl+±/0）的地方。右键菜单**不在这里管**（页面已经拦干净，重复设一遍是冗余）。Tauri 2.11 没暴露 wry 的对应 builder，只能顺着 `with_webview` 拿 `ICoreWebView2Controller` 自己关 |
+| **页面兜底** | `ui/src/api/webview.ts` 的 `installWebviewGuards()` | 两个入口都装：拦刷新/打印/缩放/中键/拖放导航；**浏览器演示模式也生效**。开发者页用 `allow` 放行 `Ctrl+F`（编辑器的查找）与开发者工具 |
+| **要用的快捷键** | 原生菜单 accelerators 或页面自己的 keydown | 别依赖浏览器默认 —— 想用哪个就自己实现哪个 |
+
+- **别拦过头**：`Ctrl+C/V/Z/A/S`、方向键、输入法组合键都不能碰（`webview.ts` 里有测试钉着）。
+- 拦不住的只有 OS 级组合（Alt+Tab、Win 键）—— 那些本来也不该拦。

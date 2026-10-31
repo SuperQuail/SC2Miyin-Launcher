@@ -9,6 +9,19 @@ export function formatBytes(bytes: number): string {
   return (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
 }
 
+/** 逗号分隔的文本 → 去空去重的列表（标签、依赖模组都用这一份）。 */
+export function parseList(text: string): string[] {
+  return text
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** 列表 → 逗号分隔的文本（存设置、写元数据都用它）。 */
+export function joinList(items: string[]): string {
+  return items.join(", ");
+}
+
 /** 相对时间（提交记录用）；at 是秒级时间戳。 */
 export function when(at: number): string {
   if (!at) return "";

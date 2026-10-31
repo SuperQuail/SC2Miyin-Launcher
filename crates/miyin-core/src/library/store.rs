@@ -11,6 +11,7 @@ use crate::safety;
 use crate::sc2::Installation;
 use walkdir::WalkDir;
 
+use super::install::{Manifest, Owner};
 use super::{ImportMode, Library, Variant, now_seconds, require_slot, unique_suffix};
 
 /// 把一个战役包导入到指定槽位，返回新建的版本记录。
@@ -23,9 +24,23 @@ pub fn import(
     slot_slug: &str,
     mode: ImportMode,
 ) -> Result<Variant> {
+    import_with_password(library, package, slot_slug, mode, None)
+}
+
+/// 同上，带密码（加密包）。
+///
+/// `package` 既可以是压缩包，也可以是一个**目录**（「从文件夹导入」）——
+/// 目录直接用 `std::fs::copy` 铺过去，显示名取目录名。
+pub fn import_with_password(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+    password: Option<&str>,
+) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
-    let inspection = package::inspect(package)?;
+    let inspection = package::inspect_with_password(package, password)?;
     if inspection.has_blocking_issue() {
         let reason = inspection
             .issues
@@ -36,16 +51,12 @@ pub fn import(
         return Err(Error::PackageRejected(reason));
     }
 
-    // 显示名优先用元数据里的标题，退回压缩包文件名
+    // 显示名优先用元数据里的标题，退回来源的文件名 / 目录名
     let display_name = inspection
         .name
         .clone()
         .filter(|name| !name.trim().is_empty())
-        .or_else(|| {
-            package
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned())
-        })
+        .or_else(|| package::source_stem(package))
         .unwrap_or_else(|| "未命名战役".to_string());
 
     let slot_dir = library.slot_dir(slot_slug);
@@ -75,7 +86,12 @@ pub fn import(
     )?;
     std::fs::create_dir_all(&staging)?;
 
-    let stats = match package::extract_to(package, &inspection.content_root, &staging) {
+    let stats = match package::extract_to_with_password(
+        package,
+        &inspection.content_root,
+        &staging,
+        password,
+    ) {
         Ok(stats) => stats,
         Err(error) => {
             let _ = std::fs::remove_dir_all(&staging);
@@ -188,15 +204,19 @@ pub fn remove_variant(
         return Err(Error::CampaignNotFound(variant_id.to_string()));
     }
 
-    if slot.active.as_deref() == Some(variant_id) {
-        // 正在启用：必须先撤下来，否则会把还铺在游戏目录里的文件抽走。
-        //
-        // **只撤这个槽位**（activate 传 None 表示「这个槽位什么都不启用」）。
-        // 早先这里调的是 deactivate，而统一安装引擎之后 deactivate 的含义变成了
-        // 「撤掉**所有**战役」—— 那样删 A 战役的一个版本会把 B 战役也一起卸掉。
-        //
-        // activate 会自己保存索引，所以这里要把本地那份重新读一遍。
-        super::activate(library, installation, slot_slug, None)?;
+    // **「装着没」看安装清单，不看 `slot.active`** —— 后者只记「最后选中的那个」：
+    // 历史上多装的那几部、上次激活半途失败的、手改过索引的都不在里面。
+    // 按 `active` 判会直接删库目录，把游戏目录里的文件和清单记录一起落下 ——
+    // 从此没人认领（R4）。
+    let manifest = Manifest::load_migrating(library.root(), installation);
+    let owner = Owner::Campaign {
+        slot: slot_slug.to_string(),
+        variant: variant_id.to_string(),
+    };
+    if !manifest.of(&owner).is_empty() {
+        // 只撤**这一份**，不碰同槽位别的版本（`activate(None)` 会整槽撤掉）。
+        // remove_owner 会自己保存索引，所以这里要把本地那份重新读一遍。
+        super::activation::remove_owner(library, installation, &owner)?;
         index = library.index();
     }
 
@@ -505,6 +525,18 @@ pub fn replace_variant(
     old_id: &str,
     package: &Path,
 ) -> Result<Replaced> {
+    replace_variant_with_password(library, installation, slot_slug, old_id, package, None)
+}
+
+/// 同上，带密码（加密包）。
+pub fn replace_variant_with_password(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    old_id: &str,
+    package: &Path,
+    password: Option<&str>,
+) -> Result<Replaced> {
     require_slot(slot_slug)?;
 
     let index = library.index();
@@ -516,7 +548,13 @@ pub fn replace_variant(
         .cloned()
         .ok_or_else(|| Error::CampaignNotFound(old_id.to_string()))?;
 
-    let was_active = slot.active.as_deref() == Some(old_id);
+    // 「原来装着」同样按清单算：`slot.active` 只记最后选中的那一个（R4）。
+    let was_installed = !Manifest::load_migrating(library.root(), installation)
+        .of(&Owner::Campaign {
+            slot: slot_slug.to_string(),
+            variant: old_id.to_string(),
+        })
+        .is_empty();
     let keep_mods = old.mounted_mods.clone();
     let keep_main = old.main_map.clone();
 
@@ -524,7 +562,8 @@ pub fn replace_variant(
     remove_variant(library, installation, slot_slug, old_id)?;
 
     // 新的进来 —— 用 Rename，id 由内容重新生成
-    let mut variant = import(library, package, slot_slug, ImportMode::Rename)?;
+    let mut variant =
+        import_with_password(library, package, slot_slug, ImportMode::Rename, password)?;
 
     // 挂载清单**只是一份记录**：谁在名单里、谁就能铺；名单里有但包里没有的，铺的时候自然被忽略
     // （落盘只按包里的载荷走）。所以名单可以放心地"老 ∪ 新"。
@@ -569,8 +608,8 @@ pub fn replace_variant(
     // 记录不跟着改就会指向一个已经没了的目录（列表里还在，铺下去却没东西）。
     super::mods::repoint_campaign(library.root(), slot_slug, old_id, &variant.id)?;
 
-    // 原来是应用着的，装完再应用回去
-    if was_active {
+    // 原来是装着的，装完再把新版本铺回去
+    if was_installed {
         super::activate(library, installation, slot_slug, Some(&variant.id))?;
     }
 
@@ -586,17 +625,23 @@ pub fn find_target_for_package(
     slot_slug: &str,
     package: &Path,
 ) -> Result<Option<Variant>> {
+    find_target_for_package_with_password(library, slot_slug, package, None)
+}
+
+/// 同上，带密码（加密包）。
+pub fn find_target_for_package_with_password(
+    library: &Library,
+    slot_slug: &str,
+    package: &Path,
+    password: Option<&str>,
+) -> Result<Option<Variant>> {
     require_slot(slot_slug)?;
-    let inspection = package::inspect(package)?;
+    let inspection = package::inspect_with_password(package, password)?;
     let display_name = inspection
         .name
         .clone()
         .filter(|name| !name.trim().is_empty())
-        .or_else(|| {
-            package
-                .file_stem()
-                .map(|stem| stem.to_string_lossy().into_owned())
-        })
+        .or_else(|| package::source_stem(package))
         .unwrap_or_default();
     let index = library.index();
     let existing = index.slots.get(slot_slug).cloned().unwrap_or_default();

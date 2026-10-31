@@ -12,6 +12,7 @@ import type {
 } from "../../../api/types";
 import { copyText } from "../../lib/clipboard";
 import { useCommand } from "../../lib/useCommand";
+import { usePermissionGate } from "../../state/usePermission";
 import { filterMods, groupMods } from "./data";
 
 /** 页面要跟外壳说的话。 */
@@ -34,6 +35,8 @@ export interface ModsHost {
  * 与两个回调（notify / reveal）。
  */
 export function useMods(host: ModsHost) {
+  /** 提权闸门：挂载 / 启停模组要往游戏目录写东西。 */
+  const permission = usePermissionGate();
   const [mods, setMods] = useState<LibraryMod[]>([]);
   const [gameMods, setGameMods] = useState<GameModEntry[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -86,7 +89,11 @@ export function useMods(host: ModsHost) {
       guard(mod.path, async () => {
         try {
           if (mod.standalone_id) {
-            await api.setModEnabled(mod.standalone_id, !mod.mounted);
+            const id = mod.standalone_id;
+            await permission.run(() => api.setModEnabled(id, !mod.mounted), {
+              op: "mods_set_enabled",
+              args: { id, enabled: !mod.mounted },
+            });
           } else {
             // 战役包带的模组：把同版本的模组状态整体写回
             const siblings = mods.filter(
@@ -99,12 +106,12 @@ export function useMods(host: ModsHost) {
             await api.setMountedMods(mod.slot, mod.variant_id, next);
           }
           await load.run();
-          host.notify("success", (mod.mounted ? "已关闭 " : "已启用 ") + mod.name);
+          host.notify("success", (mod.mounted ? "已取消勾选 " : "已勾选 ") + mod.name);
         } catch (error) {
           host.notify("error", String(error));
         }
       }),
-    [guard, mods, load, host],
+    [guard, mods, load, host, permission],
   );
 
   /** 整组一起开 / 关。 */
@@ -114,7 +121,11 @@ export function useMods(host: ModsHost) {
         try {
           const standalone = group.mods.filter((mod) => mod.standalone_id);
           for (const mod of standalone) {
-            await api.setModEnabled(mod.standalone_id as string, mounted);
+            const id = mod.standalone_id as string;
+            await permission.run(() => api.setModEnabled(id, mounted), {
+              op: "mods_set_enabled",
+              args: { id, enabled: mounted },
+            });
           }
           const campaign = group.mods.filter((mod) => !mod.standalone_id);
           if (campaign.length) {
@@ -125,12 +136,12 @@ export function useMods(host: ModsHost) {
             );
           }
           await load.run();
-          host.notify("success", mounted ? "已全部启用" : "已全部关闭");
+          host.notify("success", mounted ? "已勾选全部模组" : "已取消勾选全部模组");
         } catch (error) {
           host.notify("error", String(error));
         }
       }),
-    [guard, load, host],
+    [guard, load, host, permission],
   );
 
   /** 复制模组在游戏目录里的名字。 */
@@ -235,12 +246,13 @@ export function useModImport(
   reload: () => void | Promise<void>,
   setChoosing: (value: { path: string; preview: ModPreview } | null) => void,
 ) {
+  const permission = usePermissionGate();
   const [importing, setImporting] = useState(false);
 
   const report = useCallback(
     (result: ModImport) => {
       host.notify(result.action === "duplicate" ? "info" : "success", result.message);
-      if (result.action === "added") host.notify("info", "到列表里把它启用就会铺进游戏目录");
+      if (result.action === "added") host.notify("info", "在列表中勾选后，启动器会把它写入游戏目录");
     },
     [host],
   );
@@ -255,9 +267,12 @@ export function useModImport(
         const found = await api.previewMod(source);
         // 库里已经有一份完全一样的：不用问，后端会直接用那份
         if (found.duplicate) {
-          const result = await api.importMod(source);
+          const result = await permission.run(() => api.importMod(source), {
+            op: "mods_import",
+            args: { path: source, mode: null },
+          });
           await reload();
-          host.notify("info", result.message);
+          host.notify("info", result ? result.message : "已导入模组");
           return;
         }
         // 有同 modid 的 -> 问一句
@@ -265,16 +280,20 @@ export function useModImport(
           setChoosing({ path: source, preview: found });
           return;
         }
-        const result = await api.importMod(source, mode);
+        const result = await permission.run(() => api.importMod(source, mode), {
+          op: "mods_import",
+          args: { path: source, mode: mode ?? null },
+        });
         await reload();
-        report(result);
+        if (result) report(result);
+        else host.notify("success", "已导入模组");
       } catch (error) {
         host.notify("error", String(error));
       } finally {
         setImporting(false);
       }
     },
-    [host, reload, report, setChoosing],
+    [host, permission, reload, report, setChoosing],
   );
 
   return { importing, importMod: run };
@@ -282,6 +301,7 @@ export function useModImport(
 
 /** 编辑弹窗的状态与保存。 */
 export function useModEdit(host: ModsHost, reload: () => void | Promise<void>) {
+  const permission = usePermissionGate();
   const [editing, setEditing] = useState<LibraryMod | null>(null);
   const [editTarget, setEditTarget] = useState<StandaloneMod | null>(null);
   const [form, setForm] = useState({ name: "", author: "", version: "", description: "" });
@@ -340,11 +360,16 @@ export function useModEdit(host: ModsHost, reload: () => void | Promise<void>) {
             }
           : null;
 
-      await api.editMod(editTarget?.id ?? null, identity, {
+      const recordId = editTarget?.id ?? null;
+      const changes = {
         name: form.name,
         author: form.author || null,
         version: form.version || null,
         description: form.description || null,
+      };
+      await permission.run(() => api.editMod(recordId, identity, changes), {
+        op: "mods_edit",
+        args: { recordId, identity, changes },
       });
 
       setEditing(null);
@@ -356,23 +381,25 @@ export function useModEdit(host: ModsHost, reload: () => void | Promise<void>) {
     } finally {
       setSaving(false);
     }
-  }, [editing, editTarget, form, host, reload]);
+  }, [editing, editTarget, form, host, permission, reload]);
 
   return { editing, setEditing, form, setForm, openEdit, save, saving };
 }
 
 /** 删除确认。 */
 export function useModRemove(host: ModsHost, reload: () => void | Promise<void>) {
+  const permission = usePermissionGate();
   const [removing, setRemoving] = useState<LibraryMod | null>(null);
   const [removingBusy, setBusy] = useState(false);
 
   const confirm = useCallback(async () => {
     const mod = removing;
     if (!mod?.standalone_id) return;
+    const id = mod.standalone_id;
     setRemoving(null);
     setBusy(true);
     try {
-      await api.removeMod(mod.standalone_id);
+      await permission.run(() => api.removeMod(id), { op: "mods_remove", args: { id } });
       await reload();
       host.notify("success", "已删除");
     } catch (error) {
@@ -380,7 +407,7 @@ export function useModRemove(host: ModsHost, reload: () => void | Promise<void>)
     } finally {
       setBusy(false);
     }
-  }, [removing, host, reload]);
+  }, [removing, host, permission, reload]);
 
   return { removing, setRemoving, confirm, removingBusy };
 }

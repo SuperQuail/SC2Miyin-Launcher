@@ -17,6 +17,7 @@ const base: LibraryMod = {
   path: "Mods/scmr",
   name: "SCMR 数据",
   mounted: false,
+  in_game: false,
   parts: 1,
   origin: "official_campaign",
   required: false,
@@ -151,7 +152,7 @@ describe("filterMods —— 按模组名或所属战役搜", () => {
 
 describe("originLabel —— 来源怎么说", () => {
   it("三种来源各有说法", () => {
-    expect(originLabel("standalone")).toBe("单独导入");
+    expect(originLabel("standalone")).toBe("独立模组");
     expect(originLabel("custom_campaign")).toBe("自制战役包");
     expect(originLabel("official_campaign")).toBe("原版战役包");
   });

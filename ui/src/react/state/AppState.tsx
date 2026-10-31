@@ -4,6 +4,7 @@ import { isDesktop } from "../../api/bridge";
 import { useBusy } from "./useBusy";
 import { useInstallation, type InstallationApi } from "./useInstallation";
 import { useLibrary, type LibraryApi } from "./useLibrary";
+import { useMerge, type MergeApi } from "./useMerge";
 import { useNavigation, type NavigationApi } from "./useNavigation";
 import { useNotify, type Notify, type Toast } from "./useNotify";
 import { useSaves, type SavesApi } from "./useSaves";
@@ -23,13 +24,21 @@ export interface AppState {
   /** 是不是跑在 Tauri 桌面壳里。 */
   isDesktop: boolean;
   notify: Notify;
-  toast: Toast | null;
+  /** 提示队列，最新的在前（右下角那一叠） */
+  toasts: Toast[];
+  /** 关掉某一条提示（✕ 按钮用）—— 精确到 id */
+  dismiss: (id: number) => void;
+  /** 鼠标压在这一叠上：整叠倒计时暂停 / 移开继续 */
+  pauseToasts: () => void;
+  resumeToasts: () => void;
   /** 有没有会写盘的动作在跑。 */
   busy: boolean;
   /** 正在读战役库。 */
   loading: boolean;
   installation: InstallationApi;
   library: LibraryApi;
+  /** 启动时的数据合并（本地那份 -> 游戏目录那份）。 */
+  merge: MergeApi;
   saves: SavesApi;
   update: UpdateApi;
   theme: ThemeApi;
@@ -42,7 +51,7 @@ export interface AppState {
 const AppStateContext = createContext<AppState | null>(null);
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const { toast, notify } = useNotify();
+  const { toasts, notify, dismiss, pause: pauseToasts, resume: resumeToasts } = useNotify();
   const { busy, run: runBusy } = useBusy();
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
@@ -61,6 +70,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     applySlots: library.setSlots,
   });
   const saves = useSaves({ notify, busy: runBusy, refreshLibrary: library.refresh });
+  const merge = useMerge({ notify });
 
   const openSettings = useCallback(() => nav.setView("settings"), [nav.setView]);
   const update = useUpdate({ notify, onOpenSettings: openSettings });
@@ -69,11 +79,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const value: AppState = {
     isDesktop,
     notify,
-    toast,
+    toasts,
+    dismiss,
+    pauseToasts,
+    resumeToasts,
     busy,
     loading,
     installation,
     library,
+    merge,
     saves,
     update,
     theme,

@@ -1,4 +1,4 @@
-import Button from "@jetbrains/ring-ui-built/components/button/button";
+import Icon from "@jetbrains/ring-ui-built/components/icon/icon";
 import { Tab, Tabs } from "@jetbrains/ring-ui-built/components/tabs/tabs";
 import closeIcon from "@jetbrains/icons/close";
 
@@ -36,16 +36,19 @@ export function DocTabs({ opened, active, onOpen, onClose }: DocTabsProps) {
             title={
               <span className="doctab">
                 {entry.name}
-                <Button
+                {/* 关闭是个 span 而不是 Button：标签本身就是按钮，按钮套按钮是非法嵌套
+                    （键盘也会打架）。标签的 Alt+W 之类以后要加就加在标签上 */}
+                <span
                   className="doctab__close"
-                  icon={closeIcon}
                   title="关闭"
                   onClick={(event) => {
                     // 关闭不是切换：别让点击冒泡到标签本身
                     event.stopPropagation();
                     onClose(entry);
                   }}
-                />
+                >
+                  <Icon glyph={closeIcon} />
+                </span>
               </span>
             }
           />

@@ -1,0 +1,143 @@
+/* ---------- 文档标签页（Ring UI Tabs，见 parts/DocTabs.tsx） ---------- */
+.doctabs {
+  padding-left: 4px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+/* Ring UI 的标签条默认给下面的面板留了 16px 边距；这里只有标签，不留 */
+.doctabs .ring-tabs-titles {
+  margin-bottom: 0;
+  box-shadow: none;
+}
+.doctabs .ring-tabs-title {
+  line-height: 30px;
+  font-size: 12.5px;
+}
+.doctab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* 关闭是 span（标签本身已经是 button，不能再套）；这里给它按钮的判定区与悬停反馈 */
+.doctab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+.doctab__close:hover {
+  background: var(--surface-3);
+  color: var(--on-surface);
+}
+
+/* ---------- 文本 / 二进制 / 图片 ---------- */
+.i {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.code {
+  padding: 8px 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.cline {
+  display: flex;
+}
+.cno {
+  width: 48px;
+  flex: none;
+  text-align: right;
+  padding-right: 14px;
+  color: var(--on-surface-variant);
+  user-select: none;
+}
+.ctext {
+  white-space: pre;
+}
+.empty {
+  margin: 10px 4px;
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--on-surface-variant);
+}
+.unsupported {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+}
+.unsupported .i {
+  width: 44px;
+  height: 44px;
+  opacity: 0.75;
+}
+.utitle {
+  margin: 6px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.utext {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.85;
+  color: var(--on-surface-variant);
+}
+.uhint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  background-image: linear-gradient(45deg, var(--surface-3) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-3) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-3) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-3) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.shot {
+  display: grid;
+  place-items: center;
+  width: 300px;
+  height: 300px;
+  background: linear-gradient(150deg, #2b4a7d, #16324f 60%, #0d2137);
+  border: 1px solid var(--line);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+.vbar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.vzoom {
+  margin-left: auto;
+}

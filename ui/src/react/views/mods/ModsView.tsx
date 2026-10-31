@@ -28,14 +28,14 @@ export function ModsView(host: ModsHost) {
   /** 行上的右键菜单。和行内按钮是同一批功能，只是不用先去找那几个小按钮。 */
   function showModMenu(event: ReactMouseEvent, mod: LibraryMod): void {
     const items = [
-      { id: "toggle", label: mod.mounted ? "停用" : "启用" },
+      { id: "toggle", label: mod.mounted ? "取消勾选" : "勾选" },
       { id: "edit", label: "编辑信息…" },
-      { id: "copy", label: "复制挂载名" },
+      { id: "copy", label: "复制模组名" },
     ];
     // 只有内容在独立库里的才能导出 / 删除 —— 战役包带来的模组，内容归那个包
     if (mod.source_kind === "library") {
       items.push({ id: "export", label: "导出成一个包…" });
-      items.push({ id: "remove", label: "从库里删除" });
+      items.push({ id: "remove", label: "从战役库删除" });
     }
     host.showMenu(event, items, (id) => {
       if (id === "toggle") void mods.toggle(mod);
@@ -70,13 +70,13 @@ export function ModsView(host: ModsHost) {
       <section className="hero">
         <div className="hero__body">
           <p className="hero__eyebrow">
-            共 {mods.mods.length} 个，已启用 {mods.mountedCount} 个
-            {mods.standaloneCount > 0 && <> · 其中单独导入 {mods.standaloneCount} 个</>}
+            共 {mods.mods.length} 个，已勾选 {mods.mountedCount} 个
+            {mods.standaloneCount > 0 && <> · 其中独立模组 {mods.standaloneCount} 个</>}
           </p>
           <h2 className="hero__title">模组</h2>
           <p className="hero__text">
             地图可能需要模组才能正常打开 —— 原版战役的改版包也一样。
-            这里能看到模组的来源，启停它们，也能单独导入、导出、改信息。
+            这里可以查看模组来源、勾选或取消勾选模组，也可以单独导入、导出和编辑信息。
           </p>
         </div>
         <div className="hero__actions">
@@ -103,6 +103,23 @@ export function ModsView(host: ModsHost) {
         </div>
       </section>
 
+      {/* 启动器启动时会自己挂载模组，手动改状态容易和自动挂载打架 */}
+      <div className="mods-warn" role="note">
+        <svg className="mods-warn__icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 9v5M12 17.5v.5" />
+          <path d="M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+        <div className="mods-warn__body">
+          <p className="mods-warn__title">模组由启动器管理</p>
+          <p className="mods-warn__text">
+            启动器会在启动时自动同步已勾选的模组；请勿手动改动游戏目录中的模组文件，否则可能导致资源缺失或战役无法启动。
+          </p>
+          <p className="mods-warn__foot">
+            确有需要时，可在下方列表勾选或取消勾选；开关仅表示勾选状态，已生效状态以游戏目录同步结果为准。
+          </p>
+        </div>
+      </div>
+
       <div className="bar">
         <input
           className="bar__search"
@@ -120,7 +137,7 @@ export function ModsView(host: ModsHost) {
         <p className="hint">正在读取…</p>
       ) : mods.mods.length === 0 ? (
         <p className="hint">
-          现在还没有任何模组。导入带 .SC2Mod 的战役包，或者直接用上面的按钮单独导一个。
+          暂无模组。可导入包含 .SC2Mod 的战役包，或使用上方按钮单独导入模组。
         </p>
       ) : mods.filtered.length === 0 ? (
         <p className="hint">没有匹配的模组。</p>
@@ -138,14 +155,14 @@ export function ModsView(host: ModsHost) {
               )}
             </div>
             <div className="group__actions">
-              {/* 独立模组是版本互斥的：同一 modid 只能启用一个（它们在游戏目录里抢同一个文件夹） */}
+              {/* 独立模组是版本互斥的：同一 modid 只能勾选一个（它们在游戏目录里抢同一个文件夹） */}
               {group.origin !== "standalone" && (
                 <Button disabled={busy} onClick={() => void mods.toggleGroup(group, true)}>
-                  <span className="btn--tiny">全部启用</span>
+                  <span className="btn--tiny">全部勾选</span>
                 </Button>
               )}
               <Button disabled={busy} onClick={() => void mods.toggleGroup(group, false)}>
-                <span className="btn--tiny">全部关闭</span>
+                <span className="btn--tiny">全部取消勾选</span>
               </Button>
             </div>
           </header>
@@ -164,8 +181,14 @@ export function ModsView(host: ModsHost) {
                     />
                   )}
                   <span className="mod__name">{mod.name}</span>
+                  {/* 勾选 ≠ 已生效：in_game 才是真的铺进了 <游戏>/Mods/ */}
+                  {mod.mounted && (
+                    <span className={"badge " + (mod.in_game ? "badge--live" : "badge--pending")}>
+                      {mod.in_game ? "已生效" : "待生效"}
+                    </span>
+                  )}
                   {mod.required && (
-                    <span className="badge badge--req" title="包内声明为依赖模组">
+                    <span className="badge badge--req" title="包内声明为作者必需的模组">
                       依赖
                     </span>
                   )}
@@ -173,9 +196,9 @@ export function ModsView(host: ModsHost) {
                     <span className="badge badge--ver">v{mod.version}</span>
                   )}
                   {mod.parts > 1 && <span className="badge">{mod.parts} 个文件</span>}
-                  {/* 把「铺进游戏目录时叫什么」显出来：地图里引用的就是这个 */}
+                  {/* 把「写入游戏目录时叫什么」显出来：地图里引用的就是这个 */}
                   {mod.folder && (
-                    <span className="mount" title="铺进游戏目录后的样子">
+                    <span className="mount" title="写入游戏目录后的路径">
                       → Mods/{mod.folder}
                       {mod.kind === "folder" ? "/" : ""}
                     </span>
@@ -191,12 +214,12 @@ export function ModsView(host: ModsHost) {
                         mods.setCompareWith({ ...mods.compareWith, [mod.modid ?? ""]: event.target.value })
                       }
                     >
-                      <option value="">基准…</option>
+                      <option value="">对比基准…</option>
                       {group.mods
                         .filter((item) => item.path !== mod.path)
                         .map((other) => (
                           <option key={other.path} value={other.standalone_id ?? ""}>
-                            与 v{other.version ?? "未标"} 比
+                            与 v{other.version ?? "未标注"} 对比
                           </option>
                         ))}
                     </select>
@@ -223,11 +246,11 @@ export function ModsView(host: ModsHost) {
                     className={"switch" + (mod.mounted ? " switch--on" : "")}
                     type="button"
                     disabled={busy}
-                    title={mod.mounted ? "点击关闭" : "点击启用"}
+                    title={mod.mounted ? "点击取消勾选" : "点击勾选"}
                     onClick={() => void mods.toggle(mod)}
                   >
                     <span className="switch__knob" />
-                    <span className="switch__text">{mod.mounted ? "已启用" : "已关闭"}</span>
+                    <span className="switch__text">{mod.mounted ? "已勾选" : "未勾选"}</span>
                   </button>
                 </div>
               </li>

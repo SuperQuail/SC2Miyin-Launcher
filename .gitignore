@@ -109,3 +109,7 @@ Desktop.ini
 
 # 出方案期的预览件，不入库
 /ui/src/preview/
+
+/.tmp/
+/.dsh-ops/
+!/src-tauri/assets/7zip/*.exe

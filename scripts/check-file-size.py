@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 # 只看**原始代码**：编译产物、依赖、参考仓库一律不算
-EXTENSIONS = {".rs", ".ts", ".tsx", ".vue", ".js", ".jsx", ".py", ".ps1", ".mjs"}
+EXTENSIONS = {".rs", ".ts", ".tsx", ".vue", ".js", ".jsx", ".py", ".ps1", ".mjs", ".css"}
 SKIP_DIRS = {
     ".git",
     "node_modules",

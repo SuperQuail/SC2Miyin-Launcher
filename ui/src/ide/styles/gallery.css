@@ -1,0 +1,89 @@
+/* ---------- 控件展台（#gallery，只有它自己） ---------- */
+.gallery {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 18px 20px 48px;
+}
+.gallery__head {
+  max-width: 880px;
+  margin: 0 auto 14px;
+}
+.gallery__title {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.gallery__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.gallery__note code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+}
+.gcard {
+  max-width: 880px;
+  margin: 0 auto 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.gcard__title {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+.gcard__note {
+  margin: 0 0 10px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+.grow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 6px;
+}
+.glabel {
+  flex: none;
+  width: 84px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.gbar {
+  width: 160px;
+}
+/* ButtonToolbar 在展台里也得能看见字：库的 font-size:0 会连按钮里的文字一起吃掉
+   （生产页面的 .tb 里有一份同样的收口，两处各自就近说明） */
+.grow .ring-button-toolbar-buttonToolbar {
+  display: inline-flex;
+  align-items: center;
+  font: inherit;
+  line-height: normal;
+}
+/* 展台里演示标签溢出：故意收窄，让 5 个标签折成「更多」 */
+.gdoctabs {
+  width: 420px;
+  max-width: 100%;
+}
+/* Message 是个弹层（脱离文档流），给它一个定位容器才看得出它落在哪 */
+.gmsgbox {
+  position: relative;
+  min-height: 96px;
+}
+/* 展台里演示 ScrollableSection 的阴影边：故意限高 */
+.gscroll {
+  height: 96px;
+  padding: 6px 8px;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  font-size: 12px;
+}

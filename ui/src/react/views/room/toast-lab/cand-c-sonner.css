@@ -1,0 +1,165 @@
+/* 候选 C · Sonner 式堆叠 —— **已采用**，所以这里按正式版摆：右下角。
+   颜色只走令牌。 */
+
+.sonnerstack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 64;
+  display: flex;
+  /* 栈底贴着屏幕边：最新那条（items[0]）在下，旧的往左上叠。
+     用 column-reverse 就是让"第一条"落在视觉最下面，负 margin 才有地方叠。 */
+  flex-direction: column-reverse;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  pointer-events: none;
+}
+
+.sonner {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 34px 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+  color: var(--on-surface);
+  box-shadow: var(--shadow-2);
+  animation: sonner-in 240ms var(--ease);
+}
+
+/* 叠在后面的那几条：压暗、缩一点，只露一个上边（sonner 的做法）
+   间距用**正的** —— 负 margin 在 column-reverse 里跟"往上叠"是反方向的，
+   试过 -40px，第二条直接躲到第一条背后去了。 */
+.sonner:not(:first-child) {
+  margin-bottom: 10px;
+  margin-right: 12px;
+  scale: 0.97;
+}
+.sonner:nth-child(2) {
+  opacity: 0.8;
+}
+/* 露出来的那条只显示标题一行，别把整张卡都摊开 */
+.sonner:not(:first-child) .sonner__body {
+  overflow: hidden;
+  max-height: 20px;
+}
+.sonner:nth-child(n + 4) {
+  display: none;
+}
+
+.sonner--out {
+  animation: sonner-out 220ms ease-in forwards;
+}
+
+.sonner__icon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--accent);
+}
+.sonner__icon--ok,
+.sonner--success .sonner__icon {
+  color: var(--success);
+}
+.sonner--warning .sonner__icon {
+  color: var(--warning);
+}
+.sonner--error .sonner__icon {
+  color: var(--danger);
+}
+
+.sonner__body {
+  min-width: 0;
+}
+
+.sonner__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sonner__text {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.sonner__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sonner__action {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-softer);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.sonner__action:hover {
+  background: var(--accent-soft);
+}
+
+.sonner__close {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--on-surface-variant);
+  opacity: 0.65;
+}
+.sonner__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--on-surface) 10%, transparent);
+}
+.sonner__close svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.sonner {
+  position: relative;
+  /* 只有最前面那条接鼠标，露边的那些不接 */
+  pointer-events: auto;
+}
+
+@keyframes sonner-in {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+    scale: 0.97;
+  }
+}
+@keyframes sonner-out {
+  to {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sonner,
+  .sonner--out {
+    animation-duration: 1ms;
+  }
+}

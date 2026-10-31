@@ -141,6 +141,8 @@ export function useShellEffects(): { dragging: boolean } {
 
     void latest.current.installation.bootstrap();
 
+    // 启动时先问一句"是不是还有另一份 data 要并"；排在更新检查前面，它更靠近数据安全
+    const mergeTimer = setTimeout(() => void latest.current.merge.check(), 600);
     // **启动就自动扫描更新**，不需要用户手点；稍微延后，别和启动时的战役库读取抢时间
     const updateTimer = setTimeout(() => void latest.current.update.autoCheckUpdate(), 1200);
     // 可选工具默认静默安装：排在更新检查后面 —— 那更要紧
@@ -161,11 +163,12 @@ export function useShellEffects(): { dragging: boolean } {
               setDragging(false);
             } else if (payload.type === "drop") {
               setDragging(false);
-              const path = payload.paths[0];
-              if (!path) return;
-              // 拖到哪个页面都行：切回战役页，交给它去预检
-              latest.current.nav.setView("campaigns");
-              latest.current.library.setDroppedPackage(path);
+              // **一次全收下**：以前只取 paths[0]，拖进来 5 个也只装 1 个
+              const paths = payload.paths.filter((path) => path.trim().length > 0);
+              if (paths.length === 0) return;
+              // 拖到哪个页面都行：直接进安装页 —— 以前是切回战役页，人在别处拖完还得自己退回去看
+              latest.current.nav.openInstall();
+              latest.current.library.setDroppedPackages(paths);
             }
           })
           .then((unlisten) => {
@@ -184,6 +187,7 @@ export function useShellEffects(): { dragging: boolean } {
       cancelled = true;
       window.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("contextmenu", onContextMenu);
+      clearTimeout(mergeTimer);
       clearTimeout(updateTimer);
       clearTimeout(toolsTimer);
       stopWatching?.();

@@ -5,6 +5,8 @@
 > `frontend-migration` 三份已并到这里（那三份里有大半是**已经不存在的代码**的体检数字，
 > 和一份**从没采用**的包结构方案）。
 
+> 开发者页的编辑器的**设计稿**（工作区、落点预览、metadata 生成）见 [dev-editor.md](dev-editor.md)。
+
 ## 结构
 
 ```text
@@ -40,6 +42,12 @@ ui/src/
 - 原来 Vue 的 `<style scoped>` 搬过来会变成全局 CSS，同名选择器打架。合并多份样式时按「首个定义优先」，
   并**用括号配对解析**（扁平正则会切开 `@keyframes`，报 Invalid empty selector）。
 
+## 预览草稿（`ui/src/preview/`）
+
+设计方案的渲染草稿放这里（gitignore 的），`?preview=<名字>` 打开，机制在 `AppShell.tsx` 的 `previewModules`。
+**`src/preview` 也会被类型检查**（tsconfig 的 include 是 `src/**/*.tsx` + `noUnusedLocals`）——
+草稿里有类型错误或未用变量会让 `pnpm -C ui build` **直接失败**。写草稿时就当它在生产代码里写。
+
 ## 控件规矩
 
 见 AGENTS §18.1：**控件先在开发者房间（`#room`）展示过，再上生产**。
@@ -63,6 +71,38 @@ ui/src/
 - 叶子组件不知道 IPC：数据由页面 / hook 传进来。
 - 弹窗、菜单只有一份实现（`react/ui/Sheet`、`react/app/ContextMenu`）。
 - 颜色只从令牌拿；页面里不写 CSS。
+
+### 布局：别给滚动内容容器留 transform / filter / contain
+
+**每个有 `transform`、`filter`、`backdrop-filter`、`perspective`、`contain: paint` 的祖先
+都会成为 `position: fixed` 的包含块。** 页面内容一长（比如自制战役地图很多），
+固定定位的遮罩弹窗就不再按视口居中，而是按那一大坨内容居中、跟着内容滚 ——
+用户得先滚下去才看得见「确定 / 删除」。2026-10 删除确认框就是这么坏的。
+
+- `.view` 的进场动画 `view-in` **不能带 `animation-fill-mode: both`**：
+  动画结束后 transform 会残留成 identity matrix（`matrix(1,0,0,1,0,0)`，不是 `none`），
+  见 `react/app/shell.css`。
+- 给滚动容器加 `filter` / `backdrop-filter` 之前先想一遍：里面有没有 fixed 弹层。
+  有的话把弹层搬进 portal（`Select` 已经是这个做法），或者别加这个属性。
+- 验的办法很短：把页面撑到比视口高（`.view { min-height: 2000px }`），打开弹窗量
+  `.sheet` 的 `getBoundingClientRect()` —— 应该等于视口，不是内容框。
+
+### 顶栏宽度预算：窗口按钮永远不能被挤出去
+
+顶栏（`react/app/TopBar.tsx`）是**单行 flex**，自绘的最小化/最大化/关闭在**最右边**；
+系统边框已经关掉（`decorations: false`），按钮一被挤出窗口，用户就关不了窗。
+
+- 默认窗口 1200 逻辑像素，而带「新版本」徽标 + 两个版本标签时整行自然宽度会超过它；
+  高 DPI 只是让有效逻辑宽度更小（1920×1080 @150% → 1280，1366×768 @125% → 1093），
+  所以「默认窗口够宽」这个假设不成立。
+- **加任何新按钮/标签前先看 `shell.css` 的窄窗 `@media` 段**：那里按信息价值从低到高
+  收标签（SC2 版本 → 演示标记 → 更新徽标文字 → 启动器版本），窗口按钮和页签永远保留。
+- 页签那层还有最后一道保险：`.tabs` 可缩、可横向滚（滚动条藏起来）—— 宁可页签滚动，
+  也不能把窗口按钮顶出去。
+- `.winctl` 的 `margin-right` **只能**是 `-6px`（正好抵掉顶栏右内边距）；多给负值整组会
+  被窗口裁掉，关闭按钮首当其冲（以前是 -14，切掉 8px）。
+- 验的办法：在 960 / 1200 / 1440 宽下量 `.winctl` 的 `getBoundingClientRect().right <= innerWidth`，
+  并对关闭按钮中心做一次 `document.elementFromPoint`，命中它自己才算数。
 
 ## 为什么现在是这个样子（历史，2026-10 体检）
 

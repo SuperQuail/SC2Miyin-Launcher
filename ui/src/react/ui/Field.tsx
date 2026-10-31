@@ -11,6 +11,7 @@ import "./field.css";
 export function Field({
   label,
   wide = false,
+  row = false,
   invalid = false,
   error,
   hint,
@@ -19,12 +20,14 @@ export function Field({
   label?: ReactNode;
   /** 占满整行。 */
   wide?: boolean;
+  /** 标签左、控件右（安装页那种"属性表"的样子）。 */
+  row?: boolean;
   invalid?: boolean;
   error?: string;
   hint?: string;
   children: ReactNode;
 }) {
-  const className = ["field", wide ? "field--wide" : "", invalid ? "field--bad" : ""]
+  const className = ["field", wide ? "field--wide" : "", row ? "field--row" : "", invalid ? "field--bad" : ""]
     .filter(Boolean)
     .join(" ");
   return (

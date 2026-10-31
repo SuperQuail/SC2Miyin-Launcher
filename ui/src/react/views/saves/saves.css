@@ -1,0 +1,203 @@
+/* 存档页（views/saves）。版式壳在 base.css（page / card panel / panel__head），这里只写组列表。 */
+
+.saves__lede {
+  max-width: 660px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.saves__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.saves__fact {
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.saves__fact dt {
+  flex: none;
+  width: 84px;
+  color: var(--on-surface-variant);
+}
+
+.saves__fact dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.saves__count {
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.saves__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一行三格：信息（吃掉剩余宽度）/ 归属 / 操作。列宽固定，别让内容自己挤 */
+.saves__row {
+  /* 有 padding+border，宽度算进 100% 里，否则会比容器宽出去（分区之后才暴露） */
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.saves__row--active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.saves__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.saves__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.saves__meta {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+
+.saves__loose {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px dashed color-mix(in srgb, var(--outline) 70%, transparent);
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.saves__ops {
+  display: flex;
+  gap: 6px;
+}
+
+.saves__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.saves__empty-sub {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.saves__foot {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+/* 组名是可点的：点开看这个组里有哪些存档 */
+.saves__name-btn {
+  display: inline-flex;
+}
+
+.saves__title-text {
+  font-weight: 600;
+}
+
+.savedetail__lede {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
+.savedetail__empty,
+.savedetail__error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+}
+
+.savedetail__error {
+  color: var(--danger);
+}
+
+.savedetail__list {
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.savedetail__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--outline) 50%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.savedetail__name {
+  font-size: 12.5px;
+  word-break: break-all;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.savedetail__size {
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+.savedetail__move {
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.savedetail__foot {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}

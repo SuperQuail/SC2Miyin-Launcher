@@ -1,0 +1,71 @@
+/* 候选 D · 底部居中的胶囊。没有卡片、没有按钮；颜色只走令牌。 */
+
+.capcap {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  z-index: 65;
+  /* 用 margin 抵消一半宽度，避免 transform 造出包含块 */
+  margin-left: -min(200px, 50vw);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(400px, calc(100vw - 32px));
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--on-surface) 88%, var(--surface));
+  color: var(--surface);
+  box-shadow: var(--shadow-2);
+  animation: capcap-in 200ms var(--ease);
+}
+
+.capcap--out {
+  animation: capcap-out 200ms ease-in forwards;
+}
+
+.capcap__icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--accent);
+}
+.capcap--success .capcap__icon {
+  color: var(--success);
+}
+.capcap--warning .capcap__icon {
+  color: var(--warning);
+}
+.capcap--error .capcap__icon {
+  color: var(--danger);
+}
+
+.capcap__text {
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+@keyframes capcap-in {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+}
+@keyframes capcap-out {
+  to {
+    opacity: 0;
+    translate: 0 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capcap,
+  .capcap--out {
+    animation-duration: 1ms;
+  }
+}

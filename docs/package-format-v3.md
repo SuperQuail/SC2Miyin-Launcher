@@ -5,7 +5,7 @@
 
 ## 0. 为什么要有 v3
 
-v2 的落点是**推出来的**：启动器看包长什么样，自己算该装到哪（`package.rs` 的 `payload_target`
+v2 的落点是**推出来的**：启动器看包长什么样，自己算该装到哪（`campaign/package/paths.rs` 的 `payload_target`
 加 `library/compose.rs` 的 `Placement`）。四条规则覆盖了绝大多数现实包：
 
 | 包里长什么样 | 落到哪 |
@@ -18,7 +18,7 @@ v2 的落点是**推出来的**：启动器看包长什么样，自己算该装�
 但有三件事表达不了：
 
 1. **不是地图也不是模组的文件，一律看不见。** 载荷只认路径里第一个以 `.SC2Map`/`.SC2Mod`
-   结尾的组件（`package.rs` 的 `payload_root`），其余文件**静默丢掉**。
+   结尾的组件（`campaign/package/payloads.rs` 的 `payload_root`），其余文件**静默丢掉**。
    最硬的一个例子是 `Interfaces/`：白名单放行它，但从 `has_mirror_root` 到 `game_relative`
    都不认这个名字，全仓库零处提到 `.SC2Interface` —— 界面 Mod 现在装不进去，
    而且是**没有提示地**装不进去。
@@ -142,7 +142,7 @@ v2 的行为**一个字节都不改**：
 
 - 只有声明了 `overrides` 的包才需要 `miyin.format = 2`；其它包继续写 1。
 - 老启动器（`MIYIN_FORMAT_VERSION = 1`）见到 `format: 2` 会**明确拒绝**
-  （`package.rs`：*该包使用了更新的扩展格式…*），而不是照旧算落点、装到错地方。
+  （`campaign/package/declared.rs`：*该包使用了更新的扩展格式…*），而不是照旧算落点、装到错地方。
   这正是 v2 §0 目标 3 想要的行为。
 - **txt 形式没有这层保护**：JSON 才有 `miyin.format`，`metadata.txt` 里的键老启动器一律当
   "不认识的键"忽略。所以：
@@ -180,7 +180,7 @@ CCM 读不了 `overrides`，所以它只会看到平铺的那部分（能玩，�
 | 步骤 | 位置 |
 | --- | --- |
 | 解析规则 | `campaign/metadata.rs`：JSON 的 `miyin.overrides` + txt 的 `overrides=` |
-| 决定落点 | `campaign/package.rs` 的 `payload_target()`：**先问规则**，命中就不走旧推断 |
+| 决定落点 | `campaign/package/paths.rs` 的 `payload_target()`：**先问规则**，命中就不走旧推断 |
 | 合成 | `library/compose.rs`：被规则命中的载荷不再经过 `Placement` |
 | 非载荷文件 | `Payload` 现在只认 `.SC2Map`/`.SC2Mod`，v3 需要一类 `PayloadTarget::Overlay`，来源是规则目录里的**任意**文件 |
 | 落点校验 | 不再限制落点，改成**写前快照 + 可完全还原**（`developer-workflow.md` §2） |

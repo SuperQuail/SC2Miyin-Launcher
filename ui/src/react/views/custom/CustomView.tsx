@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
@@ -7,9 +7,12 @@ import { DocViewer } from "../../components/DocViewer";
 import { VariantCard } from "../../components/VariantCard";
 import { copyText } from "../../lib/clipboard";
 import { Button, Sheet } from "../../ui";
+import { setParams, useRoute } from "../../lib/router";
+import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
+import { SortableCard } from "../campaigns/SortableCard";
+import { useVariantOrder } from "../campaigns/useVariantOrder";
 import { variantPath } from "../campaigns/host";
-import { ImportDialog } from "../campaigns/ImportDialog";
 import type { CustomHost } from "./host";
 import "./custom.css";
 
@@ -24,11 +27,8 @@ import "./custom.css";
  * 外壳只递数据（槽位 / 库根目录 / 读取中）和几个动作（见 `host.ts`）。
  */
 export function CustomView(host: CustomHost) {
-  /** 导入按钮的"该开文件对话框了"信号；每次 +1。 */
-  const [importNonce, setImportNonce] = useState(0);
-  /** 导入对话框的忙碌状态（用存在外壳的这份来禁用按钮和换文案）。 */
-  const [importing, setImporting] = useState(false);
-  /** 正在看哪一部自制战役。 */
+  const route = useRoute();
+  /** 正在看哪一部自制战役（页内选择，这轮不进 URL）。 */
   const [opened, setOpened] = useState<string | null>(null);
   /** 正在读的说明文档。 */
   const [openedDoc, setOpenedDoc] = useState<DocInfo | null>(null);
@@ -41,15 +41,20 @@ export function CustomView(host: CustomHost) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const customSlot = host.slots.find((slot) => slot.slug === "custom") ?? null;
-  const variants = customSlot?.variants ?? [];
-  const openedVariant = variants.find((item) => item.id === opened) ?? null;
+  /**
+   * 这一页在 URL 里的位置就是 `slot=custom` —— 和战役页共用同一个字段
+   * （语义都是"开着哪一部"）。页内的变体选择这一轮仍留在页面里。
+   */
+  useEffect(() => {
+    if (route.slot !== "custom") setParams({ slot: "custom" });
+  }, [route.slot]);
 
-  /** 导入完直接打开刚进来的那部。 */
-  function onImported(): void {
-    const newest = variants[0];
-    if (newest) setOpened(newest.id);
-  }
+  const customSlot = host.slots.find((slot) => slot.slug === "custom") ?? null;
+  // 保住数组身份：顺序 hook 的依赖里有它，每次新建数组会让键盘监听反复重挂
+  const variants = useMemo(() => customSlot?.variants ?? [], [customSlot]);
+  const openedVariant = variants.find((item) => item.id === opened) ?? null;
+  /** 自制战役的版本卡片顺序（和各个官方战役各记各的）。 */
+  const order = useVariantOrder("custom", variants);
 
   /** 启用 / 停用某部自制战役。 */
   async function toggleActive(variant: Variant): Promise<void> {
@@ -68,14 +73,14 @@ export function CustomView(host: CustomHost) {
     host.showMenu(
       event,
       [
-        { id: "open", label: opened === variant.id ? "已打开" : "打开（看地图和模组）" },
+        { id: "open", label: opened === variant.id ? "已打开" : "打开（查看地图与模组）" },
         {
           id: "toggle",
           label: customSlot?.active === variant.id ? "停用" : "启用",
         },
         { id: "export", label: "导出这个包…", separatorBefore: true },
         { id: "copy", label: "复制版本目录路径" },
-        { id: "drop", label: "从库中删除", danger: true, separatorBefore: true },
+        { id: "drop", label: "从战役库删除", danger: true, separatorBefore: true },
       ],
       (id) => {
         if (id === "open") setOpened(variant.id);
@@ -91,7 +96,7 @@ export function CustomView(host: CustomHost) {
   async function copyVariantPath(variant: Variant): Promise<void> {
     const path = variantPath(host.libraryRoot, "custom", variant.id);
     const ok = await copyText(path);
-    host.notify(ok ? "success" : "info", ok ? "已复制：" + path : path);
+    host.notify(ok ? "success" : "info", ok ? "已复制路径：" + path : path);
   }
 
   /** 导出成一个包。 */
@@ -103,7 +108,7 @@ export function CustomView(host: CustomHost) {
       const report = await api.exportVariant("custom", variant.id, destination, false);
       host.notify(
         "success",
-        "已导出：" + [report.maps + " 张地图", report.mods + " 个模组"].join(" · "),
+        "已导出：" + [report.maps + " 张地图", report.mods + " 个模组"].join("、"),
       );
     } catch (error) {
       host.notify("error", errorText(error));
@@ -131,11 +136,13 @@ export function CustomView(host: CustomHost) {
       event,
       [
         { id: "import", label: "导入战役包…" },
+        { id: "importFolder", label: "从文件夹导入…" },
         { id: "cheats", label: "作弊码查询", separatorBefore: true },
-        { id: "reload", label: "重新读取" },
+        { id: "reload", label: "重新读取战役库" },
       ],
       (id) => {
-        if (id === "import") setImportNonce((value) => value + 1);
+        if (id === "import") host.openInstall();
+        if (id === "importFolder") host.openInstallFolder();
         if (id === "cheats") host.openCheats();
         if (id === "reload") host.refresh();
       },
@@ -148,7 +155,7 @@ export function CustomView(host: CustomHost) {
       event,
       [
         { id: "cheats", label: "作弊码查询" },
-        { id: "reload", label: "重新读取库", separatorBefore: true },
+        { id: "reload", label: "重新读取战役库", separatorBefore: true },
       ],
       (id) => {
         if (id === "cheats") host.openCheats();
@@ -169,61 +176,75 @@ export function CustomView(host: CustomHost) {
         */}
         <section className="hero">
           <div className="hero__body">
-            <p className="hero__eyebrow">独立整部战役</p>
+            <p className="hero__eyebrow">独立的完整战役</p>
             <h2 className="hero__title">自制战役</h2>
             <p className="hero__text">
-              <strong>不装进游戏目录</strong> —— 地图留在启动器里，
-              直接启动游戏就能玩。
+              <strong>启用后会写入游戏目录</strong>（Maps/CustomCampaigns），
+              由启动器直接启动游戏。
             </p>
           </div>
 
           <div className="hero__actions">
             <button className="btn btn-text" type="button" disabled={host.loading} onClick={openTools}>
-              小工具 ▾
+              工具 ▾
+            </button>
+            <button
+              className="btn btn-outline"
+              type="button"
+              onClick={() => host.openInstallFolder()}
+            >
+              从文件夹导入
             </button>
             <button
               className="btn btn-primary"
               type="button"
-              disabled={importing}
-              onClick={() => setImportNonce((value) => value + 1)}
+              onClick={() => host.openInstall()}
             >
-              {importing ? "核对中…" : "＋ 导入战役包"}
+              ＋ 导入战役包
             </button>
           </div>
         </section>
 
-        <ImportDialog
-          entry="custom"
-          importNonce={importNonce}
-          slots={host.slots}
-          droppedPackage={null}
-          consumeDropped={() => undefined}
-          notify={host.notify}
-          refresh={host.refresh}
-          onImported={onImported}
-          onBusy={setImporting}
-        />
 
         {customSlot && variants.length > 0 ? (
-          <div className="grid">
-            {variants.map((item) => (
-              <VariantCard
+          // 卡片可以拖动排序；整块 grid 也是落点（缝隙里松手同样算数）
+          <div
+            className="grid"
+            onDragOver={(event) => {
+              if (event.target === event.currentTarget) order.dragOver(event, event.currentTarget);
+            }}
+            onDrop={(event) => {
+              if (event.target === event.currentTarget) order.dropAt(event, event.currentTarget);
+            }}
+          >
+            {order.items.map((item) => (
+              <SortableCard
                 key={item.id}
-                slot={customSlot}
-                variant={item}
-                active={customSlot.active === item.id}
-                selected={opened === item.id}
-                onPick={() => setOpened(item.id)}
-                onDrop={() => setConfirming(item)}
-                onMenu={(event) => showVariantMenu(event, item)}
-              />
+                id={item.id}
+                dragging={order.dragging}
+                dropMark={order.dropMark}
+                onDragState={order.setDragging}
+                onDragOver={order.dragOver}
+                onDrop={order.dropAt}
+              >
+                <VariantCard
+                  slot={customSlot}
+                  variant={item}
+                  active={customSlot.active === item.id}
+                  selected={opened === item.id}
+                  onPick={() => setOpened(item.id)}
+                  onActivate={() => void host.activate(customSlot.slug, item.id)}
+                  onDrop={() => setConfirming(item)}
+                  onMenu={(event) => showVariantMenu(event, item)}
+                />
+              </SortableCard>
             ))}
           </div>
         ) : (
           <section className="empty">
-            <p className="empty__title">还没有自制战役</p>
+            <p className="empty__title">暂无自制战役</p>
             <p className="empty__text">
-              点「＋ 导入战役包」选一个包，启动器会自动认出它属于自制战役。
+              点「＋ 导入战役包」选择压缩包；在此页导入的包都会归为自制战役。
             </p>
           </section>
         )}
@@ -239,6 +260,7 @@ export function CustomView(host: CustomHost) {
             notify={host.notify}
             showMenu={host.showMenu}
             onOpenDoc={setOpenedDoc}
+            activate={host.activate}
           />
         )}
 
@@ -252,6 +274,17 @@ export function CustomView(host: CustomHost) {
           />
         )}
       </div>
+
+      {/* 铺盘前的预演：和战役页共用同一个对话框（以前这里从来没渲染，点了像没反应） */}
+      {host.pendingActivation && host.pendingActivation.slot === "custom" && (
+        <ActivationPreviewDialog
+          variantId={host.pendingActivation.variantId}
+          preview={host.pendingActivation.preview}
+          busy={host.busy}
+          onConfirm={() => void host.confirmActivation()}
+          onCancel={host.cancelActivation}
+        />
+      )}
 
       {/* 删版本：先确认 */}
       {confirming && (
@@ -268,8 +301,8 @@ export function CustomView(host: CustomHost) {
           }
         >
           <p className="sheet__text">
-            会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
-            <strong>删了就得重新导入。</strong>
+            将从战役库删除此版本，并从游戏目录移除它写入的地图与模组。
+            <strong>删除后需重新导入。</strong>
           </p>
         </Sheet>
       )}

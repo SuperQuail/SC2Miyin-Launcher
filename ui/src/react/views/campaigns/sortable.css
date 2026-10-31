@@ -1,0 +1,54 @@
+
+/* ---------- 版本卡片的拖动排序（useVariantOrder + SortableCard）---------- */
+
+.sortable {
+  display: flex;
+  min-width: 0;
+}
+
+.sortable > * {
+  flex: 1;
+}
+
+/*
+ * 焦点 / 选中**只留一个**指示 —— 叠在一起就是"两个蓝框"，看着像 bug（用户报过）。
+ *
+ * 分工：
+ * - 选中（点选 / 已启用的那个）：卡片自己的 2px 边框，够明显了；
+ * - 键盘 Tab 过来：外层一个环（点选不给环 —— 鼠标点完还画环就是多出来的那一个）；
+ * - 卡片自己的 UA 默认环关掉，环统一由外层画，免得同一次聚焦画两层。
+ */
+.sortable:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-lg);
+}
+
+.sortable :focus-visible {
+  outline: none;
+}
+
+/* 选中的那张已经用边框表达了：再叠一个环就又是两个 —— 选中 + 聚焦只看边框 */
+.sortable:has(.variant--selected:focus-visible) {
+  outline: none;
+}
+
+/* 正在拖的那张：半透明，并压掉 hover 的上浮（拖动时不该还在"跳"） */
+.sortable--dragging {
+  opacity: 0.4;
+}
+
+.sortable--dragging > *,
+.sortable--dragging > *:hover {
+  transform: none;
+  box-shadow: var(--shadow-2);
+}
+
+/* 落点：贴着卡片左/右边一条竖线 */
+.sortable--drop-before > * {
+  box-shadow: -3px 0 0 0 var(--accent), var(--shadow-2);
+}
+
+.sortable--drop-after > * {
+  box-shadow: 3px 0 0 0 var(--accent), var(--shadow-2);
+}

@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 
+import { installWebviewGuards } from "../api/webview";
+
 import { IdeApp } from "./IdeApp";
 import "../styles/tokens.css";
 // Ring UI 的整套样式（它是控件库，不带自己的样式就等于没装）
@@ -45,6 +47,9 @@ prefersDark.addEventListener("change", paint);
 
 // 容器不存在就什么都不做 —— 这一页只该在 ide.html 里跑。
 // （曾经因为两个入口共用一个构建，用户侧也执行到了这里，白屏。）
+// 别让它像浏览器：拦掉刷新/打印/缩放/中键/拖放导航这些默认行为
+installWebviewGuards({ allow: ["Ctrl+F", "F12", "Ctrl+Shift+I", "Ctrl+R", "F5"] });
+
 const host = document.getElementById("ide");
 if (host) {
   createRoot(host).render(<IdeApp />);

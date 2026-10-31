@@ -22,11 +22,11 @@ export function ChooseModeSheet({
   if (!choosing) return null;
   return (
     <Sheet
-      title={`「${choosing.preview.name}」要怎么放？`}
+      title={`「${choosing.preview.name}」的导入方式`}
       onClose={onClose}
       actions={
         <>
-          <Button onClick={() => onChoose("separate")}>作为独立改版</Button>
+          <Button onClick={() => onChoose("separate")}>作为独立模组</Button>
           <Button variant="primary" onClick={() => onChoose("version")}>
             作为新版本
           </Button>
@@ -35,28 +35,27 @@ export function ChooseModeSheet({
     >
       {choosing.preview.mod_count > 1 && (
         <p className="sheet__text">
-          这一包里带了 <strong>{choosing.preview.mod_count}</strong> 个模组，
-          下面说的是其中<strong>第一个</strong>（<code>{choosing.preview.folder}</code>）。
-          其余会按各自的名字分别导入。
+          此包包含 <strong>{choosing.preview.mod_count}</strong> 个模组；
+          以下说明针对其中<strong>第一个</strong>（<code>{choosing.preview.folder}</code>），
+          其余模组将按各自名称分别导入。
         </p>
       )}
       <p className="sheet__text">
-        库里已经有 <strong>{choosing.preview.existing.length}</strong> 个同为{" "}
+        战役库已有 <strong>{choosing.preview.existing.length}</strong> 个同为{" "}
         <code>{choosing.preview.modid}</code> 的模组：
       </p>
       <ul className="existing">
         {choosing.preview.existing.map((item) => (
           <li key={item.id} className="existing__row">
             <span className="existing__name">{item.name}</span>
-            <span className="existing__ver">v{item.version ?? "未标版本"}</span>
+            <span className="existing__ver">v{item.version ?? "未标注版本"}</span>
           </li>
         ))}
       </ul>
       <p className="sheet__text">
-        <strong>作为新版本</strong>：归到同一个模组下面，之后可以自由切换用哪一版。
+        <strong>作为新版本</strong>：归入同一模组，之后可切换使用任意版本。
         <br />
-        <strong>作为独立改版</strong>：单独显示一个 —— 适用于「拿别人的模组改的」，
-        它跟原版是两码事。
+        <strong>作为独立模组</strong>：单独显示，适用于基于他人模组修改的版本。
       </p>
     </Sheet>
   );
@@ -87,8 +86,8 @@ export function RemoveSheet({
       }
     >
       <p className="sheet__text">
-        文件会从库里移除。如果它已经铺进游戏 <code>Mods/</code> 目录，
-        <strong>那边也会一起撤掉</strong>；你自己手动放的模组不受影响。
+        文件将从战役库移除。若该模组已写入游戏 <code>Mods/</code> 目录，
+        <strong>也会一并移除</strong>；你手动放入的模组不受影响。
       </p>
     </Sheet>
   );
@@ -174,8 +173,8 @@ export function CompareSheet({
       className="sheet__card--wide"
       title={
         <>
-          {comparing.before.name} v{comparing.before.version ?? "未标"} → v
-          {comparing.after.version ?? "未标"}
+          {comparing.before.name} v{comparing.before.version ?? "未标注"} → v
+          {comparing.after.version ?? "未标注"}
         </>
       }
       onClose={onClose}
@@ -200,7 +199,7 @@ export function CompareSheet({
           </ul>
           {comparing.semantic.map((item) => (
             <details key={item.path} className="semantic">
-              <summary className="semantic__head">语义 diff：{item.path}</summary>
+              <summary className="semantic__head">内容对比：{item.path}</summary>
               <pre className="semantic__body">{item.text}</pre>
             </details>
           ))}
@@ -216,15 +215,15 @@ export function GameModsSection({ entries }: { entries: { name: string; display:
   return (
     <section className="game">
       <header className="game__head">
-        <h3 className="game__title">游戏目录里的模组</h3>
+        <h3 className="game__title">游戏目录中的模组</h3>
         <span className="game__count">{entries.length} 个</span>
       </header>
       <p className="game__hint">
-        这是 <code>Mods/</code> 里实际存在的文件 —— 包括你自己放的、别的工具留下的。
-        上面启用模组后会立刻铺进来。
+        此处显示 <code>Mods/</code> 目录中实际存在的文件，包括手动放入和其他工具留下的文件。
+        启动器会在启动时同步已勾选的模组。
       </p>
       {entries.length === 0 ? (
-        <p className="game__empty">游戏目录里还没有模组。</p>
+        <p className="game__empty">游戏目录中暂无模组。</p>
       ) : (
         <ul className="mods">
           {entries.map((entry) => (
