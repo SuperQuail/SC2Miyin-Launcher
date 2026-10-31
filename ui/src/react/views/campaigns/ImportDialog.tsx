@@ -4,7 +4,9 @@ import { formatBytes } from "../../../api/art";
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
 import type { ImportMode, ImportPreview, PackageInspection } from "../../../api/types";
+import { usePermissionGate } from "../../state/usePermission";
 import { Button } from "../../ui";
+import { PasswordSheet } from "./PasswordSheet";
 import "./import-dialog.css";
 
 /**
@@ -54,6 +56,8 @@ export function ImportDialog({
 }) {
   const isCustomEntry = entry === "custom";
   const isUpdate = mode === "update";
+  /** 提权闸门：导入 / 更新是写盘动作（预检那一步不拦）。 */
+  const permission = usePermissionGate();
 
   /** 正在处理的导入：选好文件、预检完、等用户确认。 */
   const [pending, setPending] = useState<{ preview: ImportPreview; slot: string; mode: ImportMode } | null>(null);
@@ -66,17 +70,16 @@ export function ImportDialog({
 
   /** 二次确认弹窗开着没有（高置信度被强改时）。 */
   const [overrideOpen, setOverrideOpen] = useState(false);
-  /** 更新完的追问：新包里多出来的模组（后端默认已经挂上）。 */
-  const [addedMods, setAddedMods] = useState<string[]>([]);
-  const [keepAdded, setKeepAdded] = useState(true);
-  const [addedTarget, setAddedTarget] = useState<{ slot: string; variantId: string } | null>(null);
-  /** 要不要把包里的模组一起挂上（默认要）。 */
-  const [mountMods, setMountMods] = useState(true);
+
+  /** 加密包用过的密码（没加密就是 null）。 */
+  const [password, setPassword] = useState<string | null>(null);
+  /** 密码框开着没有；`passwordWrong` 表示上一次填的不对。 */
+  const [asking, setAsking] = useState(false);
+  const [passwordWrong, setPasswordWrong] = useState(false);
 
   const inspection: PackageInspection | null = pending?.preview.inspection ?? null;
   const preview: ImportPreview | null = pending?.preview ?? null;
   const isPatch = inspection?.kind === "patch";
-  const packageMods = inspection?.mod_count ?? 0;
 
   /** 没有自动认出归属时才需要用户选；但**永远允许**改。 */
   const needsTarget = !isCustomEntry && pending !== null && pending.preview.slot === null;
@@ -98,11 +101,11 @@ export function ImportDialog({
   const sourceLabel = (() => {
     if (preview?.source === "metadata") return "包内声明的资料片";
     if (preview?.source === "inferred") return "自动识别";
-    return "无法识别";
+    return "未能识别";
   })();
 
   const identification = inspection?.identification ?? null;
-  const evidenceText = identification ? "依据：" + identification.detail : "";
+  const evidenceText = identification?.detail ? "依据：" + identification.detail : "";
 
   /**
    * **高置信度**归属：包内明确声明了资料片，或者证据链给的是精确证据。
@@ -135,31 +138,40 @@ export function ImportDialog({
     const conflict = preview?.conflict;
     if (!conflict) return "";
     const labels: Record<string, string> = {
-      newer: "更新的版本",
-      same: "相同的版本",
-      older: "更旧的版本",
-      unknown: "无法比较版本",
+      newer: "较新版本",
+      same: "相同版本",
+      older: "较旧版本",
+      unknown: "无法比较",
     };
-    const incoming = conflict.incoming_version ?? "未标版本";
-    const existing = conflict.existing_version ?? "未标版本";
+    const incoming = conflict.incoming_version ?? "未标注版本";
+    const existing = conflict.existing_version ?? "未标注版本";
     return (
-      "库里已有「" + conflict.existing_name + "」" + existing +
-      "，本次导入 " + incoming + " —— " + labels[conflict.relation]
+      "战役库已有「" + conflict.existing_name + "」" + existing +
+      "，本次导入 " + incoming + "（" + labels[conflict.relation] + "）"
     );
   })();
 
-  /** 预检一个包 —— 选文件和拖进来走的是同一条路。 */
-  async function prepare(path: string): Promise<void> {
+  /**
+   * 预检一个包 —— 选文件和拖进来走的是同一条路。
+   *
+   * 加密包会带着已有密码问一次；后端说还缺（或密码错）就把密码框弹出来。
+   */
+  async function prepare(path: string, secret: string | null = password): Promise<void> {
     setImporting(true);
     try {
-      const result = await api.prepareImport(path, entry);
+      const result = await api.prepareImport(path, entry, secret);
       setPending({
         preview: result,
         // 更新模式：目标优先用调用方点明的；否则采信识别结果。自制战役入口由入口定死。
         slot: slot || (isCustomEntry ? "custom" : (result.slot ?? "")),
         mode: "rename",
       });
-      setMountMods(true);
+      if (result.inspection.needs_password) {
+        setPasswordWrong(secret !== null);
+        setAsking(true);
+      } else {
+        setAsking(false);
+      }
     } catch (error) {
       notify("error", errorText(error));
     } finally {
@@ -167,12 +179,22 @@ export function ImportDialog({
     }
   }
 
+  /** 用户填完了密码：记下来，带着它重新预检。 */
+  async function applyPassword(secret: string): Promise<void> {
+    const path = pending?.preview.path;
+    if (!path) return;
+    setPassword(secret);
+    await prepare(path, secret);
+  }
+
   /** 选择压缩包并预检。 */
   async function pickAndPrepare(): Promise<void> {
     try {
       const path = await api.pickPackage();
       if (!path) return;
-      await prepare(path);
+      // 换了包就忘掉上一个包留下的密码：密码是跟着包走的
+      setPassword(null);
+      await prepare(path, null);
     } catch (error) {
       notify("error", errorText(error));
     }
@@ -188,7 +210,8 @@ export function ImportDialog({
   useEffect(() => {
     if (!droppedPackage) return;
     consumeDropped();
-    void prepare(droppedPackage);
+    setPassword(null);
+    void prepare(droppedPackage, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [droppedPackage]);
 
@@ -198,9 +221,17 @@ export function ImportDialog({
     if (!current) return;
     setImporting(true);
     try {
-      const patch = await api.importPatch(current.preview.path);
+      const patch = await permission.run(
+        () => api.importPatch(current.preview.path, password),
+        { op: "import_patch", args: { path: current.preview.path, password } },
+      );
       setPending(null);
-      notify("success", "补丁「" + patch.name + "」已进库，到对应战役里挂载即可");
+      notify(
+        "success",
+        patch
+          ? "补丁「" + patch.name + "」已导入补丁库，到对应战役中启用即可"
+          : "补丁已导入补丁库，到对应战役中启用即可",
+      );
     } catch (error) {
       notify("error", errorText(error));
     } finally {
@@ -212,42 +243,59 @@ export function ImportDialog({
   async function doImport(): Promise<void> {
     const current = pending;
     if (!current || !current.slot) return;
+    const target = current.slot;
 
     setImporting(true);
     try {
       // 更新：删旧的装新的，该跟着走的记录由后端带过去
       if (isUpdate) {
-        const result = await api.updateVariantFromPackage(
-          current.slot,
-          variantId || null,
-          current.preview.path,
+        const result = await permission.run(
+          () =>
+            api.updateVariantFromPackage(
+              target,
+              variantId || null,
+              current.preview.path,
+              password,
+            ),
+          {
+            op: "update_variant_from_package",
+            args: {
+              slot: target,
+              variantId: variantId || null,
+              path: current.preview.path,
+              password,
+            },
+          },
         );
         setPending(null);
         refresh();
-        notify("success", "已更新「" + result.variant.name + "」");
+        // 走助手重放时拿不到结果，就退回一句不带名字的话
+        notify("success", result ? "已更新「" + result.variant.name + "」" : "已更新");
 
-        // 新包带了新模组：默认已经挂上，问一句要不要留
-        if (result.addedMods.length > 0) {
-          setAddedMods(result.addedMods);
-          setKeepAdded(true);
-          setAddedTarget({ slot: current.slot, variantId: result.variant.id });
-          return;
+        // 模组一律由启动器自动管理，这里只提一句新包多出来的
+        if (result && result.addedMods.length > 0) {
+          notify("info", "新包包含 " + result.addedMods.length + " 个新模组，启动器会自动管理");
         }
-        onImported(current.slot);
+        onImported(target);
         return;
       }
 
-      const created = await api.importPackageWith(current.preview.path, current.slot, current.mode);
+      const created = await permission.run(
+        () => api.importPackageWith(current.preview.path, target, current.mode, password),
+        {
+          op: "import_package",
+          args: {
+            path: current.preview.path,
+            slot: target,
+            mode: current.mode,
+            password,
+          },
+        },
+      );
 
-      // 用户不想装模组 -> 把导入时默认挂上的清掉（只在索引里改）
-      if (!mountMods && (created.mod_count ?? 0) > 0) {
-        await api.setMountedMods(current.slot, created.id, []);
-      }
-
-      const target = current.slot;
       setPending(null);
       refresh();
-      notify("success", "已导入「" + created.name + "」");
+      notify("success", created ? "已导入「" + created.name + "」" : "已导入");
       onImported(target);
     } catch (error) {
       notify("error", errorText(error));
@@ -265,27 +313,6 @@ export function ImportDialog({
       return;
     }
     await doImport();
-  }
-
-  /** 新模组那问的"确定"。 */
-  async function confirmAddedMods(): Promise<void> {
-    const target = addedTarget;
-    const drop = !keepAdded;
-    const list = addedMods;
-    setAddedMods([]);
-    setAddedTarget(null);
-    if (!target || !drop) return;
-
-    // 取消勾选 = 把这几个从挂载名单里摘掉（其余的保持原样）
-    try {
-      const rows = await api.variantMods(target.slot, target.variantId);
-      const keep = rows.filter((row) => row.mounted && !list.includes(row.path)).map((row) => row.path);
-      await api.setMountedMods(target.slot, target.variantId, keep);
-      refresh();
-      notify("success", "已取消这几个新模组的挂载");
-    } catch (error) {
-      notify("error", errorText(error));
-    }
   }
 
   return (
@@ -313,7 +340,7 @@ export function ImportDialog({
             {isCustomEntry ? (
               <div className="import__target">
                 <div className="import__source">按自制战役导入</div>
-                <div className="import__evidence">这一页导入的都算自制战役，不看包属于哪部原版战役</div>
+                <div className="import__evidence">此页导入的包都会归为自制战役</div>
               </div>
             ) : (
               <div className="import__target">
@@ -326,8 +353,8 @@ export function ImportDialog({
           {/* 补丁包走另一条路 */}
           {isPatch ? (
             <p className="import__note">
-              这是一个<strong>补丁包</strong>，它不归属任何战役。导入后到对应战役的菜单里挂载即可，
-              可以同时挂多个并调整优先级。
+              这是<strong>补丁包</strong>，不归属任何战役。导入后到对应战役菜单中启用；
+              可同时启用多个并调整优先级。
             </p>
           ) : (
             <>
@@ -353,7 +380,7 @@ export function ImportDialog({
                     ))}
                   </div>
                   {needsTarget && (
-                    <span className="import__ask">自动识别没能判断出归属，请手动选择</span>
+                    <span className="import__ask">自动识别未能判断归属，请手动选择</span>
                   )}
                 </div>
               )}
@@ -361,24 +388,9 @@ export function ImportDialog({
               {/* 高置信度却被改到别处：先说清后果，但不禁止 */}
               {overrideWarning && (
                 <div className="warn">
-                  这个包<strong>明确</strong>属于「{identifiedName}」，你把它改到了「{chosenName}」。
-                  装错地方通常会让战役里找不到关卡，确认前请想一下。
+                  此包<strong>明确</strong>属于「{identifiedName}」，当前选择为「{chosenName}」。
+                  选择错误可能导致战役内找不到关卡。
                 </div>
-              )}
-
-              {/* 带模组的包：问一句要不要一起装 */}
-              {packageMods > 0 && !isUpdate && (
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={mountMods}
-                    onChange={(event) => setMountMods(event.target.checked)}
-                  />
-                  <span>
-                    一起挂载这 <strong>{packageMods}</strong> 个模组
-                    <em>（地图需要它们才能打开，建议勾上；之后可以到战役页面里改）</em>
-                  </span>
-                </label>
               )}
 
               {/* 冲突：覆盖更新 or 重命名后导入（更新模式不问） */}
@@ -398,7 +410,7 @@ export function ImportDialog({
                       type="button"
                       onClick={() => setPending({ ...pending, mode: "rename" })}
                     >
-                      重命名后导入（两者并存）
+                      重命名后导入（两个版本并存）
                     </button>
                   </div>
                 </div>
@@ -419,18 +431,22 @@ export function ImportDialog({
           <div className="import__actions">
             {isUpdate && (
               <p className="import__note">
-                更新会<strong>先删掉这一版、再装进新的</strong>；它正启用着的话，会先切回原版、装完再应用回去。
-                存档档案与补丁绑定挂在战役上，不受影响。
+                更新将<strong>先删除此版本、再安装新版本</strong>；若该版本正在启用，会先切回原版，
+                安装完成后再启用新版本。存档与补丁绑定挂在战役上，不受影响。
               </p>
             )}
             <Button onClick={() => setPending(null)}>取消</Button>
+            {/* 关了密码框之后还能再打开 —— 不然这一版就只能取消重来 */}
+            {inspection?.needs_password && (
+              <Button onClick={() => setAsking(true)}>输入密码</Button>
+            )}
             {isPatch ? (
               <Button
                 variant="primary"
                 disabled={importing || !inspection?.installable}
                 onClick={() => void confirmPatchImport()}
               >
-                {importing ? "导入中…" : "导入补丁库"}
+                {importing ? "导入中…" : "导入到补丁库"}
               </Button>
             ) : (
               <Button
@@ -445,37 +461,19 @@ export function ImportDialog({
         </section>
       )}
 
-      {/* 更新完：新包里多出来的模组 */}
-      {addedMods.length > 0 && (
-        <SheetFrame title={"新包里多了 " + addedMods.length + " 个模组"} onClose={() => void confirmAddedMods()}>
-          <p className="sheet__text">
-            已经按默认<strong>一起启用</strong>了。不想要的取消勾选即可 ——
-            取消只影响这几个，其余保持原样。
-          </p>
-          <ul className="mini">
-            {addedMods.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={keepAdded}
-              onChange={(event) => setKeepAdded(event.target.checked)}
-            />
-            <span>一起启用这几个新模组</span>
-          </label>
-          <div className="sheet__actions">
-            <Button variant="primary" onClick={() => void confirmAddedMods()}>
-              知道了
-            </Button>
-          </div>
-        </SheetFrame>
+      {/* 加密包：预检回 needs_password 时弹这里，填完重新预检 */}
+      {asking && pending && (
+        <PasswordSheet
+          source={pending.preview.path.split(/[\\/]/).pop() ?? "这个包"}
+          wrong={passwordWrong}
+          onCancel={() => setAsking(false)}
+          onSubmit={applyPassword}
+        />
       )}
 
       {/* 强改归属的二次确认 */}
       {overrideOpen && (
-        <SheetFrame title={"确定改到「" + chosenName + "」吗？"} onClose={() => setOverrideOpen(false)}>
+        <SheetFrame title={"确认改为「" + chosenName + "」？"} onClose={() => setOverrideOpen(false)}>
           <div className="sheet__badge sheet__badge--warn">
             <svg className="sheet__icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3.5 2.5 20h19L12 3.5Z" />
@@ -484,11 +482,11 @@ export function ImportDialog({
             </svg>
           </div>
           <p className="sheet__text">
-            这个包属于 <strong>{identifiedName}</strong>。
+            此包属于 <strong>{identifiedName}</strong>。
             <br />
             <br />
-            装到别的战役里，地图会落在游戏找不到的位置 ——
-            <strong>多半进游戏后找不到关卡，玩不了</strong>。
+            导入到其他战役会使地图落在游戏无法读取的位置，
+            <strong>进入游戏后可能找不到地图</strong>。
           </p>
           <div className="sheet__actions">
             <Button
@@ -497,7 +495,7 @@ export function ImportDialog({
                 void doImport();
               }}
             >
-              我知道，仍然导入
+              仍然导入
             </Button>
             <Button
               variant="primary"

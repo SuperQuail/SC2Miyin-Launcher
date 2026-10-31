@@ -265,6 +265,7 @@ mod tests {
         PackageInspection {
             path: PathBuf::from("x.zip"),
             installable: true,
+            needs_password: false,
             format: CampaignFormat::Ccm,
             name: Some("示例".to_string()),
             author: None,

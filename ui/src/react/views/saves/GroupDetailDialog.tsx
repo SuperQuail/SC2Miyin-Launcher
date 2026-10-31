@@ -32,7 +32,7 @@ export function GroupDetailDialog({
 }) {
   return (
     <Sheet
-      title={"「" + groupLabel + "」里有什么"}
+      title={"「" + groupLabel + "」的内容"}
       onClose={onClose}
       actions={
         <>
@@ -46,7 +46,7 @@ export function GroupDetailDialog({
       }
     >
       <p className="savedetail__lede">
-        这个组是一份 Banks 快照。如果某一份其实属于别的战役，把它归过去 —— 只动这一份，组名和别的存档都不受影响。
+        此组是一份 Banks 快照。若某份存档实际属于其他战役，可将其归入对应战役；操作只影响该存档，组名与其他存档不受影响。
       </p>
 
       {error ? (
@@ -54,7 +54,7 @@ export function GroupDetailDialog({
       ) : files === null ? (
         <p className="savedetail__empty">正在读取…</p>
       ) : files.length === 0 ? (
-        <p className="savedetail__empty">这个组里还没有存档（空组）。</p>
+        <p className="savedetail__empty">此组暂无存档。</p>
       ) : (
         <ul className="savedetail__list">
           {files.map((file) => (
@@ -64,8 +64,8 @@ export function GroupDetailDialog({
               <span className="savedetail__move">
                 <Select
                   value=""
-                  placeholder="归到…"
-                  ariaLabel={"把「" + file.name + "」归到哪个战役"}
+                  placeholder="归入战役…"
+                  ariaLabel={"将「" + file.name + "」归入哪个战役"}
                   options={choices.map((choice) => ({ value: choice.key, label: choice.label }))}
                   disabled={busy || choices.length === 0}
                   onChange={(key) => {
@@ -79,7 +79,7 @@ export function GroupDetailDialog({
       )}
 
       <p className="savedetail__foot">
-        只动存档库（data/saves）里的这一份，不会动游戏目录的 Banks。目标里已有同名存档时不会覆盖，会提示你。
+        仅修改存档库中的该文件，不会修改游戏目录的 Banks。目标位置已有同名存档时不会覆盖，并会给出提示。
       </p>
     </Sheet>
   );

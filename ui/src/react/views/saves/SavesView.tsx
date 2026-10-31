@@ -79,6 +79,27 @@ export function SavesView({
 
   return (
     <div className="page">
+      {/* WIP：存档管理还没修好。页首就说明，别让人以为能拿它存进度 */}
+      <div
+        className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--warning)_45%,transparent)] bg-[var(--warning-soft)] p-4 shadow-sm"
+        role="note"
+      >
+        <svg
+          className="mt-0.5 h-[22px] w-[22px] flex-none fill-none stroke-[var(--warning)] [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.8]"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path d="M12 9v5M12 17.5v.5" />
+          <path d="M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+        </svg>
+        <div className="min-w-0">
+          <p className="m-0 mb-1.5 text-[13.5px] font-bold text-[var(--warning)]">存档管理（WIP）</p>
+          <p className="m-0 text-[12.5px] leading-relaxed text-on-surface">
+            此功能仍在开发中：启用存档隔离可能导致存档损坏，暂时无法正常工作。在修好之前，请不要依赖它保存进度。
+          </p>
+        </div>
+      </div>
+
       <section className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-4">
           <h2 className="m-0 text-base font-semibold text-on-surface">存档</h2>
@@ -90,8 +111,9 @@ export function SavesView({
         </div>
 
         <p className="mb-3 max-w-[720px] text-[13px] leading-relaxed text-muted">
-          这里列的是游戏目录里真正的存档文件（<code>Documents/StarCraft II/Accounts/&lt;账号&gt;/&lt;地域&gt;/Saves</code>
-          下的 <code>.SC2Save</code>），和游戏里「加载游戏」看到的是同一批。
+          此处列出游戏实际使用的存档文件（位于{" "}
+          <code>Documents/StarCraft II/Accounts/&lt;账号&gt;/&lt;地域&gt;/Saves</code> 的{" "}
+          <code>.SC2Save</code>），与游戏内「加载游戏」列表一致。
         </p>
 
         {inventory === null ? (
@@ -156,7 +178,7 @@ export function SavesView({
         {shown.length === 0 ? (
           <p className="rounded-lg border border-[color-mix(in_srgb,var(--outline)_45%,transparent)] bg-surface p-5 text-[13px] text-muted">
             {saves.length === 0
-              ? "没扫到存档。先在游戏里存一次档，或者确认游戏用的是哪个 Windows 账号的「文档」目录。"
+              ? "未找到存档。请先在游戏中保存一次，或确认当前 Windows 账户的「文档」目录位置。"
               : "当前筛选下没有存档。"}
           </p>
         ) : (
@@ -187,8 +209,8 @@ export function SavesView({
 
 
       <p className="saves__foot">
-        按战役分组是从存档文件名认出来的（`虚空之遗 …` / `LotV …` 之类）。
-        认不出的进「未归类」，之后可以手动归类；备份与切换还在做。
+        按战役分组依据存档文件名识别（如「虚空之遗 …」「LotV …」）。无法识别的归入「未归类」。
+        存档组管理（备份 / 切换 / 修改归属）在设置页的「存档」卡片里；同样是 WIP，见页首说明。
       </p>
     </div>
   );

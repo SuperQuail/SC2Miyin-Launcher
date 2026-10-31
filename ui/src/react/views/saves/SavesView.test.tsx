@@ -93,6 +93,18 @@ describe("存档页", () => {
   it("一份都没有时给像样的说明", async () => {
     await mount({ accounts: [], saves: [], banks: [] });
     expect(document.querySelectorAll(".saves__row")).toHaveLength(0);
-    expect(document.body.textContent).toContain("没扫到存档");
+    expect(document.body.textContent).toContain("未找到存档");
+  });
+
+  it("页首挂 WIP 警示（role=note，文案原样）", async () => {
+    await mount();
+    const note = document.querySelector('[role="note"]');
+    expect(note, "存档管理还没修好，页首必须先把话说清楚").not.toBeNull();
+    const text = note?.textContent ?? "";
+    expect(text).toContain("存档管理（WIP）");
+    expect(text).toContain(
+      "此功能仍在开发中：启用存档隔离可能导致存档损坏，暂时无法正常工作。在修好之前，请不要依赖它保存进度。",
+    );
+    expect(note?.querySelector("svg"), "警示要带图标").not.toBeNull();
   });
 });

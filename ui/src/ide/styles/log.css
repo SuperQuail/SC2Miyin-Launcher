@@ -1,0 +1,150 @@
+/* ---------- 日志（版本管理，现在藏着） ---------- */
+.commitmsg {
+  width: 180px;
+}
+/* 左列表 + 右详情：横向排，父级现在是 flex 列（pbody--flat）*/
+.logwrap {
+  display: flex;
+  flex-direction: row;
+}
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  overflow: auto;
+}
+.trow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 24px;
+  padding: 0 8px 0 0;
+  /* 整行是个 Ring UI Button：去掉它自带的按钮壳，只留这一行的排版 */
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+.trow:hover {
+  background: var(--surface-2);
+}
+.trow.is-picked {
+  background: var(--accent-soft);
+}
+.graph {
+  flex: none;
+}
+.tver {
+  width: 68px;
+  flex: none;
+  font-weight: 600;
+}
+.tmsg {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refs {
+  display: flex;
+  gap: 3px;
+}
+.twhen {
+  width: 88px;
+  flex: none;
+  text-align: right;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+}
+.ldetail {
+  flex: none;
+  width: 230px;
+  padding: 8px 10px;
+  border-left: 1px solid var(--line);
+  overflow: auto;
+}
+.ldtitle {
+  margin: 0 0 3px;
+  font-weight: 700;
+}
+.ldmsg {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+}
+.ldactions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.ldhint {
+  align-self: center;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.mini {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mini li {
+  display: flex;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.mini span {
+  width: 12px;
+  color: var(--on-surface-variant);
+}
+
+/* ---------- 右键菜单（空白处 / 文件行 / 提交记录共用，见 parts/MenuLayer.tsx） ---------- */
+/* 定位用的隐形锚点：PopupMenu 需要一个真实元素当参照物，它就是那个"落点" */
+.ctxanchor {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+/* 默认菜单比手搓那版窄，长菜单项（"应用这一版（勾选 + 包信息）"）会折行 */
+.ctx {
+  min-width: 168px;
+}
+/* 菜单行用页面的字号，库默认的 14px 在这张密集的界面里偏大 */
+.ctx .ring-list-item {
+  font-size: 12.5px;
+}
+/* 危险项：库没有 danger 变体，靠菜单项自己带的类名上色 */
+.ctx .ctx__item--danger {
+  color: var(--danger);
+}
+.ctx .ctx__item--danger.ring-list-item_active {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---------- 打包没完就想走（Ring UI Dialog，见 parts/LeaveGuard.tsx） ---------- */
+.guard__title {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.guard__text {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--on-surface-variant);
+}
+.guard__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

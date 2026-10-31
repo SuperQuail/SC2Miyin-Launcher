@@ -28,10 +28,10 @@ export function Dialogs({ preview }: { preview: boolean }) {
             </div>
             <h3 className="sheet__title">更新已下载完成</h3>
             <p className="sheet__text">
-              需要重启启动器才能完成安装 —— Windows 上没法覆盖正在运行的程序。
+              需要重启启动器才能完成安装：Windows 无法替换正在运行的程序文件。
               <br />
-              重启后版本会变成 <strong>{app.update.updateStaged?.version}</strong>，
-              你导入的战役、补丁和设置都不会受影响。
+              重启后版本将变为 <strong>{app.update.updateStaged?.version}</strong>；
+              导入的战役、补丁和设置不受影响。
             </p>
             <div className="sheet__actions">
               <Button onClick={() => app.update.setShowRestartPrompt(false)}>稍后</Button>
@@ -52,11 +52,11 @@ export function Dialogs({ preview }: { preview: boolean }) {
           }}
         >
           <div className="sheet__card">
-            <h3 className="sheet__title">用浏览器打开{site.name}？</h3>
+            <h3 className="sheet__title">在浏览器中打开「{site.name}」？</h3>
             <p className="sheet__text">
               会离开启动器，用系统默认浏览器打开 <strong>{site.host}</strong>。
               {app.sites.siteProbing ? (
-                "（正在确认能不能走 HTTPS…）"
+                "（正在检测 HTTPS 可用性…）"
               ) : (
                 <>
                   （走{" "}

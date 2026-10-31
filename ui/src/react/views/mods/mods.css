@@ -52,6 +52,57 @@
   flex: none;
 }
 
+/* hero 下方的警示条：模组由启动器管理。
+   颜色只走语义令牌；标题比 --warning 稍深一档，保证小字号也够对比度 */
+.mods-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 18px 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  border-left: 4px solid var(--warning);
+  background: var(--warning-soft);
+  box-shadow: var(--shadow-1);
+}
+
+.mods-warn__icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  fill: none;
+  stroke: var(--warning);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mods-warn__body {
+  min-width: 0;
+}
+
+.mods-warn__title {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--warning) 78%, var(--on-surface));
+}
+
+.mods-warn__text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--on-surface);
+}
+
+.mods-warn__foot {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--on-surface-variant);
+}
+
 .bar {
   display: flex;
   align-items: center;
@@ -210,6 +261,19 @@
 .badge--req {
   background: var(--accent);
   color: #fff;
+  font-weight: 700;
+}
+
+/* 勾选 ≠ 已生效：in_game 才是真的写进游戏目录 */
+.badge--live {
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 700;
+}
+
+.badge--pending {
+  background: var(--warning-soft);
+  color: var(--warning);
   font-weight: 700;
 }
 

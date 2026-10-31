@@ -124,6 +124,15 @@
   color: #2b57c4;
 }
 
+.tab--danger {
+  background: rgba(255, 80, 80, 0.22);
+  color: #ffd0d0;
+  border: 1px solid rgba(255, 120, 120, 0.55);
+}
+.tab--danger:hover {
+  background: rgba(255, 80, 80, 0.36);
+}
+
 .tab--dev {
   margin-left: 10px;
   display: inline-flex;
@@ -342,6 +351,11 @@
   .tab {
     padding: 0 12px;
   }
+}
+
+/* 权限对话框里那行"提权失败"：与正文分开看 */
+.permission__failure {
+  color: var(--danger);
 }
 
 /* ---------- 内容区 ---------- */

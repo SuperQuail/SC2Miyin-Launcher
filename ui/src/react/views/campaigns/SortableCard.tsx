@@ -49,7 +49,7 @@ export function SortableCard({
         (mark ? " sortable--drop-" + (mark.before ? "before" : "after") : "")
       }
       data-order-id={id}
-      title="拖我换位置，也可以用 Alt+← / Alt+→"
+      title="拖动调整顺序，也可以按 Alt+← / Alt+→"
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move";
         // 不清空的话，Chromium 起手不认这次拖动

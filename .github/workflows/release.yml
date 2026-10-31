@@ -50,9 +50,11 @@ jobs:
           if (-not $version) { $version = '0.0.0-dev' }
           $stage = "SC2Miyin-Launcher-$version-win64"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字
-          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin Launcher.exe"
-          if (-not (Test-Path "$stage/SC2Miyin Launcher.exe")) { throw '启动器没拷进 staging，拒绝出包' }
+          # 产出的二进制叫 miyin-launcher.exe；发给用户时改成人看的名字。
+          # **名字里不能有空格**：wry 会把 exe 名传给 WebView2（--webview-exe-name），
+          # 带空格的 exe 名会让 msedgewebview2 启动即崩（白屏/闪退），实测 a12 与当前版本都如此。
+          Copy-Item 'target/release/miyin-launcher.exe' "$stage/SC2Miyin-Launcher.exe"
+          if (-not (Test-Path "$stage/SC2Miyin-Launcher.exe")) { throw '启动器没拷进 staging，拒绝出包' }
           Copy-Item 'docs/使用说明.txt' "$stage/"
           Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip" -Force
           # CLI 单独打一个包 —— 只有开发者用，别塞进普通用户下载的主包

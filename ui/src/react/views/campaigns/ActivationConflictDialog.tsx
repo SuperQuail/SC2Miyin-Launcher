@@ -2,7 +2,7 @@ import type { ActivationConflict } from "../../../api/bridge";
 import { Button, Sheet } from "../../ui";
 import "./activation-dialog.css";
 
-/** 最多列几条 —— 再多就"等 N 个"，别让弹窗变成一面墙。 */
+/** 最多列几条 —— 再多就"另有 N 个"，别让弹窗变成一面墙。 */
 const SHOWN = 5;
 
 /**
@@ -38,7 +38,7 @@ export function ActivationConflictDialog({
 
   return (
     <Sheet
-      title={newCampaign + " 和 " + otherCampaign + " 冲突"}
+      title={newCampaign + " 与 " + otherCampaign + " 需要写入重名的文件"}
       onClose={onKeepOther}
       actions={
         <>
@@ -52,28 +52,28 @@ export function ActivationConflictDialog({
       }
     >
       <p className="sheet__text">
-        它们都要往游戏目录写同一批文件（{conflicts.length} 个）。同一时间只能生效一个，选哪个？
+        两者都需要向游戏目录写入同一批文件（{conflicts.length} 个）。同一时间只能启用一个，请选择要启用的战役。
       </p>
 
       <section className="conflict__section">
         <h4 className="conflict__head">
-          会撞的位置 · {conflicts.length} 个
+          重叠的文件 · {conflicts.length} 个
         </h4>
         <div className="conflict__scroll">
           {shown.map((item) => (
             <div className="conflict__item" key={item.target}>
               <code className="conflict__path">{item.target}</code>
               <span className="conflict__owner">
-                被 {item.slot_name} · {item.variant_name} 占着
+                当前由 {item.slot_name} · {item.variant_name} 使用
               </span>
             </div>
           ))}
         </div>
-        {rest > 0 && <p className="conflict__more">等 {rest} 个</p>}
+        {rest > 0 && <p className="conflict__more">另有 {rest} 个</p>}
       </section>
 
       <p className="conflict__foot">
-        选 {otherCampaign}：什么都不改。选 {newCampaign}：它的文件会盖掉对方的，对方会有一部分失效。
+        选择 {otherCampaign}：不修改任何文件。选择 {newCampaign}：它的文件会覆盖对方，对方将有一部分内容失效。
       </p>
     </Sheet>
   );

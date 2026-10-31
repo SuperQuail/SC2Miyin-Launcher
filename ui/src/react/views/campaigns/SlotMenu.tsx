@@ -1,29 +1,30 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { slotArt } from "../../../api/art";
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
-import type { BoundPatch, DocInfo, ModEntry, SlotView, Variant } from "../../../api/types";
+import type { DocInfo, SlotView, Variant } from "../../../api/types";
 import { copyText } from "../../lib/clipboard";
-import { Button, Field, Sheet } from "../../ui";
 import { CustomCampaignPanel } from "./CustomCampaignPanel";
 import { DocViewer } from "../../components/DocViewer";
-import { ImportDialog } from "./ImportDialog";
 import { ActivationPreviewDialog } from "./ActivationPreviewDialog";
 import { SortableCard } from "./SortableCard";
 import { useVariantOrder } from "./useVariantOrder";
 import { VariantCard } from "../../components/VariantCard";
 import { VANILLA, variantPath, type CampaignMenuItem, type CampaignsHost } from "./host";
+import { DeleteVariantSheet } from "./slot-menu/DeleteVariantSheet";
+import { PatchPanel } from "./slot-menu/PatchPanel";
+import { UpdateVariantDialog } from "./slot-menu/UpdateVariantDialog";
+import { VariantEditSheet } from "./slot-menu/VariantEditSheet";
 import "./slot-menu.css";
-
-/** 补丁编辑表单的初始值。 */
-const EMPTY_PATCH_FORM = { name: "", author: "", registrationId: "", description: "", priority: 100 };
 
 /**
  * 某个战役的菜单页（React 版，从 `views/SlotMenuView.vue` 整块迁过来）。
  *
  * 选原版 / 已导入的玩家版本、挂补丁、导入更新导出；自制战役多一块地图与模组面板。
  * 外壳通过 `host` 递数据与动作，右键菜单由外壳的全局菜单承担。
+ *
+ * 弹窗与补丁面板拆在 `slot-menu/` 下，这里只留页面骨架与选择 / 导出流程。
  */
 export function SlotMenu({
   slot,
@@ -44,18 +45,9 @@ export function SlotMenu({
   const [openedDoc, setOpenedDoc] = useState<DocInfo | null>(null);
   /** 等待确认删除的那个版本 —— 删战役不可逆，先问一句。 */
   const [confirming, setConfirming] = useState<Variant | null>(null);
-  /** 补丁面板。 */
-  const [patches, setPatches] = useState<BoundPatch[]>([]);
-  const [available, setAvailable] = useState<BoundPatch[]>([]);
-  const [showAvailable, setShowAvailable] = useState(false);
   const [exporting, setExporting] = useState(false);
-  /** 编辑元数据 / 编辑补丁的弹窗。 */
+  /** 编辑元数据的弹窗。 */
   const [editing, setEditing] = useState<Variant | null>(null);
-  const [form, setForm] = useState({ name: "", author: "", registrationId: "", description: "" });
-  const [editMods, setEditMods] = useState<ModEntry[]>([]);
-  const [editRequired, setEditRequired] = useState<Set<string>>(new Set());
-  const [editingPatch, setEditingPatch] = useState<BoundPatch | null>(null);
-  const [patchForm, setPatchForm] = useState(EMPTY_PATCH_FORM);
   /** 「更新这一版」的对话框：每次 +1 开一次文件选择器。 */
   const [updateNonce, setUpdateNonce] = useState(0);
   /** 更新这一版的那个对话框在不在跑。 */
@@ -65,34 +57,6 @@ export function SlotMenu({
   const dirty = selected !== slot.active;
   /** 版本卡片的顺序：**按槽位分开存**，「原版战役」那张固定卡不进去（它拖不动）。 */
   const order = useVariantOrder(slot.slug, slot.variants);
-
-  /** 跑一个会改动补丁的动作，然后刷新列表。 */
-  async function guard(action: () => Promise<unknown>): Promise<void> {
-    try {
-      await action();
-      await loadPatches();
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  async function loadPatches(): Promise<void> {
-    try {
-      const [bound, free] = await Promise.all([
-        api.listBindings(slot.slug),
-        api.listAvailablePatches(slot.slug),
-      ]);
-      setPatches(bound);
-      setAvailable(free);
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  useEffect(() => {
-    void loadPatches();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slot.slug]);
 
   /** 选中一个版本；自制战役顺便把地图面板切过去。 */
   function pickVariant(id: string): void {
@@ -178,149 +142,11 @@ export function SlotMenu({
     host.notify(ok ? "success" : "info", ok ? "已复制：" + path : path);
   }
 
-  /* ---------------- 补丁 ---------------- */
-
-  function togglePatch(item: BoundPatch): Promise<void> {
-    return guard(() => api.configurePatch(slot.slug, item.id, !item.enabled, null));
-  }
-
-  function unbindPatch(item: BoundPatch): Promise<void> {
-    return guard(() => api.unbindPatch(slot.slug, item.id));
-  }
-
-  function bindPatchItem(item: BoundPatch): Promise<void> {
-    return guard(() => api.bindPatch(slot.slug, item.id));
-  }
-
-  async function setPriority(item: BoundPatch, raw: string): Promise<void> {
-    const priority = Number.parseInt(raw, 10);
-    if (Number.isNaN(priority)) return;
-    await guard(() => api.configurePatch(slot.slug, item.id, null, priority));
-  }
-
-  /** 按 requires 自动挂载匹配得上的补丁。 */
-  async function autoBind(): Promise<void> {
-    try {
-      const bound = await api.autoBindPatches();
-      await loadPatches();
-      host.notify(
-        bound.length ? "success" : "info",
-        bound.length
-          ? "已自动挂载 " + bound.length + " 个补丁"
-          : "没有能自动匹配的补丁（没有声明依赖的只能手动挂）",
-      );
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  /** 导入一个补丁包。 */
-  async function importPatch(): Promise<void> {
-    try {
-      const path = await api.pickPackage();
-      if (!path) return;
-      const patch = await api.importPatch(path);
-      await loadPatches();
-      host.notify("success", "补丁「" + patch.name + "」已进库");
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  /** 单独导出一个补丁包。 */
-  async function exportPatchItem(item: BoundPatch): Promise<void> {
-    try {
-      const destination = await api.pickExportPath(item.name);
-      if (!destination) return;
-      setExporting(true);
-      const report = await api.exportPatch(item.id, destination);
-      host.notify("success", "补丁已导出：" + report.maps + " 张地图 · " + report.mods + " 个模组");
-    } catch (error) {
-      host.notify("error", errorText(error));
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  function openPatchEdit(item: BoundPatch): void {
-    setEditingPatch(item);
-    setPatchForm({
-      name: item.name,
-      author: item.author ?? "",
-      registrationId: item.registration_id ?? "",
-      description: item.description ?? "",
-      priority: item.priority,
-    });
-  }
-
-  async function savePatchEdit(): Promise<void> {
-    const target = editingPatch;
-    if (!target) return;
-    try {
-      await api.updatePatch(target.id, {
-        name: patchForm.name,
-        author: patchForm.author,
-        registrationId: patchForm.registrationId,
-        description: patchForm.description,
-        priority: patchForm.priority,
-      });
-      setEditingPatch(null);
-      await loadPatches();
-      host.notify("success", "已保存");
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  /* ---------------- 编辑元数据 ---------------- */
+  /* ---------------- 编辑元数据 / 导出 ---------------- */
 
   function openEdit(variant: Variant): void {
     setEditing(variant);
-    setForm({
-      name: variant.name,
-      author: variant.author ?? "",
-      registrationId: variant.registration_id ?? "",
-      description: variant.description ?? "",
-    });
-    setEditMods([]);
-    setEditRequired(new Set(variant.declared_mods ?? []));
-    void (async () => {
-      try {
-        setEditMods(await api.variantMods(slot.slug, variant.id));
-      } catch {
-        setEditMods([]);
-      }
-    })();
   }
-
-  /** 勾 / 取消一个依赖模组。 */
-  function toggleRequired(path: string): void {
-    const next = new Set(editRequired);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    setEditRequired(next);
-  }
-
-  async function saveEdit(): Promise<void> {
-    const target = editing;
-    if (!target) return;
-    try {
-      await api.updateVariant(slot.slug, target.id, {
-        name: form.name,
-        author: form.author,
-        registrationId: form.registrationId,
-        description: form.description,
-        declaredMods: [...editRequired],
-      });
-      setEditing(null);
-      host.refresh();
-      host.notify("success", "已保存");
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
-  }
-
-  /* ---------------- 导出 ---------------- */
 
   async function doExport(mergePatches: boolean): Promise<void> {
     const variant = slot.variants.find((item) => item.id === selected);
@@ -350,7 +176,7 @@ export function SlotMenu({
   }
 
   // 自制战役**不铺底图**：它没有官方美术，槽位兜底出来的通用背景只是噪音（卡片自己带封面）
-const art = slot.slug === "custom" ? null : slotArt(slot.slug);
+  const art = slot.slug === "custom" ? null : slotArt(slot.slug);
 
   return (
     <div className="campaigns-menu">
@@ -444,6 +270,7 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
             notify={host.notify}
             showMenu={host.showMenu}
             onOpenDoc={setOpenedDoc}
+            activate={host.activate}
           />
         )}
 
@@ -460,92 +287,12 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
         {slot.notice && <p className="hint">{slot.notice}</p>}
 
         {/* 补丁：这个战役上叠了哪些覆盖层 */}
-        <section className="patches">
-          <div className="patches__head">
-            <h3 className="patches__title">
-              补丁
-              <span className="patches__count">{patches.length}</span>
-            </h3>
-            <div className="patches__actions">
-              <button className="btn btn-text" type="button" onClick={() => void autoBind()}>
-                自动匹配
-              </button>
-              <button className="btn btn-text" type="button" onClick={() => void importPatch()}>
-                ＋ 导入补丁
-              </button>
-              <button className="btn btn-tonal" type="button" onClick={() => setShowAvailable(!showAvailable)}>
-                {showAvailable ? "收起可选补丁" : "挂载补丁（" + available.length + "）"}
-              </button>
-            </div>
-          </div>
-
-          <p className="patches__hint">
-            补丁是覆盖层：它不复制战役本体，启用时按优先级叠加。关掉即撤销，随时可恢复。
-          </p>
-
-          {patches.length > 0 ? (
-            <ul className="plist">
-              {patches.map((item) => (
-                <li key={item.id} className={"pitem" + (item.enabled ? "" : " pitem--off")}>
-                  <label className="pitem__toggle">
-                    <input type="checkbox" checked={item.enabled} onChange={() => void togglePatch(item)} />
-                    <span className="pitem__name">{item.name}</span>
-                  </label>
-                  {item.version && <span className="tag">v{item.version}</span>}
-                  {item.author && <span className="pitem__author">{item.author}</span>}
-                  <span className="pitem__spacer" />
-                  <label className="pitem__priority">
-                    优先级
-                    <input
-                      type="number"
-                      className="pitem__input"
-                      value={item.priority}
-                      onChange={(event) => void setPriority(item, event.target.value)}
-                    />
-                  </label>
-                  <button className="btn btn-text" type="button" onClick={() => openPatchEdit(item)}>
-                    编辑
-                  </button>
-                  <button
-                    className="btn btn-text"
-                    type="button"
-                    disabled={exporting}
-                    onClick={() => void exportPatchItem(item)}
-                  >
-                    导出
-                  </button>
-                  <button className="btn btn-text" type="button" onClick={() => void unbindPatch(item)}>
-                    移出
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="patches__hint">
-              这个战役还没有挂补丁。声明了依赖的补丁可以「自动匹配」；没声明的只能手动挂。
-            </p>
-          )}
-
-          {showAvailable && (
-            <div className="pavail">
-              {available.map((item) => (
-                <div key={item.id} className="pitem">
-                  <span className="pitem__name">{item.name}</span>
-                  {item.matched ? (
-                    <span className="tag">依赖匹配</span>
-                  ) : item.requires.length === 0 ? (
-                    <span className="tag">通用补丁</span>
-                  ) : null}
-                  <span className="pitem__spacer" />
-                  <button className="btn btn-tonal" type="button" onClick={() => void bindPatchItem(item)}>
-                    挂上
-                  </button>
-                </div>
-              ))}
-              {available.length === 0 && <p className="patches__hint">补丁库是空的，先导入补丁包。</p>}
-            </div>
-          )}
-        </section>
+        <PatchPanel
+          slot={slot.slug}
+          notify={host.notify}
+          exporting={exporting}
+          onExporting={setExporting}
+        />
 
         {/* 底部操作条 */}
         <footer className="actions">
@@ -608,159 +355,25 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
           </button>
         </footer>
 
-        <ImportDialog
-          mode="update"
+        <UpdateVariantDialog
           slot={slot.slug}
           variantId={selected ?? ""}
-          importNonce={updateNonce}
+          nonce={updateNonce}
           slots={host.slots}
-          droppedPackage={null}
-          consumeDropped={() => undefined}
           notify={host.notify}
           refresh={host.refresh}
-          onImported={() => host.refresh()}
-          onBusy={(value) => setUpdateBusy(value)}
+          onBusy={setUpdateBusy}
         />
-
-        {/* 编辑补丁 */}
-        {editingPatch && (
-          <Sheet
-            title={"编辑补丁「" + editingPatch.name + "」"}
-            dismissOnBackdrop={false}
-            onClose={() => setEditingPatch(null)}
-            actions={
-              <>
-                <Button onClick={() => setEditingPatch(null)}>取消</Button>
-                <Button variant="primary" onClick={() => void savePatchEdit()}>
-                  保存
-                </Button>
-              </>
-            }
-          >
-            <p className="sheet__note">
-              同样只改启动器记录的元数据，不动包内容，也不影响它已经挂在哪些战役上。
-            </p>
-
-            <Field label="补丁名">
-              <input
-                type="text"
-                value={patchForm.name}
-                onChange={(event) => setPatchForm({ ...patchForm, name: event.target.value })}
-              />
-            </Field>
-            <Field label="作者">
-              <input
-                type="text"
-                placeholder="未知作者"
-                value={patchForm.author}
-                onChange={(event) => setPatchForm({ ...patchForm, author: event.target.value })}
-              />
-            </Field>
-            <Field label="注册 ID">
-              <input
-                type="text"
-                value={patchForm.registrationId}
-                onChange={(event) => setPatchForm({ ...patchForm, registrationId: event.target.value })}
-              />
-            </Field>
-            <Field label="默认优先级">
-              <input
-                type="number"
-                value={patchForm.priority}
-                onChange={(event) =>
-                  setPatchForm({ ...patchForm, priority: Number(event.target.value) })
-                }
-              />
-            </Field>
-            <Field label="描述">
-              <textarea
-                rows={3}
-                value={patchForm.description}
-                onChange={(event) => setPatchForm({ ...patchForm, description: event.target.value })}
-              />
-            </Field>
-          </Sheet>
-        )}
 
         {/* 编辑元数据 */}
         {editing && (
-          <Sheet
-            title={"编辑「" + editing.name + "」"}
-            dismissOnBackdrop={false}
+          <VariantEditSheet
+            slot={slot.slug}
+            variant={editing}
+            notify={host.notify}
+            refresh={host.refresh}
             onClose={() => setEditing(null)}
-            actions={
-              <>
-                <Button onClick={() => setEditing(null)}>取消</Button>
-                <Button variant="primary" onClick={() => void saveEdit()}>
-                  保存
-                </Button>
-              </>
-            }
-          >
-            <p className="sheet__note">
-              只改启动器记录的元数据，不动包里的原始文件 —— 随时可以改回来。
-              改名字不会改版本目录，挂在它上面的补丁不受影响。
-            </p>
-
-            <Field label="战役名">
-              <input
-                type="text"
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
-              />
-            </Field>
-            <Field label="作者">
-              <input
-                type="text"
-                placeholder="未知作者"
-                value={form.author}
-                onChange={(event) => setForm({ ...form, author: event.target.value })}
-              />
-            </Field>
-            <Field label="注册 ID">
-              <input
-                type="text"
-                placeholder="例如 HTXL.golden-lotv"
-                value={form.registrationId}
-                onChange={(event) => setForm({ ...form, registrationId: event.target.value })}
-              />
-            </Field>
-            <Field label="描述">
-              <textarea
-                rows={3}
-                value={form.description}
-                onChange={(event) => setForm({ ...form, description: event.target.value })}
-              />
-            </Field>
-
-            {/* 依赖模组：包作者在这里说清「地图需要哪几个模组」 */}
-            {editMods.length > 0 && (
-              <div className="field">
-                <span className="field__label">
-                  依赖模组（{editRequired.size} / {editMods.length}）
-                </span>
-                <p className="field__hint">
-                  勾上的表示<strong>地图需要它才能正常打开</strong>。导出这个包时会一并带上，
-                  模组管理页也会给它打「依赖」标。
-                </p>
-                <ul className="reqmods">
-                  {editMods.map((mod) => (
-                    <li key={mod.path} className="reqmod">
-                      <label className="reqmod__label">
-                        <input
-                          type="checkbox"
-                          checked={editRequired.has(mod.path)}
-                          onChange={() => toggleRequired(mod.path)}
-                        />
-                        <span className="reqmod__name">{mod.name}</span>
-                      </label>
-                      <span className="reqmod__parts">{mod.parts} 个文件</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </Sheet>
+          />
         )}
 
         {openedDoc && inspectedVariant && (
@@ -786,23 +399,11 @@ const art = slot.slug === "custom" ? null : slotArt(slot.slug);
 
         {/* 删版本：先确认 */}
         {confirming && (
-          <Sheet
-            title={"删除「" + confirming.name + "」？"}
+          <DeleteVariantSheet
+            variant={confirming}
             onClose={() => setConfirming(null)}
-            actions={
-              <>
-                <Button onClick={() => setConfirming(null)}>取消</Button>
-                <Button variant="primary" onClick={() => void confirmDrop()}>
-                  删除
-                </Button>
-              </>
-            }
-          >
-            <p className="sheet__text">
-              会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
-              <strong>删了就得重新导入。</strong>
-            </p>
-          </Sheet>
+            onConfirm={() => void confirmDrop()}
+          />
         )}
       </div>
     </div>

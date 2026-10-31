@@ -194,14 +194,22 @@ pub fn apply(
             crate::platform::move_path(&from, &to)?;
             // **有记录就替换、没有就补一条**。S2 那条分支恰恰是「目标有目录、索引里没记录」——
             // 只替换不补的话，搬进去的版本会留在磁盘上、索引里却没有，界面上看不见（verifier 实测 N1）。
-            if let Some(record) = record {
+            if let Some(mut record) = record {
                 let slot = index.slots.entry(conflict.slot.clone()).or_default();
                 match slot
                     .variants
                     .iter_mut()
                     .find(|item| item.id == conflict.variant)
                 {
-                    Some(item) => *item = record,
+                    Some(item) => {
+                        // 内容按本地那份换，**用户配置留在目标库**：模组勾选、主地图、
+                        // 依赖声明是这台机器的使用选择，跟包内容无关（R13）。
+                        // 整体覆盖 = 另一台机器的勾选被静默抹掉。
+                        record.mounted_mods = item.mounted_mods.clone();
+                        record.main_map = item.main_map.clone();
+                        record.declared_mods = item.declared_mods.clone();
+                        *item = record;
+                    }
                     None => slot.variants.push(record),
                 }
             }

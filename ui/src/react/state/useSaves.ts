@@ -12,6 +12,7 @@ import type {
   SaveTarget,
 } from "../../api/types";
 import type { Notify } from "./useNotify";
+import { usePermissionGate } from "./usePermission";
 
 export interface SavesOptions {
   notify: Notify;
@@ -20,6 +21,13 @@ export interface SavesOptions {
   /** 收编之后战役库要跟着重读。 */
   refreshLibrary: () => Promise<void>;
 }
+
+/**
+ * 后端 `Isolation` 现在多带一条 `warning`（`state.json` 读不出来时的提示，见
+ * `saves::isolation`）。`api/types` 里还没这个字段（那边有人在改），就在这里就地扩展 ——
+ * 别去动 `ui/src/api/**`。
+ */
+export type SaveIsolationState = SaveIsolation & { warning?: string | null };
 
 export interface SavesApi {
   /** 游戏目录里已经装着的自制战役（还没收进库的那些）。 */
@@ -31,7 +39,7 @@ export interface SavesApi {
   saveBackups: SaveBackup[];
   /** 归属下拉的候选：官方战役 + 每部自制战役（键由后端算，界面不要自己拼）。 */
   saveTargets: SaveTarget[];
-  saveIsolation: SaveIsolation;
+  saveIsolation: SaveIsolationState;
   refreshSaves: () => Promise<void>;
   toggleSaveIsolation: (enabled: boolean) => Promise<void>;
   saveCurrentSaves: () => Promise<void>;
@@ -55,13 +63,15 @@ export interface SavesApi {
 
 export function useSaves(options: SavesOptions): SavesApi {
   const { notify, busy, refreshLibrary } = options;
+  /** 提权闸门：写盘动作统一从它过。 */
+  const permission = usePermissionGate();
   const [installedCampaigns, setInstalledCampaigns] = useState<InstalledCampaign[]>([]);
   const [saves, setSaves] = useState<SaveSet | null>(null);
   const [saveBackups, setSaveBackups] = useState<SaveBackup[]>([]);
   const [saveTargets, setSaveTargets] = useState<SaveTarget[]>([]);
   // 后端**默认关着**（用户主动打开才生效，见 saves.rs）：初始值跟着来，
   // 免得刷新的一瞬间界面先闪一下"开着"。
-  const [saveIsolation, setSaveIsolation] = useState<SaveIsolation>({
+  const [saveIsolation, setSaveIsolation] = useState<SaveIsolationState>({
     enabled: false,
     active: null,
     assignments: {},
@@ -100,15 +110,20 @@ export function useSaves(options: SavesOptions): SavesApi {
     (dir: string) =>
       busy(async () => {
         try {
-          await api.importPackageWith(dir, null, "rename");
+          // 收编的就是游戏目录里那堆自作战役文件夹 —— 归属按「自制战役」定死
+          // （它们没有任何元数据，交给后端去猜只会得到"无法识别"）
+          await permission.run(
+            () => api.importPackageWith(dir, "custom", "rename"),
+            { op: "import_package", args: { path: dir, slot: "custom", mode: "rename" } },
+          );
           await refreshLibrary();
           await refreshInstalled();
-          notify("success", "已收进库 —— 原目录没动，战役列表里能看到了");
+          notify("success", "已加入战役库，原目录未改动；可在战役列表中查看");
         } catch (error) {
           notify("error", errorText(error));
         }
       }),
-    [busy, notify, refreshInstalled, refreshLibrary],
+    [busy, notify, permission, refreshInstalled, refreshLibrary],
   );
 
   const refreshSaves = useCallback(async () => {
@@ -132,15 +147,19 @@ export function useSaves(options: SavesOptions): SavesApi {
     (enabled: boolean) =>
       busy(async () => {
         try {
+          // 存档在用户目录，本身不需要管理员；不经过提权助手。
           const state = await api.setSaveIsolation(enabled);
-          setSaveIsolation(state);
+          if (state) setSaveIsolation(state);
           await refreshSaves();
-          // 还没有存档时后端不会收「原版」（没东西可收），别顺着话术说已经收好了
+          // 还没有存档时后端不会收「原版」（没东西可收），别顺着话术说已经收好了。
+          // 走助手重放时拿不到 state，就退回一句不带结论的话
           const message = !enabled
-            ? "存档隔离已关掉：不再动 Banks，已有的组都留着"
-            : state.active
-              ? "存档隔离已打开 —— 现在这份进度存成了「原版」"
-              : "存档隔离已打开 —— 还没有存档，玩过之后第一份进度会收成「原版」";
+            ? "存档隔离已关闭：不再修改 Banks，已有分组保留"
+            : state === undefined
+              ? "存档隔离已开启。"
+              : state.active
+                ? "存档隔离已开启。当前进度已保存为「原版」分组。"
+                : "存档隔离已开启。暂无存档，首次游戏后的进度会保存为「原版」分组。";
           notify("success", message);
         } catch (error) {
           notify("error", errorText(error));
@@ -156,7 +175,7 @@ export function useSaves(options: SavesOptions): SavesApi {
         try {
           setSaveIsolation(await api.saveCurrentSaves());
           await refreshSaves();
-          notify("success", "现在这份存档已存好");
+          notify("success", "当前存档已保存");
         } catch (error) {
           notify("error", errorText(error));
         }
@@ -169,9 +188,10 @@ export function useSaves(options: SavesOptions): SavesApi {
     (name: string) =>
       busy(async () => {
         try {
-          setSaveIsolation(await api.switchSaveProfile(name));
+          const state = await api.switchSaveProfile(name);
+          if (state) setSaveIsolation(state);
           await refreshSaves();
-          notify("success", "已切到存档组：" + name);
+          notify("success", "已切换到存档组：" + name);
         } catch (error) {
           notify("error", errorText(error));
         }
@@ -184,7 +204,7 @@ export function useSaves(options: SavesOptions): SavesApi {
     async (name: string, slot: string | null) => {
       try {
         setSaveIsolation(await api.assignSaveProfile(name, slot));
-        notify("success", slot ? "已指派给这个战役" : "已改为「不算任何战役」");
+        notify("success", slot ? "已归属到该战役" : "已改为「不归属任何战役」");
       } catch (error) {
         notify("error", errorText(error));
       }
@@ -199,7 +219,7 @@ export function useSaves(options: SavesOptions): SavesApi {
         try {
           setSaveIsolation(await api.saveIntoProfile(name));
           await refreshSaves();
-          notify("success", "现在这份存档已存进「" + name + "」");
+          notify("success", "当前存档已保存到「" + name + "」");
         } catch (error) {
           notify("error", errorText(error));
         }
@@ -229,7 +249,7 @@ export function useSaves(options: SavesOptions): SavesApi {
           await api.moveSaveFile(from, file, to);
           await refreshSaves();
           // 组目录名对用户没意义，优先用显示名
-          notify("success", "「" + file + "」已挪到「" + (toLabel ?? to) + "」");
+          notify("success", "「" + file + "」已移动到「" + (toLabel ?? to) + "」");
         } catch (error) {
           // 同名不覆盖：后端会回一条「「X」里已经有同名存档 Y，没有覆盖」，原样给用户看
           notify("error", errorText(error));
@@ -245,7 +265,7 @@ export function useSaves(options: SavesOptions): SavesApi {
         try {
           await api.moveSaveToKey(from, file, key);
           await refreshSaves();
-          notify("success", "「" + file + "」已归到「" + label + "」");
+          notify("success", "「" + file + "」已归入「" + label + "」");
         } catch (error) {
           notify("error", errorText(error));
         }
@@ -260,7 +280,7 @@ export function useSaves(options: SavesOptions): SavesApi {
         try {
           const name = await api.backupSaves(label);
           await refreshSaves();
-          notify("success", "存档已备份：" + name);
+          notify("success", name ? "存档已备份：" + name : "存档已备份");
         } catch (error) {
           notify("error", errorText(error));
         }
@@ -275,7 +295,7 @@ export function useSaves(options: SavesOptions): SavesApi {
         try {
           const safety = await api.restoreSaves(name);
           await refreshSaves();
-          notify("success", safety ? "已还原，还原前那份存为 " + safety : "已还原");
+          notify("success", safety ? "已还原。还原前的存档已保存为 " + safety : "已还原");
         } catch (error) {
           notify("error", errorText(error));
         }

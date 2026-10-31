@@ -36,9 +36,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="boot-fail">
         <div className="boot-fail__card">
-          <h1 className="boot-fail__title">界面出错了</h1>
+          <h1 className="boot-fail__title">界面发生错误</h1>
           <p className="boot-fail__text">
-            可以点下面重新加载；还不行就把这段错误发给开发者。
+            可点击下方「重新加载」重试；若问题仍然存在，请将错误信息反馈给开发者。
           </p>
           <pre className="boot-fail__reason">{error.stack || error.message}</pre>
           <button type="button" className="btn btn-primary" onClick={() => location.reload()}>

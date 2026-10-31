@@ -50,6 +50,7 @@ function ThemeIcon({ mode, theme }: { mode: string; theme: string }) {
 export function TopBar({ preview }: { preview: boolean }) {
   const app = useAppState();
   const [maximized, setMaximized] = useState(false);
+  const [sevenZipOpen, setSevenZipOpen] = useState(false);
 
   async function syncMaximized(): Promise<void> {
     try {
@@ -58,6 +59,21 @@ export function TopBar({ preview }: { preview: boolean }) {
       // 拿不到就当没最大化
     }
   }
+
+  // 7-Zip 覆盖层打开时顶栏仍然渲染；这里显示「退出 7-Zip」按钮
+  useEffect(() => {
+    if (!app.isDesktop) return;
+    let dispose: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        dispose = await listen<boolean>("sevenzip://open", (event) => setSevenZipOpen(event.payload));
+      } catch {
+        // 浏览器演示模式 / 事件桥不可用时忽略
+      }
+    })();
+    return () => dispose?.();
+  }, [app.isDesktop]);
 
   useEffect(() => {
     if (!app.isDesktop) return;
@@ -104,10 +120,10 @@ export function TopBar({ preview }: { preview: boolean }) {
 
   const themeTitle =
     app.theme.mode === "system"
-      ? "跟随系统（点一下切到日间）"
+      ? "跟随系统（切换为日间）"
       : app.theme.mode === "light"
-        ? "日间（点一下切到夜间）"
-        : "夜间（点一下切回跟随系统）";
+        ? "日间（切换为夜间）"
+        : "夜间（切换为跟随系统）";
 
   return (
     <header className="topbar" data-tauri-drag-region onMouseDown={startWindowDrag}>
@@ -139,7 +155,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           <button
             className="tab tab--dev"
             type="button"
-            title="开发者页（实验）：扫游戏目录、看文件、记版本"
+            title="开发者页（实验）：扫描游戏目录、查看文件、记录版本"
             onClick={app.nav.openDevPage}
           >
             开发
@@ -149,6 +165,11 @@ export function TopBar({ preview }: { preview: boolean }) {
       )}
 
       <div className="topbar__right">
+        {sevenZipOpen && (
+          <button className="tab tab--danger" type="button" onClick={() => void api.closeSevenZip()}>
+            退出 7-Zip
+          </button>
+        )}
         <button className="themectl" type="button" title={themeTitle} onClick={app.theme.cycleTheme}>
           <ThemeIcon mode={app.theme.mode} theme={app.theme.theme} />
         </button>
@@ -156,7 +177,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           <button
             className="update-badge"
             type="button"
-            title="有新版本可用，点开设置页查看"
+            title="有新版本可用，打开设置页查看"
             onClick={() => app.nav.setView("settings")}
           >
             {/* 下载图标：向下箭头落进托盘，用户一眼就知道是"可以下载新版本" */}

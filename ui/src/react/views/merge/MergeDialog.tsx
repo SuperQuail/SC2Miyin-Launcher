@@ -4,9 +4,9 @@ import { Button, Choice, Sheet } from "../../ui";
 import "./merge.css";
 
 const OPTIONS: { value: MergeChoice; label: string; hint: string }[] = [
-  { value: "target", label: "保持游戏目录那份", hint: "本地这份不动" },
-  { value: "local", label: "用本地这份", hint: "覆盖过去" },
-  { value: "both", label: "两份都留", hint: "并排成两个版本" },
+  { value: "target", label: "保留游戏目录中的数据", hint: "本地数据不修改" },
+  { value: "local", label: "使用本地数据", hint: "覆盖游戏目录数据" },
+  { value: "both", label: "两份都保留", hint: "两份并存" },
 ];
 
 export interface MergeDialogProps {
@@ -31,7 +31,7 @@ export function MergeDialog({ status, choices, applying, onChoose, onApply, onLa
 
   return (
     <Sheet
-      title="发现另一份数据"
+      title="发现另一份战役库数据"
       dismissOnBackdrop={false}
       onClose={onLater}
       actions={
@@ -44,13 +44,13 @@ export function MergeDialog({ status, choices, applying, onChoose, onApply, onLa
       }
     >
       <p className="sheet__text">
-        程序旁边那份数据（<code className="merge__path">{status.local}</code>）和游戏目录这份
-        （<code className="merge__path">{status.target}</code>）都想当战役库。不冲突的会并进来，
-        下面这几个版本两边都有 —— 你说了算。
+        程序旁的旧数据（<code className="merge__path">{status.local}</code>）与游戏目录旁的战役库
+        （<code className="merge__path">{status.target}</code>）都希望作为战役库。无冲突的部分会合并，
+        以下版本两端都存在，请选择保留哪一份。
       </p>
 
       <section className="merge__section">
-        <h4 className="merge__head">会一起并进来 · {status.additions.length} 个版本（{formatBytes(additionsBytes)}）</h4>
+        <h4 className="merge__head">将合并 · {status.additions.length} 项（{formatBytes(additionsBytes)}）</h4>
         {status.additions.length === 0 ? (
           <p className="merge__empty">没有额外的版本。</p>
         ) : (
@@ -66,7 +66,7 @@ export function MergeDialog({ status, choices, applying, onChoose, onApply, onLa
       </section>
 
       <section className="merge__section">
-        <h4 className="merge__head">两边都有 · {status.conflicts.length} 个，要你选</h4>
+        <h4 className="merge__head">两端均存在 · {status.conflicts.length} 项，需要选择</h4>
         <div className="merge__scroll">
           {status.conflicts.map((conflict) => {
             const key = conflict.slot + "/" + conflict.variant;
@@ -87,7 +87,7 @@ export function MergeDialog({ status, choices, applying, onChoose, onApply, onLa
           })}
         </div>
         <p className="merge__foot">
-          这几样和当前安装绑死，一律用游戏目录那份：{status.keep_target.join(" · ")}。
+          以下内容与当前安装绑定，将统一使用游戏目录中的数据：{status.keep_target.join(" · ")}。
         </p>
       </section>
     </Sheet>

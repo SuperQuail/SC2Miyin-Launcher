@@ -6,7 +6,9 @@ import type { SlotView, Variant } from "../../api/types";
 import "./variant-card.css";
 
 /**
- * 版本卡片（React 版，从 `components/VariantCard.vue` 整块迁过来）。
+ * 改版 / 版本卡片（React 版，从 `components/VariantCard.vue` 整块迁过来）。
+ *
+ * 官方四大战役的玩家条目叫「改版」，自制战役的条目叫「版本」（统一术语）。
  *
  * 包内自带封面（data URL）；没有就用该战役的官方美术。
  */
@@ -33,6 +35,8 @@ export function VariantCard({
 }) {
   const [customCover, setCustomCover] = useState<string | null>(null);
   const variantId = variant?.id ?? "";
+  /** 官方战役的条目是「改版」，自制战役的条目是「版本」。 */
+  const isCustom = slot.slug === "custom";
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +61,7 @@ export function VariantCard({
   const title = isVanilla ? "原版战役" : (variant?.name ?? "");
 
   const meta = (() => {
-    if (!variant) return "暴雪官方战役，不做任何修改";
+    if (!variant) return "暴雪官方战役";
     const parts: string[] = [];
     if (variant.author) parts.push(variant.author);
     parts.push(variant.map_count + " 张地图");
@@ -104,14 +108,14 @@ export function VariantCard({
             ))}
           </p>
         )}
-        {customCover !== null && <p className="variant__own">使用包内封面</p>}
+        {customCover !== null && <p className="variant__own">已使用包内封面图</p>}
       </div>
 
       {!isVanilla && (
         <button
           className="variant__drop"
           type="button"
-          title="从库中删除这个版本"
+          title={isCustom ? "从战役库删除此版本" : "从战役库删除此改版"}
           onClick={(event) => {
             event.stopPropagation();
             onDrop();

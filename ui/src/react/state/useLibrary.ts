@@ -5,6 +5,7 @@ import type { ActivationConflict } from "../../api/bridge";
 import { errorText } from "../../api/errors";
 import type { Preview, SlotView } from "../../api/types";
 import type { Notify } from "./useNotify";
+import { usePermissionGate } from "./usePermission";
 
 /** 待确认的启用：预演已经算好，等用户点头。 */
 export interface PendingActivation {
@@ -85,6 +86,8 @@ function rememberAcknowledged(slot: string): void {
 
 export function useLibrary(options: LibraryOptions): LibraryApi {
   const { notify, busy, setLoading } = options;
+  /** 提权闸门：写盘动作统一从它过（它负责弹权限说明与提权重放）。 */
+  const permission = usePermissionGate();
   const [slots, setSlots] = useState<SlotView[]>([]);
   const [droppedPackages, setDroppedPackages] = useState<string[]>([]);
   const [pendingActivation, setPendingActivation] = useState<PendingActivation | null>(null);
@@ -105,14 +108,18 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
     (slot: string, variantId: string | null) =>
       busy(async () => {
         try {
-          const warnings = await api.activateVariant(slot, variantId);
+          const warnings = await permission.run(
+            () => api.activateVariant(slot, variantId),
+            // 助手侧的 op 名与参数见设计文档 §5（参数与 activate_variant 命令一致）
+            { op: "activate", args: { slot, variantId } },
+          );
           await refresh();
-          if (warnings.length) {
+          if (warnings?.length) {
             notify("info", warnings[0]);
           } else if (variantId === null) {
-            notify("success", "已切回原版战役");
+            notify("success", "已切换到原版战役");
           } else {
-            notify("success", "已启用：" + variantId);
+            notify("success", "已启用「" + variantId + "」");
           }
           return true;
         } catch (error) {
@@ -120,7 +127,7 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
           return false;
         }
       }),
-    [busy, notify, refresh],
+    [busy, notify, permission, refresh],
   );
 
   /**
@@ -214,16 +221,19 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
     (slot: string, variantId: string) =>
       busy(async () => {
         try {
-          await api.deleteVariant(slot, variantId);
+          await permission.run(() => api.deleteVariant(slot, variantId), {
+            op: "delete_variant",
+            args: { slot, variantId },
+          });
           await refresh();
-          notify("success", "已删除：" + variantId);
+          notify("success", "已删除「" + variantId + "」");
           return true;
         } catch (error) {
           notify("error", errorText(error));
           return false;
         }
       }),
-    [busy, notify, refresh],
+    [busy, notify, permission, refresh],
   );
 
   const launch = useCallback(async () => {

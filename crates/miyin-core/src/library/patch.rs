@@ -94,7 +94,16 @@ pub fn auto_bind(library: &Library) -> Result<Vec<(String, String)>> {
 
 /// 把一个补丁包导入库中。
 pub fn import_patch(library: &Library, package: &Path) -> Result<Patch> {
-    let inspection = package::inspect(package)?;
+    import_patch_with_password(library, package, None)
+}
+
+/// 同上，带密码（加密包）。
+pub fn import_patch_with_password(
+    library: &Library,
+    package: &Path,
+    password: Option<&str>,
+) -> Result<Patch> {
+    let inspection = package::inspect_with_password(package, password)?;
 
     if inspection.kind != PackageKind::Patch {
         return Err(Error::PackageRejected(
@@ -126,7 +135,12 @@ pub fn import_patch(library: &Library, package: &Path) -> Result<Patch> {
         std::fs::remove_dir_all(&staging)?;
     }
 
-    let stats = match package::extract_to(package, &inspection.content_root, &staging) {
+    let stats = match package::extract_to_with_password(
+        package,
+        &inspection.content_root,
+        &staging,
+        password,
+    ) {
         Ok(stats) => stats,
         Err(error) => {
             let _ = std::fs::remove_dir_all(&staging);

@@ -12,6 +12,8 @@ import type { CampaignMenuItem, CampaignPendingActivation } from "../campaigns/h
 export interface CustomHost {
   /** 进「安装整合包」页（自制战役版）。 */
   openInstall: () => void;
+  /** 选一个**文件夹**当战役包，然后进安装页（已解开的包走这条）。 */
+  openInstallFolder: () => void;
   /** 全部槽位；这一页只取 slug 为 `custom` 的那个。 */
   slots: SlotView[];
   /** 库根目录（复制版本目录路径用）。 */

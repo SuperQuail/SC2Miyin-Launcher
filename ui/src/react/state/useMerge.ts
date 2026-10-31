@@ -4,6 +4,7 @@ import { api } from "../../api/bridge";
 import type { MergeChoice, MergeStatus } from "../../api/types";
 import { useCommand } from "../lib/useCommand";
 import type { Notify } from "./useNotify";
+import { usePermissionGate } from "./usePermission";
 
 export interface MergeApi {
   /** 另一份数据；null = 没得并可并（或者用户这次已经关掉了）。 */
@@ -29,6 +30,7 @@ export interface MergeApi {
  */
 export function useMerge(options: { notify: Notify }): MergeApi {
   const { notify } = options;
+  const permission = usePermissionGate();
   const [status, setStatus] = useState<MergeStatus | null>(null);
   const [choices, setChoices] = useState<Record<string, MergeChoice>>({});
   const [dismissed, setDismissed] = useState(false);
@@ -53,14 +55,21 @@ export function useMerge(options: { notify: Notify }): MergeApi {
     setChoices((current) => ({ ...current, [key]: choice }));
   }, []);
 
-  const command = useCommand((choicesToApply: Record<string, MergeChoice>) => api.mergeApply(choicesToApply), {
-    onError: (text) => notify("error", text),
-    onDone: () => {
-      const total = status ? status.additions.length + status.conflicts.length : 0;
-      setStatus(null);
-      notify("success", "已合并 " + total + " 个版本");
+  const command = useCommand(
+    (choicesToApply: Record<string, MergeChoice>) =>
+      permission.run(() => api.mergeApply(choicesToApply), {
+        op: "merge_apply",
+        args: choicesToApply,
+      }),
+    {
+      onError: (text) => notify("error", text),
+      onDone: () => {
+        const total = status ? status.additions.length + status.conflicts.length : 0;
+        setStatus(null);
+        notify("success", "已合并 " + total + " 个版本");
+      },
     },
-  });
+  );
 
   const apply = useCallback(async () => {
     // merge_apply 返回 void，只有 onDone（成功）才会走到 —— 失败由 onError 喊

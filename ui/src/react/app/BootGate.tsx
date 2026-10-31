@@ -38,7 +38,7 @@ export function BootGate({ children }: { children: ReactNode }) {
       <div className="boot-fail">
         <div className="boot-fail__card">
           <h1 className="boot-fail__title">启动失败</h1>
-          <p className="boot-fail__text">后端的启动任务没有成功。可以点下面重新加载。</p>
+          <p className="boot-fail__text">后台初始化未完成。可点击下方「重新加载」重试。</p>
           <pre className="boot-fail__reason">{failure}</pre>
           <button type="button" className="btn btn-primary" onClick={() => location.reload()}>
             重新加载
@@ -52,7 +52,7 @@ export function BootGate({ children }: { children: ReactNode }) {
     <div className="boot">
       <span className="boot__spinner" />
       <p className="boot__title">正在准备数据…</p>
-      <p className="boot__hint">第一次启动要迁移旧数据，库大的话会慢一会儿</p>
+      <p className="boot__hint">首次启动需要迁移旧数据；战役库较大时耗时较长</p>
     </div>
   );
 }

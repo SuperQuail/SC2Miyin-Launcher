@@ -25,9 +25,24 @@ miyin-core = { path = "../crates/miyin-core" }
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-tauri = "2.11.6"
+tauri = { version = "2.11.6", features = ["tray-icon"] }
 # 版本必须跟 wry 0.55 用的一致（0.38），否则 COM 类型对不上
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
 # Interface::cast 从这个 crate 来；版本要跟 wry 0.55 用的一致（0.61）
-windows = { version = "0.61", features = ["Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }
+# Win32_UI_Controls / Graphics_Gdi / LibraryLoader 是缺 WebView2 时的原生进度窗要用的（webview2_install.rs）
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  # CreateMutexW / CreateEventW 的参数类型 SECURITY_ATTRIBUTES 在这个 feature 后面
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+] }
+# 注册表兜底探测 WebView2 运行时（与 miyin-core 用的是同一个 crate，不新增依赖树）
+winreg = "0.56.0"

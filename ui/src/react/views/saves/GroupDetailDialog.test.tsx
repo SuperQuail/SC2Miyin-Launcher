@@ -89,6 +89,6 @@ describe("存档组详情", () => {
   it("空组说一句话，不画空列表", async () => {
     await mount({ files: [] });
     expect(document.querySelectorAll(".savedetail__row")).toHaveLength(0);
-    expect(document.body.textContent).toContain("这个组里还没有存档");
+    expect(document.body.textContent).toContain("此组暂无存档");
   });
 });

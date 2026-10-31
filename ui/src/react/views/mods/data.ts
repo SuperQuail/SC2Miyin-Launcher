@@ -63,7 +63,7 @@ export function filterMods(mods: LibraryMod[], keyword: string): LibraryMod[] {
 
 /** 来源怎么说。 */
 export function originLabel(origin: LibraryMod["origin"]): string {
-  if (origin === "standalone") return "单独导入";
+  if (origin === "standalone") return "独立模组";
   if (origin === "custom_campaign") return "自制战役包";
   return "原版战役包";
 }

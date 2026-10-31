@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "弥音启动器",
         "width": 1200,
         "height": 780,

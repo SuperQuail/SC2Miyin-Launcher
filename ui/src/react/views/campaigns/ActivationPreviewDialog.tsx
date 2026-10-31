@@ -25,13 +25,13 @@ export function ActivationPreviewDialog({
 }) {
   return (
     <Sheet
-      title={"启用「" + variantId + "」会改动这些"}
+      title={"启用「" + variantId + "」将写入以下内容"}
       onClose={onCancel}
       actions={
         <>
           <Button onClick={onCancel}>取消</Button>
           <Button variant="primary" disabled={busy} onClick={onConfirm}>
-            继续，写进游戏目录
+            继续写入游戏目录
           </Button>
         </>
       }
@@ -57,18 +57,18 @@ export function ActivationPreviewDialog({
         )}
         {preview.delete.length > 0 && (
           <li className="pitem">
-            <span className="pitem__name">删掉上次装的</span>
+            <span className="pitem__name">移除上次写入的文件</span>
             <span className="tag">{preview.delete.length} 项</span>
           </li>
         )}
       </ul>
       <p className="sheet__text">
-        要往游戏目录写 {(preview.bytes / 1024 / 1024).toFixed(1)} MB。
-        被覆盖的文件会先挪进 data/backup，切回原版时原样还原。
+        将向游戏目录写入 {(preview.bytes / 1024 / 1024).toFixed(1)} MB。
+        被覆盖的文件会先备份到数据目录，切回原版时自动还原。
       </p>
       {preview.overwrite.length > 0 && (
         <details className="sheet__note">
-          <summary>看覆盖了哪些（前 20 个）</summary>
+          <summary>查看将被覆盖的文件（前 20 个）</summary>
           {preview.overwrite.slice(0, 20).map((item) => (
             <p key={item.target} className="hint">
               {item.target}

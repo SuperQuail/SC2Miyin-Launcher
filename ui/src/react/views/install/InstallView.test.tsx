@@ -14,15 +14,21 @@ import { InstallView } from "./InstallView";
  * 编译和类型都过得去（循环里少个 try/catch 而已），只能真的挂起来点一下。
  */
 
-const prepareImport = vi.fn<(path: string, entry?: string) => Promise<ImportPreview>>();
-const importPackageWith = vi.fn<(path: string, slot: string | null, mode: string) => Promise<Variant>>();
+const prepareImport =
+  vi.fn<(path: string, entry?: string, password?: string | null) => Promise<ImportPreview>>();
+const importPackageWith = vi.fn<
+  (path: string, slot: string | null, mode: string, password?: string | null) => Promise<Variant>
+>();
 const pickPackage = vi.fn<() => Promise<string | null>>();
 
 vi.mock("../../../api/bridge", () => ({
   api: {
-    prepareImport: (path: string, entry?: string) => prepareImport(path, entry),
-    importPackageWith: (path: string, slot: string | null, mode: string) => importPackageWith(path, slot, mode),
+    prepareImport: (path: string, entry?: string, password?: string | null) =>
+      prepareImport(path, entry, password),
+    importPackageWith: (path: string, slot: string | null, mode: string, password?: string | null) =>
+      importPackageWith(path, slot, mode, password),
     pickPackage: () => pickPackage(),
+    pickPackageFolder: () => Promise.resolve(null),
   },
 }));
 
@@ -84,6 +90,27 @@ function preview(path: string, slot: string | null, name: string, withConflict =
       issues: [],
     },
   } as unknown as ImportPreview;
+}
+
+/** 加密包：预检回来的那一份（needs_password + 稳定 issue code）。 */
+function lockedPreview(path: string): ImportPreview {
+  const base = preview(path, "hots", "加密包");
+  return {
+    ...base,
+    inspection: {
+      ...base.inspection,
+      installable: false,
+      needs_password: true,
+      issues: [
+        {
+          level: "broken",
+          code: "PASSWORD_REQUIRED",
+          message: "这个压缩包有密码，请输入密码后再导入",
+          hint: null,
+        },
+      ],
+    },
+  };
 }
 
 const variant = { id: "v", name: "装好的" } as unknown as Variant;
@@ -169,7 +196,7 @@ describe("批量安装", () => {
 
     // 两个都试过，而且顺序就是清单顺序 —— 一个失败没有把后面那个带停
     expect(importPackageWith.mock.calls.map((call) => call[0])).toEqual(["good.zip", "bad.zip"]);
-    expect(importPackageWith).toHaveBeenCalledWith("good.zip", "hots", "overwrite");
+    expect(importPackageWith).toHaveBeenCalledWith("good.zip", "hots", "overwrite", null);
     // 有失败就不回来源页（留在这一页让用户看见哪几行红了）
     expect(onInstalled).not.toHaveBeenCalled();
     // toast 说清是哪个包、为什么
@@ -206,17 +233,17 @@ describe("批量安装", () => {
     // 那一行的下拉是空的，别的行预选好了
     const selects = [...document.querySelectorAll<HTMLSelectElement>(".install__row-select")];
     expect(selects.map((select) => select.value)).toEqual(["", "hots"]);
-    expect(document.body.textContent).toContain("认不出来");
+    expect(document.body.textContent).toContain("无法识别");
 
     await clickPrimary();
 
     // 认得出的那个照装上了
     expect(importPackageWith).toHaveBeenCalledTimes(1);
-    expect(importPackageWith).toHaveBeenCalledWith("known.zip", "hots", "overwrite");
-    expect(document.body.textContent).toContain("还没选装到哪部战役");
+    expect(importPackageWith).toHaveBeenCalledWith("known.zip", "hots", "overwrite", null);
+    expect(document.body.textContent).toContain("尚未选择安装到哪部战役");
   });
 
-  it("预检就失败的包：那行报「读不了这个包」，别的照装", async () => {
+  it("预检就失败的包：那行报「无法读取此包」，别的照装", async () => {
     prepareImport.mockImplementation(async (path) => {
       if (path === "broken.zip") throw new Error("不是压缩包");
       return preview(path, "hots", "正常的包");
@@ -224,7 +251,7 @@ describe("批量安装", () => {
     importPackageWith.mockResolvedValue(variant);
 
     await mount(["broken.zip", "ok.zip"]);
-    expect(document.body.textContent).toContain("读不了这个包");
+    expect(document.body.textContent).toContain("无法读取此包");
     expect(document.body.textContent).toContain("不是压缩包");
 
     await clickPrimary();
@@ -252,8 +279,8 @@ describe("批量安装", () => {
       rename?.click();
     });
     await clickPrimary();
-    expect(importPackageWith).toHaveBeenCalledWith("a.zip", "hots", "rename");
-    expect(importPackageWith).toHaveBeenCalledWith("b.zip", "hots", "rename");
+    expect(importPackageWith).toHaveBeenCalledWith("a.zip", "hots", "rename", null);
+    expect(importPackageWith).toHaveBeenCalledWith("b.zip", "hots", "rename", null);
   });
 
   it("同一个文件进来两次是两行，各行独立（不能拿路径当身份）", async () => {
@@ -285,7 +312,7 @@ describe("批量安装", () => {
     importPackageWith.mockResolvedValue(variant);
 
     await mount(["one.zip"]);
-    expect(document.body.textContent).toContain("库里已经有同名的版本");
+    expect(document.body.textContent).toContain("战役库中已有同名包");
     const rename = [...document.querySelectorAll<HTMLInputElement>("input[type=radio]")].find(
       (input) => input.value === "rename",
     );
@@ -293,7 +320,7 @@ describe("批量安装", () => {
       rename?.click();
     });
     await clickPrimary();
-    expect(importPackageWith).toHaveBeenCalledWith("one.zip", "hots", "rename");
+    expect(importPackageWith).toHaveBeenCalledWith("one.zip", "hots", "rename", null);
   });
 });
 
@@ -308,12 +335,12 @@ describe("两种形态（同一套预检与安装逻辑，两种壳）", () => {
 
     expect(document.querySelector(".install__cover"), "要有封面").not.toBeNull();
     expect(document.querySelectorAll(".install__rows .field--row").length, "属性表一行行排着").toBeGreaterThanOrEqual(5);
-    expect(document.body.textContent).toContain("游戏实例名称");
+    expect(document.body.textContent).toContain("安装目标");
     expect(document.body.textContent).toContain("整合包名称");
     expect(document.body.textContent).toContain("归属战役");
     expect(document.querySelectorAll(".install__row"), "单包不该是清单").toHaveLength(0);
     expect(document.querySelector(".install__foot .btn-primary")?.textContent).toBe("安装");
-    expect(document.querySelector(".install__foot .btn-text")?.textContent).toBe("换一个包");
+    expect(document.querySelector(".install__foot .btn-text")?.textContent).toBe("重新选择文件");
   });
 
   it("同一拍里连加两个包：两行各自独立（编号不能撞）", async () => {
@@ -357,5 +384,71 @@ describe("两种形态（同一套预检与安装逻辑，两种壳）", () => {
     expect(document.querySelectorAll(".install__row")).toHaveLength(0);
     expect(document.querySelector(".install__cover"), "删回一个就该是属性表").not.toBeNull();
     expect(document.querySelector(".install__foot .btn-primary")?.textContent).toBe("安装");
+  });
+});
+
+describe("加密包", () => {
+  /** 受控 input 只能用原生 setter 改值，React 才收得到 input 事件。 */
+  async function type(input: HTMLInputElement, value: string): Promise<void> {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function button(text: string): HTMLButtonElement | undefined {
+    return [...document.querySelectorAll("button")].find((item) => item.textContent === text);
+  }
+
+  it("先要密码；填对了重新预检，装的时候把密码带上", async () => {
+    // 没有密码就回加密包；给了密码就当解开了
+    prepareImport.mockImplementation(async (path, _entry, password) =>
+      password ? preview(path, "hots", "加密包") : lockedPreview(path),
+    );
+    importPackageWith.mockResolvedValue(variant);
+
+    await mount(["locked.zip"]);
+
+    // 预检回 needs_password -> 密码框自己弹出来（用户不用去找按钮）
+    expect(document.body.textContent).toContain("这个包有密码");
+    const input = document.querySelector<HTMLInputElement>(".sheet input[type='password']");
+    expect(input, "要有密码输入框").not.toBeNull();
+
+    await type(input as HTMLInputElement, "miyin");
+    await act(async () => {
+      button("解锁")?.click();
+    });
+    await flush();
+
+    // 带着密码重新预检了一次，密码框关上
+    expect(prepareImport).toHaveBeenLastCalledWith("locked.zip", "campaign", "miyin");
+    expect(document.querySelector(".sheet input[type='password']"), "解锁后关掉").toBeNull();
+
+    await clickPrimary();
+    // 安装时密码要一起传下去 —— 不然后端又只能报"需要密码"
+    expect(importPackageWith).toHaveBeenCalledWith("locked.zip", "hots", "overwrite", "miyin");
+  });
+
+  it("密码不对：错误留在框里，可以再试", async () => {
+    prepareImport.mockImplementation(async (path, _entry, password) =>
+      password === "miyin" ? preview(path, "hots", "加密包") : lockedPreview(path),
+    );
+
+    await mount(["locked.zip"]);
+    const input = document.querySelector<HTMLInputElement>(".sheet input[type='password']");
+    await type(input as HTMLInputElement, "wrong");
+    await act(async () => {
+      button("解锁")?.click();
+    });
+    await flush();
+
+    // 框还在，并且说清了原因
+    expect(document.querySelector(".sheet input[type='password']")).not.toBeNull();
+    expect(document.body.textContent).toContain("密码不对");
+    // 这个包仍然不可装
+    expect(document.querySelector<HTMLButtonElement>(".install__foot .btn-primary")?.disabled).toBe(
+      true,
+    );
   });
 });

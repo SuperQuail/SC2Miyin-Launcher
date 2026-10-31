@@ -89,7 +89,7 @@ describe("数据合并对话框", () => {
   it("把不冲突的那部分列成只读摘要，并说明哪几样一律用游戏目录那份", async () => {
     const { element } = await mount();
     const text = element.textContent ?? "";
-    expect(text).toContain("会一起并进来 · 2 个版本");
+    expect(text).toContain("将合并 · 2 项");
     expect(text).toContain("自由之翼：重生 v1.5.0");
     expect(text).toContain("1.3 GB");
     expect(text).toContain("active.json · installed.json · dev · backup");

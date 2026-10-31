@@ -55,6 +55,13 @@
   color: var(--on-surface-variant);
 }
 
+/* 拖放区底下那排「或者从文件夹导入」 */
+.install__drop-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+}
+
 .install__card {
   width: 100%;
   max-width: 760px;

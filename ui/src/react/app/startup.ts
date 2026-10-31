@@ -63,7 +63,7 @@ export function showStartupFailure(reason: unknown): void {
 
   const hint = document.createElement("p");
   hint.className = "boot-fail__text";
-  hint.textContent = "界面没能加载出来。可以点下面重新加载；还不行就把这段错误发给开发者。";
+  hint.textContent = "界面未能加载。可点击下方「重新加载」重试；若问题仍然存在，请将错误信息反馈给开发者。";
 
   const detail = document.createElement("pre");
   detail.className = "boot-fail__reason";
@@ -99,6 +99,6 @@ export function installStartupGuards(): void {
 
   window.setTimeout(() => {
     if (isMounted()) return;
-    showStartupFailure("启动超时：" + STARTUP_TIMEOUT_MS / 1000 + " 秒内界面没有挂载出来。");
+    showStartupFailure("启动超时：" + STARTUP_TIMEOUT_MS / 1000 + " 秒内界面未能完成加载。");
   }, STARTUP_TIMEOUT_MS);
 }

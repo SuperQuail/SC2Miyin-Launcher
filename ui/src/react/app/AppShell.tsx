@@ -1,6 +1,7 @@
-import { Suspense, lazy, type ComponentType } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
 
 import { BACKDROP } from "../../api/art";
+import { api } from "../../api/bridge";
 import { showContextMenu } from "../lib/contextMenu";
 import { useAppState } from "../state/AppState";
 import { Toast } from "../ui";
@@ -18,6 +19,7 @@ import { RoomView } from "../views/room/RoomView";
 import { SavesView } from "../views/saves/SavesView";
 import { SettingsView, type SettingsViewProps } from "../views/settings/SettingsView";
 import { UpdateNotice } from "../views/update/UpdateNotice";
+import { reportMountWarnings } from "./boot";
 import { ContextMenu } from "./ContextMenu";
 import { Dialogs } from "./Dialogs";
 import { TopBar } from "./TopBar";
@@ -54,6 +56,27 @@ export function AppShell() {
   const { dragging } = useShellEffects();
   const hasPreview = PreviewView !== null;
 
+  // 后端启动时自动挂载模组，没挂全的提示攒着等这里取一次（失败静默）。
+  // BootGate 只管等后端就绪，toast 队列在外壳里 —— 挂载后的第一刻才两样都有。
+  useEffect(() => {
+    void api.takeMountWarnings().then(
+      (warnings) => reportMountWarnings(app.notify, warnings),
+      () => undefined,
+    );
+  }, [app.notify]);
+
+  /**
+   * 从文件夹导入：先选目录，再进安装页 —— 那一页会自己预检。
+   *
+   * 走的还是「拖进来」那条通道（`droppedPackages`），安装页不用为此多一条入口。
+   */
+  async function importFromFolder(entry: "campaign" | "custom"): Promise<void> {
+    const path = await api.pickPackageFolder();
+    if (!path) return;
+    app.library.setDroppedPackages([path]);
+    app.nav.openInstall(entry);
+  }
+
   const campaignsHost: CampaignsHost = {
     installation: app.installation.installation,
     slots: app.library.slots,
@@ -78,10 +101,12 @@ export function AppShell() {
     openCheats: app.nav.openCheats,
     openSettings: () => app.nav.setView("settings"),
     openInstall: () => app.nav.openInstall("campaign"),
+    openInstallFolder: () => void importFromFolder("campaign"),
   };
 
   const customHost: CustomHost = {
     openInstall: () => app.nav.openInstall("custom"),
+    openInstallFolder: () => void importFromFolder("custom"),
     slots: app.library.slots,
     libraryRoot: app.installation.libraryRoot,
     loading: app.loading,
@@ -116,6 +141,8 @@ export function AppShell() {
     saves: app.saves.saves,
     saveBackups: app.saves.saveBackups,
     saveIsolation: app.saves.saveIsolation,
+    // 状态文件读不出来时不静默当关闭：设置页的隔离卡要把这条提示摆出来
+    saveIsolationWarning: app.saves.saveIsolation.warning ?? null,
     slots: app.library.slots,
     busy: app.busy,
     launcherVersion: app.installation.launcherVersion,
@@ -163,10 +190,10 @@ export function AppShell() {
       {dragging && (
         <div className="dropzone">
           <div className="dropzone__card">
-            <div className="dropzone__title">松手即可导入</div>
+            <div className="dropzone__title">松开即可导入</div>
             <div className="dropzone__text">
-              支持 zip / 7z / rar / tar —— 启动器会自动判断它属于哪部战役，
-              认不出来会让你选，不会瞎猜。
+              支持 zip / 7z / rar / tar。启动器会尝试自动判断所属战役；
+              无法识别时会请你选择。
             </div>
           </div>
         </div>
@@ -252,7 +279,7 @@ export function AppShell() {
           );
         })()}
 
-      {/* 作弊码：战役页 / 自制战役页的「小工具」里弹出来 */}
+      {/* 作弊码：战役页 / 自制战役页的「工具」里弹出来 */}
       {app.nav.cheatsOpen && <CheatsView notify={app.notify} onClose={app.nav.closeCheats} />}
 
       {/* 全局右键菜单：任何地方调 showContextMenu() 就能弹 */}

@@ -92,7 +92,7 @@ export function Toast({ toasts, onClose, onPause, onResume }: ToastProps) {
             <button
               className="toast__close"
               type="button"
-              aria-label="关掉这条提示"
+              aria-label="关闭提示"
               onClick={() => onClose(toast.id)}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">

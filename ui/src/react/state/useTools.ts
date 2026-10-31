@@ -19,7 +19,7 @@ export function useTools(options: { notify: Notify }): { ensureTools: () => Prom
       const result = await api.ensureTool("sc2diff");
 
       if (result.action === "installed") {
-        notify("success", result.name + " 已自动装好");
+        notify("success", result.name + " 已自动安装");
       } else if (result.action === "failed" && result.message) {
         notify("warning", result.message);
       }

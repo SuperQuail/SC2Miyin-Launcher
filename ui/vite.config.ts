@@ -1,5 +1,11 @@
+import { writeFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
+
+// 每次构建打一个时间戳：写进 dist/BUILD-INFO.txt，也注入到页面里。
+// 这样「手上这份是不是最新编译的」不用靠文件名猜（产物名是内容哈希，
+// 源码没变时两次构建名字一样，看起来就像没更新）。
+const buildStamp = new Date().toISOString();
 
 // 弥音启动器前端构建配置。
 // - 固定端口，便于 Tauri 的 devUrl 与浏览器调试模式共用
@@ -10,7 +16,20 @@ export default defineConfig({
   // 结果用户侧执行到开发者页的挂载代码，白屏。
   // Tailwind 只管新界面的原子类；preflight 没开（见 styles/tailwind.css），
   // 现有组件样式一个字节不动。
-  plugins: [tailwindcss()],
+  plugins: [
+    tailwindcss(),
+    {
+      name: "miyin-build-info",
+      closeBundle() {
+        writeFileSync(
+          new URL("./dist/BUILD-INFO.txt", import.meta.url),
+          `build=${buildStamp}\nmode=user\n`,
+          "utf8",
+        );
+      },
+    },
+  ],
+  define: { __MIYIN_BUILD__: JSON.stringify(buildStamp) },
   clearScreen: false,
   server: {
     port: 5183,
