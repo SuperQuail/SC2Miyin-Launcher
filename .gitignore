@@ -112,3 +112,4 @@ Desktop.ini
 
 /.tmp/
 /.dsh-ops/
+!/src-tauri/assets/7zip/*.exe
