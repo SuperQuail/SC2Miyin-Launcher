@@ -422,7 +422,12 @@ fn merge_local(
             local.display()
         ));
     }
-    if same_path(&local, target) || within(&local, target) || within(&local, &installation.root) {
+    // 临时目录里的短路径（RUNNER~1）和长路径指的是同一个目录；比较前统一解析，
+    // 否则「当前数据根里面」的路径会被误判成外部目录。
+    let target = miyin_core::safety::resolve(target).unwrap_or_else(|_| target.to_path_buf());
+    let game_root = miyin_core::safety::resolve(&installation.root)
+        .unwrap_or_else(|_| installation.root.clone());
+    if same_path(&local, &target) || within(&local, &target) || within(&local, &game_root) {
         return Err(format!(
             "local 不能是当前数据根或游戏目录：{}",
             local.display()
@@ -686,15 +691,14 @@ mod tests {
         let local = scratch.0.join("data");
         std::fs::create_dir_all(&local).expect("旧数据根");
 
-        assert_eq!(
-            merge_local(
-                &serde_json::json!({ "local": local.to_string_lossy() }),
-                &data,
-                &installation,
-            )
-            .expect("合法的旧数据根"),
-            local
-        );
+        let accepted = merge_local(
+            &serde_json::json!({ "local": local.to_string_lossy() }),
+            &data,
+            &installation,
+        )
+        .expect("合法的旧数据根");
+        // Windows 临时目录会返回 RUNNER~1 短路径，跟原始路径是同一个目录。
+        assert!(same_path(&accepted, &local), "{}", accepted.display());
 
         let choices = merge_choices(&serde_json::json!({
             "local": local.to_string_lossy(),
