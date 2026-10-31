@@ -10,18 +10,25 @@ import "./slot-card.css";
 export function SlotCard({ slot, onOpen }: { slot: SlotView; onOpen: (slug: string) => void }) {
   const art = slotArt(slot.slug);
   const coverStyle = art ? { backgroundImage: "url(" + art + ")" } : undefined;
-  const isVanilla = slot.active === null;
+  // 「装了没」以安装清单为准（enabled_variants）；slot.active 只表示「上次选中的」，
+  // 清单丢了它也还留着 —— 只看它的话卡片会显示已启用、游戏目录却是原版。
+  const installed = (slot.enabled_variants?.length ?? 0) > 0;
+  const isVanilla = !installed;
   const variantCount = slot.variants.length;
-  const statusText = slot.active_name ? "已启用：" + slot.active_name : "原版战役";
+  const statusText = installed
+    ? slot.active_name
+      ? "当前改版：" + slot.active_name
+      : "已写入游戏目录"
+    : "原版战役";
 
   return (
     <button className="slot" type="button" onClick={() => onOpen(slot.slug)}>
       <span className="slot__cover" style={coverStyle}>
         <span className="slot__scrim" />
         <span className={"slot__badge" + (isVanilla ? "" : " slot__badge--mod")}>
-          {isVanilla ? "原版" : "已切换"}
+          {isVanilla ? "原版" : "已启用"}
         </span>
-        {variantCount > 0 && <span className="slot__count">{variantCount} 个版本</span>}
+        {variantCount > 0 && <span className="slot__count">{variantCount} 个改版</span>}
       </span>
 
       <span className="slot__body">

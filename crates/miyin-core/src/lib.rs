@@ -12,6 +12,7 @@
 pub mod campaign;
 pub mod dev;
 pub mod error;
+pub mod hub;
 pub mod library;
 pub mod net;
 pub mod platform;

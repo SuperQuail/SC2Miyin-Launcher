@@ -159,7 +159,7 @@ export function useUpdate(options: UpdateOptions): UpdateApi {
       setUpdateStaged(staged);
       // 公告与重启弹窗不同时出现
       setUpdateNoticeVisible(false);
-      pushUpdateLog("下载完成，点「安装并重启」即可换上 " + staged.version);
+      pushUpdateLog("下载完成。点击「安装并重启」以更新到 " + staged.version);
       // 下载完成 → 弹窗告诉用户需要重启
       setShowRestartPrompt(true);
     } catch (error) {
@@ -187,7 +187,7 @@ export function useUpdate(options: UpdateOptions): UpdateApi {
 
       if (readMutedVersion() === version) {
         // 用户勾过「不再提示这个版本」—— 角标照常有，但不再弹窗
-        pushUpdateLog("已设为不再提示 " + version + "，只显示角标");
+        pushUpdateLog("已设置不再提示 " + version + "，仅显示右上角更新标记");
       } else {
         setUpdateNoticeVisible(true);
       }

@@ -74,13 +74,19 @@ const customSlot = {
 
 function makeHost(overrides?: Partial<CustomHost>): CustomHost {
   return {
+    openInstall: () => undefined,
+    openInstallFolder: () => undefined,
     slots: [customSlot],
     libraryRoot: "D:\\launcher",
     loading: false,
+    busy: false,
     notify: () => undefined,
     bootstrap: () => undefined,
     refresh: () => undefined,
     activate,
+    pendingActivation: null,
+    confirmActivation: async () => false,
+    cancelActivation: () => undefined,
     removeVariant,
     showMenu,
     openCheats: () => undefined,

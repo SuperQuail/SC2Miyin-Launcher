@@ -1,0 +1,98 @@
+/* 开发者页的样式。
+   控件一律用 Ring UI（@jetbrains/ring-ui-built）—— 这里只留布局，
+   不再手搓按钮 / 输入框 / 下拉框的外观。 */
+
+html,
+body,
+#ide {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--surface-1);
+  color: var(--on-surface);
+  font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.ide {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  --line: var(--outline);
+}
+
+/* ---------- 工具栏 ---------- */
+.tb {
+  display: flex;
+  align-items: center;
+  /* 组与组之间的间隔比组内宽一点：ButtonToolbar 自己只给组内间距 */
+  gap: 10px;
+  height: 36px;
+  padding-left: 8px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+/* Ring UI 的按钮工具栏是 inline-block + font-size:0（靠字距排版）——
+   这里改成 flex，免得它自动换行，也让按钮在 36px 的行里垂直居中 */
+.tb > .ring-button-toolbar-buttonToolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  /* 库给它 font-size:0（为了消掉按钮之间的空白），按钮里的字得自己捡回来 */
+  font: inherit;
+  line-height: normal;
+}
+.tspacer {
+  flex: 1;
+}
+/* 带图标的 Ring UI Button 会挂 .ring-button-inline（这本来是给正文里的文字链用的：
+   display:inline + padding:0），放进弹性容器里图标和文字就断开成两行。工具栏要的是
+   "图标 + 文字"的标准按钮，这里把它掰回来（也顺手改回正文色 —— 文字链才是蓝的） */
+.tb .ring-button-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 上下各 6px 撑出手搓那版 28px 的按钮高度（inline 这份自带 padding:0） */
+  padding: 6px 8px;
+  color: var(--on-surface);
+}
+.tsearch {
+  width: 180px;
+}
+.tsearch--pkg {
+  width: 150px;
+}
+.pkgnamectl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+/* ---------- 窗口按钮（这一页没有系统边框，得自己画） ---------- */
+.winctl {
+  display: flex;
+  align-self: stretch;
+  margin-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.winctl__btn {
+  width: 44px;
+  height: 36px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.winctl__btn svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+/* 关闭按钮悬停变红 —— 桌面应用的共同约定 */
+.winctl__btn--close:hover {
+  background: #d13438;
+  color: #fff;
+}

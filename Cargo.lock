@@ -1924,8 +1924,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "miyin-cli"
+version = "0.1.0-alpha.15"
+dependencies = [
+ "miyin-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zip",
+]
+
+[[package]]
 name = "miyin-core"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.15"
 dependencies = [
  "dirs 7.0.0",
  "encoding_rs",
@@ -1943,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "miyin-launcher"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.15"
 dependencies = [
  "miyin-core",
  "rfd",
@@ -1951,6 +1962,9 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "webview2-com",
+ "windows",
+ "winreg",
 ]
 
 [[package]]

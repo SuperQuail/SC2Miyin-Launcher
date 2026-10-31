@@ -7,6 +7,15 @@
 //! 能读 zip / tar / 7z / **rar5** / cpio 等等 —— 所以"兼容任意打包形式"不需要引入任何新依赖。
 //! 找不到 `tar` 时再退回 7-Zip / UnRAR（装了就用）。
 //!
+//! # 密码
+//!
+//! 加密的包**不当作"文件坏了"**：缺密码返回 [`Error::PasswordRequired`]，
+//! 密码错返回 [`Error::WrongPassword`]，调用方据此去问用户。
+//!
+//! - zip：原生解密（`zip` crate 带 aes-crypto），条目清单照旧走 `by_index_raw`
+//! - 7z / rar：把密码交给 `7z` / `unrar` 的 `-p`
+//! - tar（bsdtar）**不认密码**，有密码时直接跳过它
+//!
 //! # 安全
 //!
 //! 外部解压器写出来的东西**一律按不可信处理**：条目名照旧要过 [`safe_entry_path`]，
@@ -16,6 +25,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::{Error, Result};
+
+/// 缺密码时给用户看的那句话（各处提示保持一致，别一个地方一个说法）。
+const NEED_PASSWORD: &str = "这个压缩包有密码，请输入密码后再导入";
 
 /// 包里的一个条目。
 #[derive(Debug, Clone)]
@@ -60,10 +72,10 @@ impl Drop for TempDir {
 enum Backend {
     /// 原生 zip。
     Zip(Box<zip::ZipArchive<std::fs::File>>),
-    /// 先解到临时目录，再按普通目录遍历。
+    /// 按普通目录遍历。
     Dir {
-        /// 保住临时目录的生命周期；离开作用域自动删除。
-        _temp: TempDir,
+        /// 先解到临时目录时保住它的生命周期；**直接读一个现成目录时是 `None`**。
+        _temp: Option<TempDir>,
         files: Vec<PathBuf>,
     },
     /// 外部解压器，**按需读**：列清单用 `-t`，读单条用 `-O`。
@@ -85,11 +97,35 @@ enum Backend {
 pub struct Contents {
     backend: Backend,
     entries: Vec<ContentEntry>,
+    /// 读加密条目用的密码（只有 zip 需要）。
+    password: Option<String>,
+    /// 最小的那个**加密**条目的下标；`None` 表示包里没有加密条目。
+    ///
+    /// 留一个下标是为了验密码：`by_index_decrypt` 只定位条目、不解压，
+    /// 开最小的那条几乎不花时间。
+    encrypted: Option<usize>,
 }
 
 impl Contents {
     /// 打开一个包；格式由魔数判断，不认识的交给系统解压器试。
     pub fn open(path: &Path) -> Result<Self> {
+        Self::open_source(path, None)
+    }
+
+    /// 打开一个包，带密码。
+    ///
+    /// 加密的包缺密码 / 密码错会分别返回 [`Error::PasswordRequired`] / [`Error::WrongPassword`] ——
+    /// 调用方据此去要密码，而不是把它当成"文件坏了"。
+    pub fn open_with_password(path: &Path, password: Option<&str>) -> Result<Self> {
+        Self::open_source(path, password)
+    }
+
+    /// 打开一个来源：**目录**直接就着盘读（「从文件夹导入」不复制），文件按格式挑后端。
+    pub fn open_source(path: &Path, password: Option<&str>) -> Result<Self> {
+        if path.is_dir() {
+            return Self::open_dir(path);
+        }
+
         if !path.is_file() {
             return Err(Error::PackageRejected(format!(
                 "找不到文件：{}",
@@ -102,31 +138,29 @@ impl Contents {
             let file = std::fs::File::open(path)?;
             let mut archive = zip::ZipArchive::new(file)
                 .map_err(|error| Error::PackageRejected(format!("zip 解析失败：{error}")))?;
-            let mut entries = Vec::with_capacity(archive.len());
 
-            for index in 0..archive.len() {
-                let Ok(item) = archive.by_index_raw(index) else {
-                    continue;
-                };
-                let raw = item.name_raw().to_vec();
-                entries.push(ContentEntry {
-                    lossy: std::str::from_utf8(&raw).is_err(),
-                    name: decode_entry_name(&raw),
-                    size: item.size(),
-                    is_dir: item.is_dir(),
-                });
+            let (entries, encrypted) = list_zip_entries(&mut archive);
+
+            // 有加密条目：没密码就去要；给了就先验一次（只开条目，不解压）
+            if let Some(index) = encrypted {
+                match password {
+                    None => return Err(Error::PasswordRequired(NEED_PASSWORD.to_string())),
+                    Some(password) => verify_zip_password(&mut archive, index, password)?,
+                }
             }
 
             return Ok(Self {
                 backend: Backend::Zip(Box::new(archive)),
                 entries,
+                password: password.map(str::to_string),
+                encrypted,
             });
         }
 
         // tar（bsdtar / libarchive，Win10 1803+ 自带）能列清单也能单条读 ——
-        // 那就别把整个包解出来
-        if let Some(program) = locate_tar()
-            && let Some((entries, names)) = list_with_tar(&program, path)
+        // 那就别把整个包解出来。它**不认密码**，所以只在没密码时走。
+        if password.is_none()
+            && let Some((program, entries, names)) = tar_backend(path)
         {
             return Ok(Self {
                 backend: Backend::External {
@@ -135,37 +169,54 @@ impl Contents {
                     names,
                 },
                 entries,
+                password: None,
+                encrypted: None,
             });
         }
 
         // 其它格式：老老实实借系统解压器整体解到临时目录
         let temp = TempDir::new()?;
-        unpack_with_system_tool(path, temp.path())?;
+        unpack_with_system_tool(path, temp.path(), password)?;
 
         // 条目清单与 files 必须**一一对齐**（目录占位为空路径），
         // 否则按下标读内容会串位。
         let mut collected = Vec::new();
         collect_dir(temp.path(), temp.path(), &mut collected)?;
         collected.sort_by(|left, right| left.0.cmp(&right.0));
-
-        let files: Vec<PathBuf> = collected.iter().map(|(_, path)| path.clone()).collect();
-        let entries: Vec<ContentEntry> = collected
-            .into_iter()
-            .map(|(name, path)| ContentEntry {
-                lossy: false,
-                size: if path.as_os_str().is_empty() {
-                    0
-                } else {
-                    std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0)
-                },
-                is_dir: path.as_os_str().is_empty(),
-                name,
-            })
-            .collect();
+        let (files, entries) = split_collected(collected);
 
         Ok(Self {
-            backend: Backend::Dir { _temp: temp, files },
+            backend: Backend::Dir {
+                _temp: Some(temp),
+                files,
+            },
             entries,
+            password: None,
+            encrypted: None,
+        })
+    }
+
+    /// 直接把一个**目录**当成包读：只列清单，不复制、不落盘。
+    ///
+    /// 「从文件夹导入」和收编游戏目录里已有的战役都走这里。
+    pub fn open_dir(dir: &Path) -> Result<Self> {
+        if !dir.is_dir() {
+            return Err(Error::PackageRejected(format!(
+                "找不到文件夹：{}",
+                dir.display()
+            )));
+        }
+
+        let mut collected = Vec::new();
+        collect_dir(dir, dir, &mut collected)?;
+        collected.sort_by(|left, right| left.0.cmp(&right.0));
+        let (files, entries) = split_collected(collected);
+
+        Ok(Self {
+            backend: Backend::Dir { _temp: None, files },
+            entries,
+            password: None,
+            encrypted: None,
         })
     }
 
@@ -176,14 +227,11 @@ impl Contents {
 
     /// 读出一个条目的全部字节。
     pub fn read(&mut self, index: usize) -> Option<Vec<u8>> {
+        let password = self.password.as_deref();
+        let encrypted = self.encrypted;
+
         match &mut self.backend {
-            Backend::Zip(archive) => {
-                use std::io::Read as _;
-                let mut file = archive.by_index(index).ok()?;
-                let mut buffer = Vec::with_capacity(file.size() as usize);
-                file.read_to_end(&mut buffer).ok()?;
-                Some(buffer)
-            }
+            Backend::Zip(archive) => read_zip_entry(archive, index, password, encrypted).ok(),
             Backend::Dir { files, .. } => {
                 let path = files.get(index)?;
                 if path.as_os_str().is_empty() {
@@ -208,13 +256,15 @@ impl Contents {
             std::fs::create_dir_all(parent)?;
         }
 
+        let password = self.password.as_deref();
+        let encrypted = self.encrypted;
+
         match &mut self.backend {
             Backend::Zip(archive) => {
-                let mut file = archive
-                    .by_index(index)
-                    .map_err(|error| Error::PackageRejected(error.to_string()))?;
+                let mut file = zip_entry(archive, index, password, encrypted)?;
                 let mut out = std::fs::File::create(target)?;
-                std::io::copy(&mut file, &mut out)?;
+                std::io::copy(&mut file, &mut out)
+                    .map_err(|error| decrypt_read_error(password, encrypted, error))?;
                 Ok(())
             }
             Backend::Dir { files, .. } => {
@@ -281,6 +331,103 @@ impl Contents {
     }
 }
 
+/// 列 zip 清单，顺带找出**最小的加密条目**（验密码时只开它，不解压）。
+///
+/// 名字照旧走 `by_index_raw`：加密条目的名字与大小在中央目录里，不需要密码。
+fn list_zip_entries(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+) -> (Vec<ContentEntry>, Option<usize>) {
+    let mut entries = Vec::with_capacity(archive.len());
+    let mut smallest: Option<(usize, u64)> = None;
+
+    for index in 0..archive.len() {
+        let Ok(item) = archive.by_index_raw(index) else {
+            continue;
+        };
+        let raw = item.name_raw().to_vec();
+        let is_dir = item.is_dir();
+
+        if item.encrypted() && !is_dir && smallest.is_none_or(|(_, size)| item.size() < size) {
+            smallest = Some((index, item.size()));
+        }
+
+        entries.push(ContentEntry {
+            lossy: std::str::from_utf8(&raw).is_err(),
+            name: decode_entry_name(&raw),
+            size: item.size(),
+            is_dir,
+        });
+    }
+
+    (entries, smallest.map(|(index, _)| index))
+}
+
+/// 用一条加密条目验密码。
+///
+/// AES 会校验 2 字节的验证值、ZipCrypto 校验 1 字节 —— 错密码**基本**当场就能发现
+/// （这两种校验都有极小概率放过错密码，所以读的时候还要再兜一道）。
+fn verify_zip_password(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    index: usize,
+    password: &str,
+) -> Result<()> {
+    match archive.by_index_decrypt(index, password.as_bytes()) {
+        Ok(_) => Ok(()),
+        Err(zip::result::ZipError::InvalidPassword) => Err(Error::WrongPassword),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// 打开 zip 里的一个条目；包里有加密条目时用密码解密。
+fn zip_entry<'a>(
+    archive: &'a mut zip::ZipArchive<std::fs::File>,
+    index: usize,
+    password: Option<&str>,
+    encrypted: Option<usize>,
+) -> Result<zip::read::ZipFile<'a, std::fs::File>> {
+    match password.filter(|_| encrypted.is_some()) {
+        None => archive.by_index(index).map_err(Error::from),
+        Some(password) => archive
+            .by_index_decrypt(index, password.as_bytes())
+            .map_err(|error| match error {
+                zip::result::ZipError::InvalidPassword => Error::WrongPassword,
+                other => Error::from(other),
+            }),
+    }
+}
+
+/// 读一个条目的全部字节；解密后读失败同样算密码不对。
+fn read_zip_entry(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    index: usize,
+    password: Option<&str>,
+    encrypted: Option<usize>,
+) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let mut file = zip_entry(archive, index, password, encrypted)?;
+    let mut buffer = Vec::with_capacity(file.size() as usize);
+    file.read_to_end(&mut buffer)
+        .map_err(|error| decrypt_read_error(password, encrypted, error))?;
+    Ok(buffer)
+}
+
+/// 解密之后才炸的读错误。
+///
+/// ZipCrypto 允许错误的密码"打开"条目（只有 1/256 的校验位），所以真正失败会
+/// 落在解压 / CRC 校验这一步 —— 归到「密码不对」比说「包坏了」更有用。
+fn decrypt_read_error(
+    password: Option<&str>,
+    encrypted: Option<usize>,
+    error: std::io::Error,
+) -> Error {
+    if encrypted.is_some() && password.is_some() {
+        Error::WrongPassword
+    } else {
+        Error::Io(error)
+    }
+}
+
 /// 找到可用的 tar。
 fn locate_tar() -> Option<PathBuf> {
     // Windows 10 1803+ 自带 System32\tar.exe；其余平台看 PATH
@@ -291,6 +438,14 @@ fn locate_tar() -> Option<PathBuf> {
 
     let output = Command::new("tar").arg("--version").output().ok()?;
     output.status.success().then(|| PathBuf::from("tar"))
+}
+
+/// tar 那条快路：找到 tar 并列出清单。读不了（例如加密包）就返回 `None`，
+/// 交给后面的解压器。
+fn tar_backend(path: &Path) -> Option<(PathBuf, Vec<ContentEntry>, Vec<Option<String>>)> {
+    let program = locate_tar()?;
+    let (entries, names) = list_with_tar(&program, path)?;
+    Some((program, entries, names))
 }
 
 /// 用 tar 列一份清单，返回 (条目, 与条目对齐的包内路径)。
@@ -388,42 +543,64 @@ struct Unpacker {
     arguments: fn(&Path, &Path) -> Vec<std::ffi::OsString>,
 }
 
-/// 按顺序尝试的解压器。
+/// 解压器：只认内嵌的 7-Zip。
 ///
-/// `tar` 排第一：Windows 10 1803+ 自带，而且它是 bsdtar（libarchive），
-/// 一个工具就能覆盖 zip / tar / 7z / rar / cpio。
-const UNPACKERS: [Unpacker; 3] = [
-    Unpacker {
-        program: "tar",
-        arguments: |package, target| vec!["-xf".into(), package.into(), "-C".into(), target.into()],
+/// 7-Zip 能覆盖 zip / tar / 7z / rar / cpio 和加密包，启动器启动时会把
+/// 内嵌的 7z.exe 路径放进 MIYIN_7Z；不再调用系统的 tar / unrar（它们对 7z、
+/// 加密头、RAR5 的支持并不一致，而且用户机器上不一定有）。
+const UNPACKERS: [Unpacker; 1] = [Unpacker {
+    program: "7z",
+    arguments: |package, target| {
+        let mut output = std::ffi::OsString::from("-o");
+        output.push(target);
+        vec!["x".into(), "-y".into(), output, package.into()]
     },
-    Unpacker {
-        program: "7z",
-        arguments: |package, target| {
-            let mut output = std::ffi::OsString::from("-o");
-            output.push(target);
-            vec!["x".into(), "-y".into(), output, package.into()]
-        },
-    },
-    Unpacker {
-        program: "unrar",
-        arguments: |package, target| {
-            vec!["x".into(), "-y".into(), package.into(), {
-                let mut dir = target.as_os_str().to_os_string();
-                dir.push("\\");
-                dir
-            }]
-        },
-    },
-];
+}];
+
+/// 解压器程序名 → 实际路径。
+///
+/// `7z` 允许被启动器内嵌的版本覆盖（环境变量 `MIYIN_7Z`）：这样用户机器上没装
+/// 7-Zip 也能解 7z/rar，而不必在 PATH 里塞东西。没设置时仍按原来的 PATH 查找。
+fn unpacker_program(program: &str) -> std::path::PathBuf {
+    let overridden = (program == "7z")
+        .then(|| std::env::var_os("MIYIN_7Z"))
+        .flatten()
+        .map(std::path::PathBuf::from);
+    unpacker_path(program, overridden.as_deref())
+}
+
+/// 纯函数版：给定覆盖路径时只接受存在的文件，否则回退到程序名。
+fn unpacker_path(program: &str, overridden: Option<&std::path::Path>) -> std::path::PathBuf {
+    overridden
+        .filter(|path| path.is_file())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(program))
+}
 
 /// 用系统解压器把包解开到目标目录。
-fn unpack_with_system_tool(package: &Path, target: &Path) -> Result<()> {
+///
+/// 有密码时只交给 7-Zip / UnRAR（`-p`）—— tar **不认密码**，试了只会把
+/// "需要密码"说成"解不开"。
+///
+/// shortcut: 密码是走命令行的，本机其他进程能在进程列表里看到；要更严得改用
+/// 解压器的 stdin / 临时加密清单，等真有这类抱怨再说。
+fn unpack_with_system_tool(package: &Path, target: &Path, password: Option<&str>) -> Result<()> {
     let mut tried = Vec::new();
+    let mut ran = false;
+    // 跑过的是**认得密码**的解压器（7z / unrar）—— 决定"要不要问用户密码"
+    let mut ran_with_password_support = false;
 
     for unpacker in &UNPACKERS {
-        let arguments = (unpacker.arguments)(package, target);
-        let mut command = Command::new(unpacker.program);
+        if password.is_some() && unpacker.program == "tar" {
+            continue;
+        }
+
+        let mut arguments = (unpacker.arguments)(package, target);
+        if let Some(password) = password {
+            arguments.push(format!("-p{password}").into());
+        }
+
+        let mut command = Command::new(unpacker_program(unpacker.program));
         command.args(&arguments);
         // **别弹控制台窗口** —— 从界面点导入时闪一个黑框很难看
         crate::platform::hide_console(&mut command);
@@ -431,6 +608,10 @@ fn unpack_with_system_tool(package: &Path, target: &Path) -> Result<()> {
         match command.output() {
             Ok(output) if output.status.success() => return Ok(()),
             Ok(output) => {
+                ran = true;
+                if unpacker.program != "tar" {
+                    ran_with_password_support = true;
+                }
                 let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 tried.push(format!("{}（{message}）", unpacker.program));
             }
@@ -438,10 +619,31 @@ fn unpack_with_system_tool(package: &Path, target: &Path) -> Result<()> {
         }
     }
 
+    // 解压器跑过却全失败：有密码就是密码不对；没密码而它喊着要密码，就去要密码
+    if ran {
+        if password.is_some() {
+            return Err(Error::WrongPassword);
+        }
+        if tried.iter().any(|line| asks_for_password(line)) {
+            return Err(Error::PasswordRequired(if ran_with_password_support {
+                NEED_PASSWORD.to_string()
+            } else {
+                // 只有 tar 能跑，可它不认密码 —— 直说，别让人对着密码框干瞪眼
+                "该格式需要密码，请用 7-Zip 解压后重新导入".to_string()
+            }));
+        }
+    }
+
     Err(Error::PackageRejected(format!(
-        "无法解开这个压缩包。请安装 7-Zip，或解压后重新打成 zip。已尝试：{}",
+        "无法解开这个压缩包（内置 7-Zip 也没解开）。请确认包没坏、密码正确；已尝试：{}",
         tried.join("、")
     )))
+}
+
+/// 解压器的输出是不是在说「这个包有密码」。
+fn asks_for_password(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("password") || lower.contains("passphrase") || message.contains("密码")
 }
 
 /// 递归收集目录：返回 (包内相对路径, 磁盘路径)。
@@ -466,6 +668,27 @@ fn collect_dir(root: &Path, current: &Path, out: &mut Vec<(String, PathBuf)>) ->
     Ok(())
 }
 
+/// 把 [`collect_dir`] 的结果拆成「与条目一一对齐的磁盘路径」+ 条目清单。
+///
+/// 两半必须**一一对齐**（目录的路径占空串），否则按下标读内容会串位。
+fn split_collected(collected: Vec<(String, PathBuf)>) -> (Vec<PathBuf>, Vec<ContentEntry>) {
+    let files: Vec<PathBuf> = collected.iter().map(|(_, path)| path.clone()).collect();
+    let entries = collected
+        .into_iter()
+        .map(|(name, path)| ContentEntry {
+            lossy: false,
+            size: if path.as_os_str().is_empty() {
+                0
+            } else {
+                std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0)
+            },
+            is_dir: path.as_os_str().is_empty(),
+            name,
+        })
+        .collect();
+    (files, entries)
+}
+
 /// zip 条目名的解码：优先 UTF-8，失败退回 GBK。
 ///
 /// （`zip` crate 的 `name()` 在编码不合法时会丢字符，所以这里自己解。）
@@ -474,70 +697,4 @@ fn decode_entry_name(raw: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn zip_magic_is_recognised() {
-        use std::io::Write;
-
-        let dir = tempfile::tempdir().expect("tempdir");
-        let zipped = dir.path().join("a.zip");
-        std::fs::write(&zipped, b"PK\x03\x04rest").expect("write");
-        assert!(is_zip(&zipped));
-
-        let other = dir.path().join("a.7z");
-        let mut file = std::fs::File::create(&other).expect("create");
-        file.write_all(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])
-            .expect("write");
-        assert!(!is_zip(&other));
-    }
-
-    #[test]
-    fn dir_backend_lists_and_reads() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::create_dir_all(dir.path().join("Maps/Campaign/void")).expect("mkdir");
-        std::fs::write(dir.path().join("Maps/Campaign/void/a.SC2Map"), b"hello").expect("write");
-
-        let mut out = Vec::new();
-        collect_dir(dir.path(), dir.path(), &mut out).expect("collect");
-
-        let names: Vec<&str> = out.iter().map(|(name, _)| name.as_str()).collect();
-        assert!(names.contains(&"Maps"));
-        assert!(names.contains(&"Maps/Campaign/void/a.SC2Map"));
-
-        let (_, path) = out
-            .iter()
-            .find(|(name, _)| name.ends_with("a.SC2Map"))
-            .expect("找到地图");
-        assert_eq!(path.file_name().unwrap(), "a.SC2Map");
-        assert!(
-            out.iter()
-                .any(|(name, path)| name == "Maps" && path.as_os_str().is_empty()),
-            "目录要用空路径占位，保证与条目清单对齐"
-        );
-    }
-
-    /// tar -tvf 的大小列。
-    ///
-    /// 少了它，MAX_UNPACKED_BYTES 那道闸对 tar / 7z / rar 就等于不存在 ——
-    /// 实测一个 61 KB 的 .tar.gz 在清单里声称解压后 0 字节。
-    #[test]
-    fn verbose_listing_gives_sizes() {
-        // Windows 自带的 bsdtar：mode links uid gid size 日期 名字
-        let bsdtar = "-rw-rw-rw-  0 0      0        1000 10月 09 11:25 a.txt";
-        assert_eq!(verbose_size(bsdtar), 1000);
-
-        // GNU tar 少两个数字字段：mode owner/group size 日期 名字
-        let gnu = "-rw-r--r-- root/root 332800 2020-01-01 00:00 a.txt";
-        assert_eq!(verbose_size(gnu), 332800);
-
-        assert_eq!(
-            verbose_size("drwxrwxrwx  0 0      0     0 10月 09 11:25 sub/"),
-            0
-        );
-        // 认不出来算 0：宁可少算，也不能把正常包判成炸弹
-        assert_eq!(verbose_size(""), 0);
-        assert_eq!(verbose_size("garbage"), 0);
-    }
-}
+mod tests;

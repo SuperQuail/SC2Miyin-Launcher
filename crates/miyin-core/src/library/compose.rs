@@ -168,7 +168,19 @@ pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> Opt
             }
             Some(match placement {
                 Placement::Campaign { sub: Some(sub) } if !sub.is_empty() => {
-                    format!("Maps/Campaign/{sub}/{name}")
+                    // 包内相对路径可能已经带了「战役子目录的最后一段」：
+                    // 进化任务写成 evolution/…，而目标子目录是 swarm/evolution ——
+                    // 别拼成 swarm/evolution/evolution/…。
+                    let first = name.split('/').next().unwrap_or(name.as_str());
+                    let last = sub.rsplit('/').next().unwrap_or(sub.as_str());
+                    let rest = if first.eq_ignore_ascii_case(last) {
+                        name.split_once('/')
+                            .map(|(_, rest)| rest)
+                            .unwrap_or(name.as_str())
+                    } else {
+                        name.as_str()
+                    };
+                    format!("Maps/Campaign/{sub}/{rest}")
                 }
                 _ => format!("Maps/Campaign/{name}"),
             })
@@ -452,6 +464,35 @@ mod tests {
         assert_eq!(
             payload_target_path(&map, &Placement::Campaign { sub: None }).as_deref(),
             Some("Maps/Campaign/paiur01.SC2Map")
+        );
+    }
+
+    /// 进化任务：包内 evolution/… 拼到 swarm/evolution/；
+    /// 若目标子目录本身就是 swarm/evolution，别拼成两层。
+    #[test]
+    fn evolution_maps_are_not_doubled_under_the_sub_directory() {
+        let evolution = PayloadTarget::Map {
+            name: "evolution/zevolutionzergling.SC2Map".to_string(),
+        };
+        assert_eq!(
+            payload_target_path(
+                &evolution,
+                &Placement::Campaign {
+                    sub: Some("swarm".into())
+                }
+            )
+            .as_deref(),
+            Some("Maps/Campaign/swarm/evolution/zevolutionzergling.SC2Map")
+        );
+        assert_eq!(
+            payload_target_path(
+                &evolution,
+                &Placement::Campaign {
+                    sub: Some("swarm/evolution".into())
+                }
+            )
+            .as_deref(),
+            Some("Maps/Campaign/swarm/evolution/zevolutionzergling.SC2Map")
         );
     }
 

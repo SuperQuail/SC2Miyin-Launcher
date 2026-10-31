@@ -21,18 +21,60 @@
 //! 「槽位」= 一个官方资料片（自由之翼 / 虫群之心 / 进化 / 虚空之遗 / 序章 / 诺娃）。
 //! 每个槽位默认是**原版战役**（`active = None`），导入的版本作为可切换的选项。
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
-use crate::campaign::CampaignFormat;
 use crate::campaign::metadata::CampaignType;
-use crate::campaign::metadata::PackageKind;
-use crate::campaign::package::{Payload, PayloadTarget};
 use crate::error::{Error, Result};
 use crate::safety;
 use crate::sc2::Installation;
+
+pub mod activation;
+pub mod compat;
+pub mod compose;
+pub mod install;
+pub mod known;
+pub mod mods;
+pub mod naming;
+
+pub use mods::{ModChanges, StandaloneMod};
+pub mod export;
+pub mod merge;
+pub mod patch;
+pub mod store;
+
+mod conflict;
+mod data_root;
+mod main_map;
+mod mod_keys;
+mod model;
+mod slot;
+
+#[cfg(test)]
+mod tests;
+
+pub use activation::{ActiveConflict, activate, conflicts, deactivate, preview};
+pub use conflict::{
+    Conflict, ImportMode, VersionRelation, compare_versions, conflict_for, slot_for,
+};
+pub use data_root::{
+    AppPaths, DATA_DIR_NAME, DataRootPlan, app_paths, data_root, prepare_app_paths,
+    resolve_data_root,
+};
+pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
+pub use main_map::resolve_main_map;
+pub use mod_keys::{
+    ModKey, effective_mounted_mods, group_mods, mod_identity, mod_key_of, normalize_mod_key,
+};
+pub use model::{
+    Binding, DocInfo, LibraryIndex, LibraryMod, MainMapChoice, MapEntry, ModEntry, ModOrigin,
+    Patch, Variant,
+};
+pub use slot::{CampaignSlot, SlotView};
+pub use store::{
+    Replaced, VariantChanges, find_target_for_package, find_target_for_package_with_password,
+    import, import_with_password, remove_variant, replace_variant, replace_variant_with_password,
+    update_variant,
+};
 
 /// 原子写：先写同目录的临时文件，再改名覆盖。
 ///
@@ -46,586 +88,6 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
-pub mod activation;
-pub mod compose;
-pub mod install;
-pub mod known;
-pub mod mods;
-pub mod naming;
-
-pub use mods::{ModChanges, StandaloneMod};
-pub mod export;
-pub mod patch;
-pub mod store;
-
-#[cfg(test)]
-mod tests;
-
-pub use activation::{activate, deactivate, preview};
-pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
-pub use store::{
-    Replaced, VariantChanges, find_target_for_package, import, remove_variant, replace_variant,
-    update_variant,
-};
-
-/// 索引文件的格式版本，便于以后迁移。
-const INDEX_VERSION: u32 = 1;
-
-/// 库内的一个战役版本，即「某个玩家做的某一版」。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Variant {
-    /// 槽位内唯一 id，同时是它在库中的目录名。
-    pub id: String,
-    pub name: String,
-    pub author: Option<String>,
-    pub version: Option<String>,
-    pub description: Option<String>,
-    pub format: CampaignFormat,
-    /// 导入时间（Unix 秒）。
-    pub imported_at: u64,
-    /// 来源包的原始文件名（仅作记录）。
-    pub source: Option<String>,
-    pub map_count: usize,
-    pub mod_count: usize,
-    pub size_bytes: u64,
-    /// 启用时地图应当落到 @@Maps/Campaign@@ 下的哪个子目录。
-    ///
-    /// 由**包内声明的 campaign** 决定（进化包 -> @@swarm/evolution@@），而不是由槽位决定 ——
-    /// 这样「虫群之心」这一个槽位里可以同时放本体包与进化包。
-    #[serde(default)]
-    pub target_sub: Option<String>,
-    /// 包自带的封面图（相对版本目录的路径）；没有就用该战役的官方美术。
-    #[serde(default)]
-    pub cover: Option<String>,
-    /// 包自报的标签。
-    #[serde(default)]
-    pub tags: Vec<String>,
-    /// 注册 ID：补丁靠它引用战役，更新靠它认出"同一个战役的新版本"。
-    #[serde(default)]
-    pub registration_id: Option<String>,
-    /// 包类型：战役本体还是补丁。
-    #[serde(default)]
-    pub kind: PackageKind,
-    /// 载荷清单：哪些地图/模组、各自落到游戏目录的哪里。
-    ///
-    /// **必须存下来**：镜像包里的地图可能分布在多个子目录（`void` 与 `voidprologue`），
-    /// 靠扫目录去猜落点会摆错位置。
-    #[serde(default)]
-    pub payloads: Vec<Payload>,
-    /// 作者声明的覆盖规则；旧索引里没有这个字段，读出来是空的。
-    #[serde(default)]
-    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
-    /// **主地图**：自制战役的游玩入口，相对版本根目录的路径。
-    ///
-    /// 有些自制战役有一张总入口地图，打开它就能一路玩到底；也有的只能一张一张打。
-    /// 这里存的是**相对路径**（`1. Rebel Yell/Terran01.SC2Map`）——
-    /// 只存文件名的话，不同章节里重名的地图会撞车。
-    ///
-    /// 导入时用包内声明的值填充，之后用户可以在界面上改。
-    #[serde(default)]
-    pub main_map: Option<String>,
-    /// **挂载到游戏目录的模组**，存载荷的 source（相对版本目录的路径）。
-    ///
-    /// 地图可能依赖包里的模组，模组不铺进 `<游戏>/Mods/` 就打不开；
-    /// 但不同战役的模组之间会互相打架，所以让用户自己选挂哪几个。
-    ///
-    /// - `None` = **还没配过**，按「全挂」处理（老记录也是这种）
-    /// - `Some([])` = 用户**明确**一个都不挂
-    ///
-    /// 用 `Option` 而不是空 `Vec` 就是为了区分这两种情况 ——
-    /// 否则早先导入的记录（当时还没有这个字段）会被当成"用户取消了一切"，
-    /// 官方战役包里的模组会突然不铺了。
-    #[serde(default)]
-    pub mounted_mods: Option<Vec<String>>,
-    /// **说明文档（PDF）**，相对版本目录的路径。
-    ///
-    /// 导入时按包内声明解析；没声明就按文件名特征找（说明 / readme / manual…）。
-    /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
-    #[serde(default)]
-    pub doc: Option<String>,
-    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
-    ///
-    /// 与 `mounted_mods` 不是一回事：这个说的是「作者要求必须有」，
-    /// 那个说的是「用户当前挂了哪些」。界面拿它标出哪些是必需的。
-    #[serde(default)]
-    pub declared_mods: Vec<String>,
-}
-
-/// 模组是从哪来的。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModOrigin {
-    /// 跟着**原版战役**的改版包进来的。
-    OfficialCampaign,
-    /// 跟着**自制战役**包进来的。
-    CustomCampaign,
-    /// **单独导入**的，不属于任何战役。
-    Standalone,
-}
-
-impl ModOrigin {
-    /// 界面上的说法。
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::OfficialCampaign => "原版战役包",
-            Self::CustomCampaign => "自制战役包",
-            Self::Standalone => "单独导入",
-        }
-    }
-}
-
-/// 库里的一个模组，带着它属于哪个版本的上下文。
-#[derive(Debug, Clone, Serialize)]
-pub struct LibraryMod {
-    /// 所属槽位。
-    pub slot: String,
-    /// 槽位显示名（「自由之翼」「自制战役」…）。
-    pub slot_name: String,
-    /// 所属版本。
-    pub variant_id: String,
-    pub variant_name: String,
-    /// 挂载键：载荷的 source，同时是相对版本目录的路径。
-    pub path: String,
-    /// 显示名（去掉 .SC2Mod 后缀）。
-    pub name: String,
-    pub mounted: bool,
-    /// 这个模组由几个文件组成。
-    pub parts: usize,
-    /// 从哪来的。
-    pub origin: ModOrigin,
-    /// 是不是包内**声明为依赖**的模组。
-    pub required: bool,
-    /// 单独导入的模组才有：库里的 id。界面靠它决定能不能改信息 / 导出 / 删除。
-    #[serde(default)]
-    pub standalone_id: Option<String>,
-    /// **modid**：同一个模组的多个版本靠它归到一起。
-    #[serde(default)]
-    pub modid: Option<String>,
-    /// 版本号。
-    #[serde(default)]
-    pub version: Option<String>,
-    /// **铺进游戏目录时用的名字**（原样保留的那个）。
-    ///
-    /// 显示出来是有意义的：地图里写的就是这个名字，用户一眼能看出对不对。
-    #[serde(default)]
-    pub folder: Option<String>,
-    /// 铺成文件还是目录。
-    #[serde(default)]
-    pub kind: Option<String>,
-    /// **模组记录的 id** —— 有它就能改信息、导出。
-    ///
-    /// 独立模组天然有；跟着战役包来的会在第一次编辑时建一条。
-    #[serde(default)]
-    pub mod_record_id: Option<String>,
-    /// 这个模组的内容在哪（独立库 / 某个战役版本）。
-    #[serde(default)]
-    pub source_kind: String,
-}
-
-/// 版本自带的说明文档。
-#[derive(Debug, Clone, Serialize)]
-pub struct DocInfo {
-    /// 相对版本目录的路径。
-    pub path: String,
-    /// 显示用的文件名。
-    pub name: String,
-    pub size: u64,
-}
-
-/// 版本里的一个模组。
-#[derive(Debug, Clone, Serialize)]
-pub struct ModEntry {
-    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
-    pub path: String,
-    /// 显示名（去掉 .SC2Mod 后缀）。
-    pub name: String,
-    /// 是不是已经挂上了。
-    pub mounted: bool,
-    /// 这个模组由几个文件组成 —— `Alenger` 那种文件夹会有十几个。
-    pub parts: usize,
-}
-
-/// 这个版本**实际**会铺哪些模组。
-///
-/// 没配过（`None`）时按「全挂」算 —— 保证老记录和刚导入的包都能正常跑。
-pub fn effective_mounted_mods(variant: &Variant) -> Vec<String> {
-    if let Some(list) = &variant.mounted_mods {
-        return list.clone();
-    }
-
-    variant
-        .payloads
-        .iter()
-        .filter_map(|payload| mod_identity(payload).map(|found| found.key))
-        .collect()
-}
-
-/// 把一堆载荷按模组归并 —— **按文件夹去重**。
-///
-/// `Alenger/1钢铁.SC2Mod` 和 `Alenger/2贝希摩斯虫群.SC2Mod` 归成一行「Alenger」，
-/// 并记下它由几个文件组成。地图载荷会被忽略。
-pub fn group_mods(payloads: &[Payload], mounted: &[String]) -> Vec<ModEntry> {
-    let mut rows: Vec<ModEntry> = Vec::new();
-
-    for payload in payloads {
-        let Some(found) = mod_identity(payload) else {
-            continue;
-        };
-
-        match rows.iter_mut().find(|row| row.path == found.key) {
-            Some(row) => row.parts += 1,
-            None => rows.push(ModEntry {
-                mounted: mounted.contains(&found.key),
-                path: found.key,
-                name: found.name,
-                parts: 1,
-            }),
-        }
-    }
-
-    rows
-}
-
-/// 一个模组的身份。
-///
-/// **模组按文件夹分，不按单个文件分** —— 这是从真实样本学到的：
-///
-/// `@text
-/// Mods/
-/// ├── 3疯批帝国之翼.SC2Mod        单文件         -> 一个模组
-/// ├── Alenger/                    普通文件夹     -> 一个模组
-/// │   ├── 1钢铁.SC2Mod                            （里面 18 个 .SC2Mod）
-/// │   └── …
-/// └── kit_liberty_story.SC2Mod/   解开目录树     -> 一个模组
-/// `@
-///
-/// 判定办法：取落点里 `Mods/` 之后**第一段**。
-/// `Alenger/1钢铁.SC2Mod` 与 `Alenger/2贝希摩斯虫群.SC2Mod`
-/// 是同一个模组「Alenger」的两部分，不是两个模组。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModKey {
-    /// 挂载键：`Mods/` 之后的第一段（文件夹名，或 .SC2Mod 文件名）。
-    pub key: String,
-    /// 显示名：去掉 .SC2Mod 后缀。
-    pub name: String,
-}
-
-/// 认出一个载荷属于哪个模组；地图返回 `None`。
-///
-/// 两种写法都算模组：
-/// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
-/// - `PayloadTarget::Mirror` 且落在 `Mods/` 下 —— 包内是游戏目录镜像
-///   （真实样本几乎都是这种）
-pub fn mod_identity(payload: &Payload) -> Option<ModKey> {
-    match &payload.target {
-        // 裸的 .SC2Mod：落点是 `Mods/{name}`，名字本身就是键
-        // （名字里可能还带子目录，所以拼上前缀交给统一的解析）
-        PayloadTarget::Mod { name } => mod_key_of(&format!("Mods/{name}")),
-        // 游戏目录镜像：路径已经带 Mods/ 前缀了
-        PayloadTarget::Mirror { path } => mod_key_of(path),
-        PayloadTarget::Map { .. } => None,
-    }
-}
-
-/// 把作者写的依赖模组名字归一化成键（**不认识 `Mods/` 前缀也认**）。
-///
-/// `@text
-/// Mods/Alenger/          -> Alenger
-/// Mods/Alenger           -> Alenger
-/// Alenger                -> Alenger
-/// Alenger.SC2Mod         -> Alenger
-/// 3疯批帝国之翼.SC2Mod    -> 3疯批帝国之翼
-/// `@
-///
-/// 包作者写依赖时偷懒不写前缀是很常见的，不能因此就当没声明。
-pub fn normalize_mod_key(raw: &str) -> String {
-    let trimmed = raw.trim().trim_end_matches('/').replace('\\', "/");
-    let without_prefix = trimmed
-        .strip_prefix("Mods/")
-        .or_else(|| trimmed.strip_prefix("mods/"))
-        .unwrap_or(&trimmed);
-    let first = without_prefix.split('/').next().unwrap_or(without_prefix);
-
-    if first.to_ascii_lowercase().ends_with(".sc2mod") {
-        first[..first.len() - ".SC2Mod".len()].to_string()
-    } else {
-        first.to_string()
-    }
-}
-
-/// 从一条 `Mods/` 下的相对路径推出模组身份。
-pub fn mod_key_of(relative: &str) -> Option<ModKey> {
-    let normalised = relative.replace('\\', "/");
-    let rest = normalised
-        .strip_prefix("Mods/")
-        .or_else(|| normalised.strip_prefix("mods/"))?;
-    let first = rest.split('/').next().filter(|part| !part.is_empty())?;
-
-    // 显示名去掉 .SC2Mod 后缀（大小写不敏感）
-    let lower = first.to_ascii_lowercase();
-    let name = if lower.ends_with(".sc2mod") {
-        first[..first.len() - ".SC2Mod".len()].to_string()
-    } else {
-        first.to_string()
-    };
-
-    Some(ModKey {
-        key: first.to_string(),
-        name,
-    })
-}
-
-/// 版本里的一张地图。
-#[derive(Debug, Clone, Serialize)]
-pub struct MapEntry {
-    /// 相对版本根目录的路径，用 `/` 分隔 —— 主地图存的就是这个形式。
-    pub path: String,
-    /// 显示名（文件名去掉扩展名）。
-    pub name: String,
-    /// 所属章节：版本根下的第一层目录；地图直接躺在根下时是 `None`。
-    pub chapter: Option<String>,
-    pub size: u64,
-    /// 是不是当前设为主地图的那张。
-    pub is_main: bool,
-}
-
-/// 主地图的解析结果。
-#[derive(Debug, Clone, Serialize)]
-pub struct MainMapChoice {
-    /// 选中的地图（相对路径）。
-    pub path: Option<String>,
-    /// 是不是「只有一张地图，替你选了」。
-    pub automatic: bool,
-    /// 声明了却找不到时的提示 —— **只警告，不阻断**。
-    pub warning: Option<String>,
-}
-
-impl MainMapChoice {
-    /// 没定主地图。
-    pub fn unset() -> Self {
-        Self {
-            path: None,
-            automatic: false,
-            warning: None,
-        }
-    }
-}
-
-/// 从地图列表里挑出该用哪张作为入口。
-///
-/// 规则（**不确定就不猜**）：
-///
-/// | 情况 | 结果 |
-/// | --- | --- |
-/// | 设了主地图，且**确实存在** | 用它 |
-/// | 设了，但找不到 | 给个警告，退回「没定」 |
-/// | 是**知名复刻战役**（见 `known`） | 用它表里的入口地图 |
-/// | 没设，且整个版本只有一张地图 | 自动用它（省用户一次点击） |
-/// | 没设，但包根有一张 **入口地图** | 自动用它（见下） |
-/// | 其余 | 没定，让用户自己挑 |
-///
-/// **打表排在启发式前面** —— 知名复刻的入口是固定的，表比猜可靠。
-/// 实测教训：SCMR 那种包里躺着第三方战役的启动器
-/// （`Enslavers Redux Campaign Launcher`，在 `8. Enslavers Redux/` 里），
-/// 用户在列表里挑很容易挑错那个；表直接点名自己的入口。
-///
-/// 「入口地图」的判定很窄：**放在包根**（不在章节子目录里）**且名字里带
-/// launcher / 启动 / 入口**。真实样本教我们的 —— 复刻战役（SCMR）会在包根放一张
-/// `SCMR Campaign Launcher.SC2Map`，那就是它的入口，不认出来用户就得在
-/// 138 张地图里自己翻。
-///
-/// 这里敢猜是因为**猜错很便宜**：界面上一次点击就能改，不像「这个包属于哪部战役」
-/// 那种猜错了整个装错地方。
-/// 路径比较**忽略大小写与斜杠方向** —— 作者在包里写 `1. Rebel Yell\a.SC2Map`
-/// 还是 `1. Rebel Yell/a.SC2Map` 都得认。
-pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapChoice {
-    let normalize = |value: &str| value.replace('\\', "/").to_lowercase();
-
-    if let Some(wanted) = declared.map(str::trim).filter(|value| !value.is_empty()) {
-        let wanted_key = normalize(wanted);
-        // 先按完整相对路径比；再退一步只按文件名比（作者可能只写了文件名）
-        let hit = maps
-            .iter()
-            .find(|map| normalize(&map.path) == wanted_key)
-            .or_else(|| {
-                maps.iter().find(|map| {
-                    normalize(&map.name) == wanted_key
-                        || normalize(map.path.rsplit('/').next().unwrap_or("")) == wanted_key
-                })
-            });
-
-        return match hit {
-            Some(map) => MainMapChoice {
-                path: Some(map.path.clone()),
-                automatic: false,
-                warning: None,
-            },
-            None => MainMapChoice {
-                path: None,
-                automatic: false,
-                warning: Some(format!(
-                    "找不到「{wanted}」这张地图，请自己挑一张作为启动入口"
-                )),
-            },
-        };
-    }
-
-    // **知名复刻战役：打表认它的入口。**
-    //
-    // 排在启发式前面 —— 这些战役的入口是固定的，表比猜可靠。
-    // 而且表能处理启发式处理不了的：一个知名复刻包里往往还躺着**别的**
-    // 战役（SCMR 包里就有 Enslavers Redux 的启动器），用户很容易挑错。
-    if let Some((path, remake)) = known::find_launcher(maps) {
-        let _ = remake;
-        return MainMapChoice {
-            path: Some(path),
-            automatic: true,
-            warning: None,
-        };
-    }
-
-    // 没声明：只有一张的话直接用它，省用户一次点击
-    if maps.len() == 1 {
-        return MainMapChoice {
-            path: Some(maps[0].path.clone()),
-            automatic: true,
-            warning: None,
-        };
-    }
-
-    // 没声明，但包根摆了一张「入口地图」—— 多半就是它
-    if let Some(map) = maps.iter().find(|map| looks_like_entry_map(map)) {
-        return MainMapChoice {
-            path: Some(map.path.clone()),
-            automatic: true,
-            warning: None,
-        };
-    }
-
-    MainMapChoice::unset()
-}
-
-/// 这张地图看起来是不是整部战役的**入口**。
-///
-/// 两条都满足才算：**在包根**（路径里没有子目录）**且名字里有入口字样**。
-/// 条件收得这么窄，是因为放宽一点点就会把普通关卡认成入口。
-fn looks_like_entry_map(map: &MapEntry) -> bool {
-    let name = map.name.to_lowercase();
-    let at_root = !map.path.contains('/') && !map.path.contains('\\');
-    at_root
-        && (name.contains("launcher")
-            || name.contains("启动")
-            || name.contains("入口")
-            || name.contains("entry"))
-}
-
-/// 一个官方资料片槽位。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CampaignSlot {
-    /// 已导入的版本，最新的排在前面。
-    #[serde(default)]
-    pub variants: Vec<Variant>,
-    /// 当前启用的版本 id；`None` 表示原版战役。
-    #[serde(default)]
-    pub active: Option<String>,
-}
-
-/// 库里的一条补丁记录。
-///
-/// 补丁是**覆盖层**：没有自己的地图目录，只往已有战役上叠文件。
-/// 叠加规则见 [`crate::library::compose`]。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Patch {
-    /// 库内目录名（补丁的本地唯一键）。
-    pub id: String,
-    /// 显示名。
-    pub name: String,
-    #[serde(default)]
-    pub author: Option<String>,
-    #[serde(default)]
-    pub version: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    /// 包声明的注册 ID。
-    #[serde(default)]
-    pub registration_id: Option<String>,
-    /// 包内声明的默认优先级；数值大的后覆盖。
-    #[serde(default = "default_priority")]
-    pub priority: i64,
-    /// 依赖的战役（注册 ID 或名字）；**为空表示只能手动指定**。
-    #[serde(default)]
-    pub requires: Vec<String>,
-    /// 载荷清单。
-    #[serde(default)]
-    pub payloads: Vec<Payload>,
-    /// 作者声明的覆盖规则。
-    #[serde(default)]
-    pub overrides: Vec<crate::campaign::metadata::OverrideRule>,
-    #[serde(default)]
-    pub imported_at: u64,
-    #[serde(default)]
-    pub size_bytes: u64,
-    #[serde(default)]
-    pub mod_count: usize,
-}
-
-/// 补丁的默认优先级。
-fn default_priority() -> i64 {
-    crate::library::patch::DEFAULT_PRIORITY
-}
-
-/// 某个战役挂的一个补丁。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Binding {
-    /// 挂的是哪个补丁。
-    pub patch_id: String,
-    /// 覆盖包内声明的优先级。
-    pub priority: i64,
-    /// 是否启用；关掉就不参与合成。
-    pub enabled: bool,
-}
-
-/// 库索引。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LibraryIndex {
-    pub version: u32,
-    #[serde(default)]
-    pub slots: BTreeMap<String, CampaignSlot>,
-    /// 库里的补丁。
-    #[serde(default)]
-    pub patches: BTreeMap<String, Patch>,
-    /// 战役槽位 -> 挂在它身上的补丁。
-    #[serde(default)]
-    pub bindings: BTreeMap<String, Vec<Binding>>,
-}
-
-impl Default for LibraryIndex {
-    fn default() -> Self {
-        Self {
-            version: INDEX_VERSION,
-            slots: BTreeMap::new(),
-            patches: BTreeMap::new(),
-            bindings: BTreeMap::new(),
-        }
-    }
-}
-
-/// 供界面展示的槽位快照。
-#[derive(Debug, Clone, Serialize)]
-pub struct SlotView {
-    pub slug: String,
-    pub display_name: String,
-    /// 启用时地图落到的官方子目录（相对 `Maps/Campaign`）。
-    pub sub_directory: Option<String>,
-    pub variants: Vec<Variant>,
-    /// 当前启用的版本 id；`None` 表示原版战役。
-    pub active: Option<String>,
-    /// 当前启用版本的名字，方便界面直接显示。
-    pub active_name: Option<String>,
-    /// 一句提示（例如官方目录缺失）。
-    pub notice: Option<String>,
-}
-
 /// 战役库。
 #[derive(Debug, Clone)]
 pub struct Library {
@@ -633,7 +95,7 @@ pub struct Library {
 }
 
 impl Library {
-    /// 指定库根目录。默认位置见 [`default_root`]。
+    /// 指定库根目录。默认位置见 [`data_root`]。
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
@@ -703,6 +165,10 @@ impl Library {
     /// 按**官方发布顺序**生成槽位快照。
     pub fn slots(&self, installation: Option<&Installation>) -> Vec<SlotView> {
         let index = self.index();
+        // 「装了没」看激活清单，不看槽位的 `active`（那只记最后选中的那个）
+        let installed = installation
+            .map(|installation| self::activation::enabled_variants(self, installation))
+            .unwrap_or_default();
 
         // 主菜单列五个条目：四大原版战役（进化归虫群之心、序章归虚空之遗）+ 自制战役
         CampaignType::MENU
@@ -723,6 +189,12 @@ impl Library {
                     None
                 };
 
+                let enabled_variants: Vec<String> = installed
+                    .iter()
+                    .filter(|(installed_slot, _)| installed_slot == slug)
+                    .map(|(_, variant)| variant.clone())
+                    .collect();
+
                 SlotView {
                     slug: slug.to_string(),
                     display_name: kind.display_name(),
@@ -730,6 +202,8 @@ impl Library {
                     variants: slot.variants,
                     active: slot.active,
                     active_name,
+                    vanilla_enabled: enabled_variants.is_empty(),
+                    enabled_variants,
                     notice,
                 }
             })
@@ -745,8 +219,36 @@ impl Library {
             return Vec::new();
         };
 
-        let mounted_list = effective_mounted_mods(&variant);
-        group_mods(&variant.payloads, &mounted_list)
+        // `mounted` 是**用户配置**（勾选框状态），不是「铺进游戏目录了没」。
+        // 以前这里按 `slot.active` 门控：没启用的版本一律报未挂载，于是
+        // 1) 用户勾了模组，下次读回来又变未勾；
+        // 2) 启动前的挂载检查把「配置里全挂着」误判成「一个都没挂」，
+        //    把自制战役的启动直接拦住（issue 反馈）。
+        // 实际铺盘状态看 `in_game`。
+        let mounted = effective_mounted_mods(&variant);
+        let in_game = self.installed_mod_keys(slot_slug, variant_id);
+        group_mods(&variant.payloads, &mounted, &in_game)
+    }
+
+    /// 这个版本的模组里，**真的铺进 `<游戏>/Mods/`** 的那些（按安装清单算）。
+    ///
+    /// shortcut: 只信清单、不查盘上文件是否还在 —— 用户手删 `Mods/` 里的文件后这里仍报
+    /// 已铺，等 `activation::sync_mods`（启动 / 启动游戏时）补回来。真要逐文件校验时再升级。
+    fn installed_mod_keys(&self, slot_slug: &str, variant_id: &str) -> Vec<String> {
+        let owner = install::Owner::Campaign {
+            slot: slot_slug.to_string(),
+            variant: variant_id.to_string(),
+        };
+        let manifest = install::Manifest::load(self.root());
+        let mut keys: Vec<String> = manifest
+            .files
+            .iter()
+            .filter(|item| item.owner == owner)
+            .filter_map(|item| mod_key_of(&item.target).map(|found| found.key))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 
     /// **全库的模组汇总**：模组管理菜单用。
@@ -764,10 +266,12 @@ impl Library {
             let is_custom = CampaignType::from_slug(slug).is_some_and(|kind| kind.is_custom());
 
             for variant in &slot.variants {
+                // `mounted` 是用户配置、`in_game` 才是实际铺盘（同 variant_mods）。
                 let mounted_list = effective_mounted_mods(variant);
+                let in_game = self.installed_mod_keys(slug, &variant.id);
                 let declared = &variant.declared_mods;
 
-                for entry in group_mods(&variant.payloads, &mounted_list) {
+                for entry in group_mods(&variant.payloads, &mounted_list, &in_game) {
                     // 有模组记录的话**以记录为准** —— 用户可能改过名字和版本，
                     // 改的是记录（覆盖包内声明），不动包本身。
                     let record = crate::library::mods::find_campaign(
@@ -794,6 +298,7 @@ impl Library {
                             .map(|item| item.name.clone())
                             .unwrap_or(entry.name),
                         mounted: entry.mounted,
+                        in_game: entry.in_game,
                         parts: entry.parts,
                         standalone_id: record.as_ref().map(|item| item.id.clone()),
                         modid: None,
@@ -1019,149 +524,6 @@ impl Library {
 
         maps
     }
-}
-
-/// 默认的库位置：**可执行文件同级的 data 目录**（绿色版，随软件走）。
-pub fn default_root(executable: &Path) -> PathBuf {
-    executable
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("data")
-}
-
-/// 由包内声明的资料片推断应该导入到哪个槽位。
-///
-/// 规则本体在 [`CampaignType::main_slot`]，这里只是给调用方一个好找的入口。
-pub fn slot_for(kind: &CampaignType) -> Option<&'static str> {
-    kind.main_slot()
-}
-
-/// 导入时与库里已有版本的冲突。
-#[derive(Debug, Clone, Serialize)]
-pub struct Conflict {
-    /// 冲突的已有版本（库内目录名）。
-    pub existing_id: String,
-    pub existing_name: String,
-    pub existing_version: Option<String>,
-    pub incoming_version: Option<String>,
-    /// 是否命中同一个**注册 ID**（比同名更强的信号）。
-    pub same_id: bool,
-    /// 新旧版本对比结论。
-    pub relation: VersionRelation,
-}
-
-/// 新旧版本的对比结论。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum VersionRelation {
-    /// 新包更新。
-    Newer,
-    /// 版本号相同。
-    Same,
-    /// 新包更旧。
-    Older,
-    /// 版本号缺失或格式认不出来。
-    Unknown,
-}
-
-impl VersionRelation {
-    /// 面向用户的说法。
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Newer => "更新的版本",
-            Self::Same => "相同的版本",
-            Self::Older => "更旧的版本",
-            Self::Unknown => "无法比较版本",
-        }
-    }
-}
-
-/// 导入时遇到已有同名 / 同 ID 版本的处理方式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ImportMode {
-    /// **重命名后导入**：保留已有版本，新版本另起一个目录名，两者并存。
-    #[default]
-    Rename,
-    /// **覆盖更新**：用新版本替换已有的同 ID（或同名）版本，目录名与已挂的补丁都不受影响。
-    Overwrite,
-}
-
-/// 宽松版本比较：把两边的数字段抽出来按数值比。
-///
-/// 只认得"数字点分"这一大类写法（`1.4.2`、`v0.53`、`141版` 都行）；
-/// 认不出来时返回 `None`，由调用方决定怎么提示，而不是瞎猜。
-pub fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
-    fn numbers(text: &str) -> Vec<u64> {
-        text.split(|ch: char| !ch.is_ascii_digit())
-            .filter(|part| !part.is_empty())
-            .filter_map(|part| part.parse().ok())
-            .collect()
-    }
-
-    let left_numbers = numbers(left);
-    let right_numbers = numbers(right);
-    if left_numbers.is_empty() || right_numbers.is_empty() {
-        return None;
-    }
-
-    for (a, b) in left_numbers.iter().zip(right_numbers.iter()) {
-        match a.cmp(b) {
-            std::cmp::Ordering::Equal => continue,
-            other => return Some(other),
-        }
-    }
-
-    Some(left_numbers.len().cmp(&right_numbers.len()))
-}
-
-/// 检查往某个槽位导入时会不会与已有版本冲突。
-///
-/// 判定顺序：先按**注册 ID** 找，找不到再按**战役名**找 —— 前者是包作者声明的稳定标识，
-/// 后者只是兜底（现实里大量包根本没有 ID）。
-pub fn conflict_for(
-    library: &Library,
-    slot_slug: &str,
-    incoming_id: Option<&str>,
-    incoming_name: &str,
-    incoming_version: Option<&str>,
-) -> Option<Conflict> {
-    let index = library.index();
-    let slot = index.slots.get(slot_slug)?;
-
-    let by_id = incoming_id.and_then(|incoming| {
-        slot.variants.iter().find(|variant| {
-            variant
-                .registration_id
-                .as_deref()
-                .is_some_and(|existing| existing.eq_ignore_ascii_case(incoming))
-        })
-    });
-    let existing = by_id.or_else(|| {
-        slot.variants
-            .iter()
-            .find(|variant| variant.name.eq_ignore_ascii_case(incoming_name))
-    })?;
-
-    let relation = match (incoming_version, existing.version.as_deref()) {
-        (Some(incoming), Some(existing)) => compare_versions(incoming, existing)
-            .map(|ordering| match ordering {
-                std::cmp::Ordering::Greater => VersionRelation::Newer,
-                std::cmp::Ordering::Equal => VersionRelation::Same,
-                std::cmp::Ordering::Less => VersionRelation::Older,
-            })
-            .unwrap_or(VersionRelation::Unknown),
-        _ => VersionRelation::Unknown,
-    };
-
-    Some(Conflict {
-        existing_id: existing.id.clone(),
-        existing_name: existing.name.clone(),
-        existing_version: existing.version.clone(),
-        incoming_version: incoming_version.map(str::to_string),
-        same_id: by_id.is_some(),
-        relation,
-    })
 }
 
 /// 校验槽位标识，返回对应的资料片。

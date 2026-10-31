@@ -13,6 +13,7 @@ export function Button({
   variant = "text",
   size = "md",
   disabled = false,
+  loading = false,
   title,
   type = "button",
   onClick,
@@ -21,14 +22,26 @@ export function Button({
   variant?: ButtonVariant;
   size?: "md" | "lg";
   disabled?: boolean;
+  /** 正在处理：转圈 + 禁用（异步动作别只靠 disabled，用户分不清"没点上"和"在跑"）。 */
+  loading?: boolean;
   title?: string;
   type?: "button" | "submit";
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
 }) {
-  const className = ["btn", `btn-${variant}`, size === "lg" ? "btn-lg" : ""].filter(Boolean).join(" ");
+  const className = ["btn", `btn-${variant}`, size === "lg" ? "btn-lg" : "", loading ? "btn--loading" : ""]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <button className={className} type={type} disabled={disabled} title={title} onClick={onClick}>
+    <button
+      className={className}
+      type={type}
+      disabled={disabled || loading}
+      title={title}
+      onClick={onClick}
+      aria-busy={loading || undefined}
+    >
+      {loading && <span className="btn__spinner" aria-hidden="true" />}
       {children}
     </button>
   );

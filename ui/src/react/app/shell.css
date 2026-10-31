@@ -32,7 +32,8 @@
   z-index: 3;
   display: flex;
   align-items: center;
-  gap: 20px;
+  /* 12 而不是 20：顶栏是单行、窗口按钮又在最右边，宽度预算很紧（见下面 @media 段） */
+  gap: 12px;
   height: var(--header-height);
   /* 右边留 6px 给自绘的窗口按钮 —— 系统边框已经关掉了 */
   padding: 0 6px 0 18px;
@@ -89,10 +90,20 @@
   display: flex;
   gap: 4px;
   margin-left: 4px;
+  /* 宽度不够时**先让它缩**（缩到一定程度会横向滚，滚动条藏起来）——
+     绝不能让右边那组把窗口按钮顶出窗口：系统边框已经关掉，按钮没了就没法关窗。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
-  /* 顶栏变窄时别把标签挤成两行 —— 加了「资源网站」之后 1280 宽就会挤 */
+  /* 页签不换行、也不被压字：宽度不够时由 .tabs 横向滚（见下面窄窗规则） */
   flex: none;
   white-space: nowrap;
   height: 30px;
@@ -113,20 +124,13 @@
   color: #2b57c4;
 }
 
-/* 资源网站：和开发者页一样是"跳出去"的入口，所以也单独一颗；
-   但它是外部链接，用实线框 + 淡底色，跟"实验"那颗虚线区分开。 */
-.tab--site {
-  margin-left: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.04);
+.tab--danger {
+  background: rgba(255, 80, 80, 0.22);
+  color: #ffd0d0;
+  border: 1px solid rgba(255, 120, 120, 0.55);
 }
-.tab--site::after {
-  content: "↗";
-  font-size: 10px;
-  opacity: 0.7;
-}
-.tab--site:hover {
-  background: rgba(255, 255, 255, 0.18);
+.tab--danger:hover {
+  background: rgba(255, 80, 80, 0.36);
 }
 
 .tab--dev {
@@ -249,10 +253,13 @@
  */
 .winctl {
   display: flex;
+  flex: none;
   align-self: stretch;
   margin-left: 6px;
-  /* 顶栏原本的右内边距对按钮来说太宽，收一点 */
-  margin-right: -14px;
+  /* 只抵掉顶栏那 6px 右内边距，让按钮贴住窗口边缘。
+     **不能多给负值** —— 多出来的部分会被窗口裁掉：以前是 -14，
+     整组比窗口右边多伸出 8px，关闭按钮先被切一半。 */
+  margin-right: -6px;
 }
 
 .winctl__btn {
@@ -289,6 +296,68 @@
   color: #fff;
 }
 
+/* ---------- 窄窗：顶栏逐级收起 ----------
+ *
+ * 顶栏是**单行 flex**，窗口按钮又在最右边 —— 内容一超宽，最先被挤出窗口的就是
+ * 最小化/最大化/关闭（系统边框已关掉，按钮没了就关不了窗）。
+ *
+ * 实测（默认 1200 宽窗、带「新版本」徽标和真实版本号）：整行自然宽度约 1200+，
+ * 而笔记本 125%/150% 缩放下 1920x1080 / 1366x768 的有效逻辑宽度只有 1280 / 1093，
+ * 窗口还会被系统压小 —— 所以不能靠「默认窗口够宽」这个假设。
+ *
+ * 规则：**窗口按钮与页签永远保留**，只按「信息价值从低到高」收标签：
+ * SC2 版本 → 演示标记（只在浏览器演示里出现）→ 更新徽标文字（留图标）→ 启动器版本。
+ * 页签那层还有最后一道保险：.tabs 可缩、可横向滚，绝不会把窗口按钮顶出去。
+ */
+@media (max-width: 1280px) {
+  .tag--sc2 {
+    display: none;
+  }
+}
+
+@media (max-width: 1220px) {
+  .tag--demo {
+    display: none;
+  }
+}
+
+/* 徽标只留下载图标（文字进 title，鼠标悬停还能看到版本号） */
+@media (max-width: 1140px) {
+  .update-badge span {
+    display: none;
+  }
+
+  .update-badge {
+    padding: 5px 8px;
+  }
+}
+
+@media (max-width: 1060px) {
+  .tag--app {
+    display: none;
+  }
+}
+
+/* 再窄就把品牌副标题收掉、页签内边距压一压（最小窗口 960 还能排得下） */
+@media (max-width: 990px) {
+  .brand {
+    min-width: 0;
+  }
+
+  .brand__sub {
+    display: none;
+  }
+
+  .tab {
+    padding: 0 12px;
+  }
+}
+
+/* 权限对话框里那行"提权失败"：与正文分开看 */
+.permission__failure {
+  color: var(--danger);
+}
+
 /* ---------- 内容区 ---------- */
 
 .content {
@@ -299,15 +368,31 @@
   padding: 24px 26px 40px;
 }
 
-/* 切页：旧的走了新的淡入上移（mode="out-in" 的进场那一半）。 */
+/* 切页：旧的走了新的淡入上移（mode="out-in" 的进场那一半）。
+   **不要加 animation-fill-mode: both** —— 加了之后动画结束也一直"生效"，transform
+   的计算值被定成 identity matrix 而不是 none，而**有 transform 的祖先会成为
+   position: fixed 的包含块**：页面里的遮罩弹窗会按这个页面的内容框居中、跟着内容滚，
+   地图一多就得先滚下去才看得见弹窗（删除确认框踩过）。去掉 fill 之后动画一结束
+   transform 就回到 none，fixed 元素重新以视口定位。 */
 .view {
-  animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  animation: view-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
 @keyframes view-in {
   from {
     opacity: 0;
     transform: translateY(10px);
+  }
+
+  /* 收尾那一帧必须显式写 none。
+     只写 from（收尾回到元素自己的值）时，animation-fill-mode: both 会把动画结束后的
+     计算值定成 identity transform（matrix(1,0,0,1,0,0)）而不是 none ——
+     而**有 transform 的祖先会成为 position: fixed 的包含块**：页面里的遮罩弹窗于是
+     按这个页面的内容框居中、跟着内容一起滚，地图一多用户就得先滚下去才看得见弹窗
+     （删除确认框踩过，§17 的界面规矩管不到这种浏览器行为）。 */
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -348,43 +433,7 @@
   color: var(--on-surface-variant);
 }
 
-/* ---------- 提示 ---------- */
 
-.toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 40;
-  max-width: 420px;
-  padding: 13px 18px;
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  color: var(--on-surface);
-  box-shadow: var(--shadow-3);
-  border-left: 4px solid var(--accent);
-  font-size: 13.5px;
-  animation: toast-in 0.18s var(--ease);
-}
-
-.toast--warning {
-  background: color-mix(in srgb, var(--warning, #b26a00) 92%, transparent);
-  color: #fff;
-}
-
-.toast--success {
-  border-left-color: var(--success);
-}
-
-.toast--error {
-  border-left-color: var(--danger);
-}
-
-@keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-}
 
 /* ---------- 右键菜单 ---------- */
 
@@ -450,7 +499,6 @@
 @media (prefers-reduced-motion: reduce) {
   .update-badge,
   .view,
-  .toast,
   .ctx {
     animation: none;
   }

@@ -139,7 +139,7 @@ fn copy_path(from: &Path, to: &Path) -> Result<()> {
 ///
 /// 只用来收拾**这次复制出来的半成品**：它要么是新建的，要么调用方已经确认过
 /// 可以被覆盖，所以这里不区分「本来就在」的情况。
-fn remove_path(path: &Path) {
+pub(crate) fn remove_path(path: &Path) {
     if path.is_dir() {
         let _ = std::fs::remove_dir_all(path);
     } else {

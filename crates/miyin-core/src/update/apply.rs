@@ -148,7 +148,12 @@ fn find_payload(root: &Path) -> Result<(PathBuf, Vec<PathBuf>)> {
         let is_exe = path
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"));
-        if is_exe && executable.is_none() {
+        // CLI 不是启动器：拿它顶替会把启动器换成一个命令行工具（a9 真事故）。
+        let is_cli = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.to_ascii_lowercase().contains("cli"));
+        if is_exe && !is_cli && executable.is_none() {
             executable = Some(path);
         } else {
             extras.push(path);
@@ -322,5 +327,14 @@ mod tests {
         std::fs::create_dir_all(&out).expect("mkdir");
         assert!(extract_zip(&archive, &out).is_err(), "越界条目必须整体拒绝");
         assert!(!dir.path().join("escaped.txt").exists());
+    }
+
+    #[test]
+    fn a_package_with_only_the_cli_is_rejected() {
+        // 真事故：更新包里只有 miyin-cli.exe 时，它会被当成新启动器。
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("miyin-cli.exe"), b"stub").expect("write");
+        let outcome = find_payload(dir.path());
+        assert!(outcome.is_err(), "只有 CLI 的包必须拒绝，不能当成启动器");
     }
 }

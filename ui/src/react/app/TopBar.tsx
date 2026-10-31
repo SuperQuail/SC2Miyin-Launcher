@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { MIYIN } from "../../api/art";
 import { api } from "../../api/bridge";
 import { useAppState } from "../state/AppState";
-import type { ViewId } from "../state/flags";
-import { RESOURCE_SITE } from "../state/useSiteLinks";
+import type { ViewId } from "../lib/router";
 
 const TABS: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
@@ -12,6 +11,8 @@ const TABS: { id: ViewId; label: string }[] = [
   // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
   { id: "custom", label: "自制战役" },
   { id: "mods", label: "模组" },
+  // 存档单独一页：各组存档的归属 / 切换 / 存回，和"按战役隔离"的开关分开放
+  { id: "saves", label: "存档" },
   { id: "settings", label: "设置" },
 ];
 
@@ -49,6 +50,7 @@ function ThemeIcon({ mode, theme }: { mode: string; theme: string }) {
 export function TopBar({ preview }: { preview: boolean }) {
   const app = useAppState();
   const [maximized, setMaximized] = useState(false);
+  const [sevenZipOpen, setSevenZipOpen] = useState(false);
 
   async function syncMaximized(): Promise<void> {
     try {
@@ -57,6 +59,21 @@ export function TopBar({ preview }: { preview: boolean }) {
       // 拿不到就当没最大化
     }
   }
+
+  // 7-Zip 覆盖层打开时顶栏仍然渲染；这里显示「退出 7-Zip」按钮
+  useEffect(() => {
+    if (!app.isDesktop) return;
+    let dispose: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        dispose = await listen<boolean>("sevenzip://open", (event) => setSevenZipOpen(event.payload));
+      } catch {
+        // 浏览器演示模式 / 事件桥不可用时忽略
+      }
+    })();
+    return () => dispose?.();
+  }, [app.isDesktop]);
 
   useEffect(() => {
     if (!app.isDesktop) return;
@@ -103,10 +120,10 @@ export function TopBar({ preview }: { preview: boolean }) {
 
   const themeTitle =
     app.theme.mode === "system"
-      ? "跟随系统（点一下切到日间）"
+      ? "跟随系统（切换为日间）"
       : app.theme.mode === "light"
-        ? "日间（点一下切到夜间）"
-        : "夜间（点一下切回跟随系统）";
+        ? "日间（切换为夜间）"
+        : "夜间（切换为跟随系统）";
 
   return (
     <header className="topbar" data-tauri-drag-region onMouseDown={startWindowDrag}>
@@ -134,20 +151,11 @@ export function TopBar({ preview }: { preview: boolean }) {
               {tab.label}
             </button>
           ))}
-          {/* 资源网站：**不是视图**，点了也不切页 —— 先问一句，确认了才交给系统浏览器 */}
-          <button
-            className="tab tab--site"
-            type="button"
-            title="资源网站（用系统默认浏览器打开）"
-            onClick={() => void app.sites.requestSite(RESOURCE_SITE)}
-          >
-            资源网站
-          </button>
           {/* 开发者页是独立入口（整页跳过去），不是这个 SPA 里的视图 */}
           <button
             className="tab tab--dev"
             type="button"
-            title="开发者页（实验）：扫游戏目录、看文件、记版本"
+            title="开发者页（实验）：扫描游戏目录、查看文件、记录版本"
             onClick={app.nav.openDevPage}
           >
             开发
@@ -157,6 +165,11 @@ export function TopBar({ preview }: { preview: boolean }) {
       )}
 
       <div className="topbar__right">
+        {sevenZipOpen && (
+          <button className="tab tab--danger" type="button" onClick={() => void api.closeSevenZip()}>
+            退出 7-Zip
+          </button>
+        )}
         <button className="themectl" type="button" title={themeTitle} onClick={app.theme.cycleTheme}>
           <ThemeIcon mode={app.theme.mode} theme={app.theme.theme} />
         </button>
@@ -164,7 +177,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           <button
             className="update-badge"
             type="button"
-            title="有新版本可用，点开设置页查看"
+            title="有新版本可用，打开设置页查看"
             onClick={() => app.nav.setView("settings")}
           >
             {/* 下载图标：向下箭头落进托盘，用户一眼就知道是"可以下载新版本" */}
@@ -184,7 +197,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           </span>
         )}
         {app.installation.installation && (
-          <span className="tag" title="星际争霸 II 版本">
+          <span className="tag tag--sc2" title="星际争霸 II 版本">
             SC2 {app.installation.installation.version}
           </span>
         )}

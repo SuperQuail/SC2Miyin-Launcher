@@ -44,6 +44,10 @@ export interface CampaignActions {
   openCheats: () => void;
   /** 切到设置页。 */
   openSettings: () => void;
+  /** 进「安装整合包」页（拖包与「导入战役包」都走它）。 */
+  openInstall: () => void;
+  /** 选一个**文件夹**当战役包，然后进安装页（作者直接发的、已解开的包走这条）。 */
+  openInstallFolder: () => void;
 }
 
 export interface CampaignsHost extends CampaignActions {

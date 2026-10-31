@@ -6,7 +6,24 @@
     <title>弥音启动器 · 开发</title>
   </head>
   <body>
-    <div id="ide"></div>
+    <!--
+      静态占位：和用户侧 index.html 同一个道理 —— 前端没起来时不能只留一片白。
+      这页没有系统边框（decorations: false），窗口按钮是 React 画的；JS 挂掉时用户至少
+      还能看到一句人话、知道按 Alt+F4，或者点链接回启动器。
+      纯 HTML + 内联样式（CSP 的 style-src 放行 inline，script 不行）。
+    -->
+    <div id="ide">
+      <div
+        style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 32px; background: #0b0e18; color: #c9d3ea; font: 14px/1.6 'Microsoft YaHei UI', 'Segoe UI', system-ui, sans-serif; text-align: center"
+      >
+        <p style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.4px">正在启动开发者页…</p>
+        <p style="margin: 0; font-size: 12.5px; color: #7c88a6">
+          一直停在这里说明前端没能加载。可以按 <strong>F5</strong> 刷新，或
+          <a href="/index.html" style="color: #7aa2f7">返回启动器</a>；
+          再不行就按 <strong>Alt+F4</strong> 关掉窗口。
+        </p>
+      </div>
+    </div>
     <script type="module" src="/src/ide/main.tsx"></script>
   </body>
 </html>

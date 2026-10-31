@@ -191,6 +191,31 @@ impl Manifest {
         }
     }
 
+    /// **清单健康检查**：读坏了就给一句人话，**一个字节都不写**。
+    ///
+    /// 为什么要单独一个：[`load`](Self::load) 遇到坏文件会把它改名成 `.corrupt`
+    /// 再当空清单 —— 那时文件已经不在原位，界面看到的只是「什么都没装」。
+    /// 这个函数给界面一个**事先**的确认（R9：账本坏了 ≠ 磁盘上是空的）。
+    /// 返回 `None` = 文件不在（没装过）或者读得出来。
+    pub fn health(data: &Path) -> Option<String> {
+        let path = Self::path(data);
+        if !path.is_file() {
+            return None;
+        }
+        let broken = match std::fs::read_to_string(&path) {
+            Ok(text) => serde_json::from_str::<Self>(&text)
+                .err()
+                .map(|error| error.to_string()),
+            Err(error) => Some(error.to_string()),
+        };
+        broken.map(|why| {
+            format!(
+                "安装记录损坏，已按空清单处理：游戏目录里由启动器放的文件可能暂时没人认领（{why}）。原文件：{}",
+                path.display()
+            )
+        })
+    }
+
     /// 清单文件在哪。
     pub fn path(data: &Path) -> PathBuf {
         data.join("installed.json")
@@ -337,20 +362,69 @@ impl Manifest {
         manifest
     }
 
-    /// 库里这个路径的东西，装到游戏目录之后在哪 —— 没装就 `None`。
+    /// 库里这个路径的东西，装到游戏目录之后在哪。
     ///
     /// **打开地图必须用这个**：库里那份只是留底（切回原版时能还原），
     /// 而游戏和编辑器要读的是装好的那一份。实测从库里打开会报「无法打开地图」——
     /// 库里那份不在游戏目录下，地图里 `GameSetNextMap("Starcraft Mass Recall/…")`
     /// 这种相对 `Maps/` 的串联路径也就落空了。
-    pub fn target_of(&self, installation: &Installation, source: &Path) -> Option<PathBuf> {
-        let wanted = source.to_string_lossy().to_string();
-        let item = self
+    ///
+    /// 三种结果要分开：`Ok(None)` = 清单里没这条来源（没装过）；`Ok(Some(_))` = 装好了就在那；
+    /// `Err` = 清单说装了却反查不到 —— 账实对不上，调用方不能当「没装」静默退回库里那份。
+    ///
+    /// `library_root` 是**当前**的库根：新记录存的是相对库根的路径（库根会跟着数据迁移 /
+    /// 游戏目录搬家而变），老记录存的是绝对路径 —— 两种都要认，否则搬过一次家就再也
+    /// 反查不出装到哪了，打开地图只能退回库里那份（那份在游戏目录外，打不开）。
+    pub fn target_of(
+        &self,
+        library_root: &Path,
+        installation: &Installation,
+        source: &Path,
+    ) -> Result<Option<PathBuf>> {
+        let absolute = source.to_string_lossy().to_string();
+        let relative = source
+            .strip_prefix(library_root)
+            .ok()
+            .map(|rest| rest.to_string_lossy().replace('\\', "/"));
+
+        let Some(item) = self.files.iter().find(|item| {
+            item.source.as_deref().is_some_and(|recorded| {
+                recorded == absolute || relative.as_deref() == Some(recorded)
+            })
+        }) else {
+            return Ok(None);
+        };
+
+        match resolve(installation, &item.target) {
+            Ok(path) if path.exists() => Ok(Some(path)),
+            _ => Err(Error::ManifestMismatch(format!(
+                "记着「{}」装进了游戏目录，可那里没有它（被删了？或被别的启动器改过）",
+                item.target
+            ))),
+        }
+    }
+
+    /// 清单里这个 owner 在 `scope` 下的记录与计划完全一致、且文件都还在盘上。
+    ///
+    /// **启动时的自动挂载用它跳过「已经一致」的情况** —— 否则每次启动都把模组
+    /// 重拷一遍（`apply` 是先全撤再铺）。
+    pub fn settled(&self, installation: &Installation, plan: &Plan, scope: &str) -> bool {
+        let mut have: Vec<&str> = self
             .files
             .iter()
-            .find(|item| item.source.as_deref() == Some(wanted.as_str()))?;
-
-        resolve(installation, &item.target).ok()
+            .filter(|item| item.owner == plan.owner && item.target.starts_with(scope))
+            .map(|item| item.target.as_str())
+            .collect();
+        let mut want: Vec<&str> = plan.items.iter().map(|item| item.target.as_str()).collect();
+        have.sort();
+        want.sort();
+        have == want
+            && plan.items.iter().all(|item| {
+                installation
+                    .root
+                    .join(item.target.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    .exists()
+            })
     }
 
     /// 游戏目录里这个位置是谁装的。
@@ -411,8 +485,22 @@ impl Manifest {
         installation: &Installation,
         plan: &Plan,
     ) -> Result<Vec<String>> {
-        // 1) 这个 owner 之前装的先全撤掉 —— 保证「计划就是当前状态」
-        self.remove(data, installation, &plan.owner)?;
+        self.apply_scoped(data, installation, plan, "")
+    }
+
+    /// 和 [`apply`](Self::apply) 一样，但**只动 `scope` 前缀内的目标**。
+    ///
+    /// 启动时的模组自动挂载用它：只重铺 / 撤掉 `Mods/` 下的记录，
+    /// 同一个版本的地图落点原样留着（那些归 `activate` 管）。
+    pub fn apply_scoped(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        plan: &Plan,
+        scope: &str,
+    ) -> Result<Vec<String>> {
+        // 1) 这个 owner 在 scope 内之前装的先全撤掉 —— 保证「计划就是当前状态」
+        self.remove_scoped(data, installation, &plan.owner, scope)?;
 
         let mut warnings = Vec::new();
 
@@ -459,7 +547,7 @@ impl Manifest {
                 target: item.target.clone(),
                 owner: plan.owner.clone(),
                 backup: backup.clone(),
-                source: Some(item.source.to_string_lossy().to_string()),
+                source: Some(source_key(data, &item.source)),
             });
             self.save(data)?;
 
@@ -502,11 +590,8 @@ impl Manifest {
         self.save(data)?;
 
         let path = resolve(installation, target)?;
-        if path.is_dir() {
-            let _ = std::fs::remove_dir_all(&path);
-        } else if path.is_file() {
-            let _ = std::fs::remove_file(&path);
-        }
+        // 删不掉就报出来：以前 `let _ = ` 吞掉失败，清单说让出了、文件还在（调用方会往上抛）
+        remove_installed(&path)?;
         restore_backup(data, &path, entry.backup.as_deref())
     }
 
@@ -519,37 +604,89 @@ impl Manifest {
         installation: &Installation,
         owner: &Owner,
     ) -> Result<()> {
-        let leaving: Vec<Installed> = self.of(owner);
+        self.remove_scoped(data, installation, owner, "")
+    }
+
+    /// 撤掉某个 owner 在 `scope` 前缀内的东西；scope 之外原样留着。
+    fn remove_scoped(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        owner: &Owner,
+        scope: &str,
+    ) -> Result<()> {
+        let leaving: Vec<Installed> = self
+            .files
+            .iter()
+            .filter(|item| &item.owner == owner && item.target.starts_with(scope))
+            .cloned()
+            .collect();
         if leaving.is_empty() {
             return Ok(());
         }
 
         // **先销账再动磁盘**：中途失败时账面是「已经撤下」，最坏剩几个文件；
         // 反过来（先动磁盘后销账）失败一次，重试就会把刚还原的官方文件删掉
-        self.files.retain(|item| &item.owner != owner);
+        self.files
+            .retain(|item| !(&item.owner == owner && item.target.starts_with(scope)));
         self.save(data)?;
 
         for item in &leaving {
             let target = resolve(installation, &item.target)?;
 
-            // 我们放的：删掉。目录先整删，免得留下空壳
-            if target.is_dir() {
-                let _ = std::fs::remove_dir_all(&target);
-            } else if target.is_file() {
-                let _ = std::fs::remove_file(&target);
-            }
+            // 我们放的：删掉（目录整删，免得留下空壳）。**删不掉要报出来** ——
+            // 游戏跑着时 Windows 拒绝删除，以前 `let _ =` 吞掉，用户看到的是
+            // 「清单说撤了、文件还在」，账实就此永久分叉（R5）
+            remove_installed(&target)?;
 
             // 原本有官方文件被挪走的：原样还原
             restore_backup(data, &target, item.backup.as_deref())?;
         }
 
-        // 备份区里这个 owner 的目录空了就收掉
-        let dir = Self::backup_root(data).join(owner.key());
-        if dir.is_dir() {
-            let _ = std::fs::remove_dir_all(&dir);
+        // 备份区里这个 owner 的目录空了就收掉（scope 外还有记录时不能收）
+        if self.of(owner).is_empty() {
+            let dir = Self::backup_root(data).join(owner.key());
+            if dir.is_dir() {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
         }
 
         Ok(())
+    }
+}
+
+/// 清单里记的「来源」：**优先相对库根**（统一 `/` 分隔），库外的源退回绝对路径。
+///
+/// 库根会跟着数据迁移 / 游戏目录搬家而变（`AGENTS.md` §14.1）：记绝对路径的话，
+/// 搬一次家 [`Manifest::target_of`] 就再也反查不出装到哪了 —— 打开地图只能退回
+/// 库里那份，而那份在游戏目录外，打不开（R3）。库外的源（老调用方）保留绝对路径。
+fn source_key(data: &Path, source: &Path) -> String {
+    match source.strip_prefix(data) {
+        Ok(rest) if !rest.as_os_str().is_empty() => rest.to_string_lossy().replace('\\', "/"),
+        _ => source.to_string_lossy().to_string(),
+    }
+}
+
+/// 删掉一份我们放的东西（文件或目录）；**删不掉就把路径报出来**。
+///
+/// 「目标不在了」不算失败（并发撤销 / 上一轮已经删过）；只要它还在盘上，
+/// 就是真的没删掉 —— 这时候静默返回会让清单与磁盘永久分叉（R5）。
+fn remove_installed(path: &Path) -> Result<()> {
+    let removed = if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else if path.is_file() {
+        std::fs::remove_file(path)
+    } else {
+        return Ok(());
+    };
+
+    match removed {
+        Ok(()) => Ok(()),
+        Err(_) if !path.exists() => Ok(()),
+        Err(error) => Err(Error::Io(std::io::Error::other(format!(
+            "删不掉 {}（{error}）；游戏正在运行的话请先关掉游戏",
+            path.display()
+        )))),
     }
 }
 
