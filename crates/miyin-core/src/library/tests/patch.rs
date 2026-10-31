@@ -194,6 +194,7 @@ fn exported_package_is_ccm_readable_and_round_trips() {
         &crate::library::export::ExportOptions {
             destination: destination.clone(),
             merge_patches: false,
+            format: crate::library::export::ExportFormat::Miyin,
         },
     )
     .expect("export");
@@ -204,10 +205,12 @@ fn exported_package_is_ccm_readable_and_round_trips() {
 
     // 用启动器自己的预检读回来：必须仍被认成 CCM 包、归属不变
     let back = package::inspect(&destination).expect("inspect export");
+    // 弥音包现在多写一份根 metadata.json（我们的标准格式，读回时保真），
+    // 所以启动器自己认 Standard；CCM 那边仍然读 metadata.txt（下面会断言它在）。
     assert_eq!(
         back.format,
-        crate::campaign::CampaignFormat::Ccm,
-        "必须是 CCM 读得懂的形态"
+        crate::campaign::CampaignFormat::Standard,
+        "启动器读根 metadata.json（标准格式）"
     );
     assert_eq!(
         back.campaign_type,
@@ -280,6 +283,7 @@ fn exporting_with_merged_patches_puts_them_on_top() {
         &crate::library::export::ExportOptions {
             destination: plain.clone(),
             merge_patches: false,
+            format: crate::library::export::ExportFormat::Miyin,
         },
     )
     .expect("export plain");
@@ -294,6 +298,7 @@ fn exporting_with_merged_patches_puts_them_on_top() {
         &crate::library::export::ExportOptions {
             destination: merged.clone(),
             merge_patches: true,
+            format: crate::library::export::ExportFormat::Miyin,
         },
     )
     .expect("export merged");

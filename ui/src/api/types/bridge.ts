@@ -6,6 +6,8 @@ import type {
   Composition,
   DocInfo,
   EditorLaunch,
+  ExportFormat,
+  ExportPreview,
   ExportReport,
   GameLaunch,
   ImportMode,
@@ -43,6 +45,7 @@ import type {
   SaveSet,
   SaveTarget,
 } from "./saves";
+import type { ConvertedScnexus, ScnexusCampaign } from "./scnexus";
 import type {
   DetectedProxy,
   NetworkSettings,
@@ -157,6 +160,15 @@ export interface LauncherApi {
   /** 游戏目录里已经装着的自制战役（收编进库用）。 */
   listInstalledCampaigns(): Promise<InstalledCampaign[]>;
 
+  /** 星际枢纽（SCNexus）托管目录里的战役；没装 SCNexus 时是空数组。 */
+  listScnexusCampaigns(): Promise<ScnexusCampaign[]>;
+  /**
+   * 把星际枢纽里的一个战役转进启动器战役库。
+   *
+   * `removeSource` 为 true 时转换成功后会删除 SCNexus 里的源副本（它正在启用时后端会拒绝）。
+   */
+  convertScnexusCampaign(id: string, removeSource: boolean): Promise<ConvertedScnexus>;
+
   prepareImport(
     path: string,
     entry?: "campaign" | "custom",
@@ -212,11 +224,21 @@ export interface LauncherApi {
   exportPatch(patchId: string, destination: string): Promise<ExportReport>;
   previewComposition(slot: string, variantId: string): Promise<Composition>;
 
+  /** 导出前的预检：会带走什么、星际枢纽格式会丢什么（不写盘）。 */
+  previewExportVariant(
+    slot: string,
+    variantId: string,
+    mergePatches: boolean,
+    format: ExportFormat,
+  ): Promise<ExportPreview>;
+
   exportVariant(
     slot: string,
     variantId: string,
     destination: string,
     mergePatches: boolean,
+    /** 不传按弥音格式（兼容旧调用）；补丁导出走 exportPatch。 */
+    format?: ExportFormat,
   ): Promise<ExportReport>;
   pickExportPath(defaultName: string): Promise<string | null>;
 

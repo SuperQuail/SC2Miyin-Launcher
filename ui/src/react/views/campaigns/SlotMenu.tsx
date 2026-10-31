@@ -1,22 +1,26 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import { slotArt } from "../../../api/art";
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
-import type { DocInfo, SlotView, Variant } from "../../../api/types";
+import type { DocInfo, ScnexusCampaign, SlotView, Variant } from "../../../api/types";
 import { copyText } from "../../lib/clipboard";
 import { CustomCampaignPanel } from "./CustomCampaignPanel";
 import { DocViewer } from "../../components/DocViewer";
 import { ActivationPreviewDialog } from "./ActivationPreviewDialog";
 import { SortableCard } from "./SortableCard";
 import { useVariantOrder } from "./useVariantOrder";
+import { ScnexusCard } from "../../components/ScnexusCard";
 import { VariantCard } from "../../components/VariantCard";
 import { VANILLA, variantPath, type CampaignMenuItem, type CampaignsHost } from "./host";
+import { ConvertScnexusSheet } from "./slot-menu/ConvertScnexusSheet";
 import { DeleteVariantSheet } from "./slot-menu/DeleteVariantSheet";
+import { ExportSheet } from "./slot-menu/ExportSheet";
 import { PatchPanel } from "./slot-menu/PatchPanel";
 import { UpdateVariantDialog } from "./slot-menu/UpdateVariantDialog";
 import { VariantEditSheet } from "./slot-menu/VariantEditSheet";
 import "./slot-menu.css";
+import "./slot-menu/scnexus.css";
 
 /**
  * 某个战役的菜单页（React 版，从 `views/SlotMenuView.vue` 整块迁过来）。
@@ -52,9 +56,33 @@ export function SlotMenu({
   const [updateNonce, setUpdateNonce] = useState(0);
   /** 更新这一版的那个对话框在不在跑。 */
   const [updateBusy, setUpdateBusy] = useState(false);
+  /** 星际枢纽里检测到的、还没转过来的战役。 */
+  const [hubCampaigns, setHubCampaigns] = useState<ScnexusCampaign[]>([]);
+  /** 正在确认「转为托管」的那一个。 */
+  const [convertingHub, setConvertingHub] = useState<ScnexusCampaign | null>(null);
+  /** 打开导出向导的版本。 */
+  const [exportTarget, setExportTarget] = useState<Variant | null>(null);
 
   const inspectedVariant = slot.variants.find((item) => item.id === inspecting) ?? null;
   const dirty = selected !== slot.active;
+
+  // 星际枢纽没装 / 旧后端没有这条命令时静默失败 —— 这只是个额外入口，不该弹红字
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .listScnexusCampaigns()
+      .then((list) => {
+        if (!cancelled) setHubCampaigns(list);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 属于当前槽位的星际枢纽条目。
+   *  转换后的落点由后端的 campaign 字段决定，所以只按资料片匹配 —— CCM 条目也一样。*/
+  const external = hubCampaigns.filter((item) => item.campaign.toLowerCase() === slot.slug);
   /** 版本卡片的顺序：**按槽位分开存**，「原版战役」那张固定卡不进去（它拖不动）。 */
   const order = useVariantOrder(slot.slug, slot.variants);
 
@@ -129,7 +157,7 @@ export function SlotMenu({
       }
       if (!variant) return;
       if (id === "edit") openEdit(variant);
-      if (id === "export") void doExport(false);
+      if (id === "export") setExportTarget(variant);
       if (id === "drop") setConfirming(variant);
       if (id === "copy") void copyVariantPath(variant);
     });
@@ -148,30 +176,19 @@ export function SlotMenu({
     setEditing(variant);
   }
 
-  async function doExport(mergePatches: boolean): Promise<void> {
-    const variant = slot.variants.find((item) => item.id === selected);
-    if (!variant) {
-      host.notify("info", "先选一个版本再导出");
-      return;
-    }
-
+  /** 把一个星际枢纽战役转成我们库里的版本；成功后刷新并把它从列表里移走。 */
+  async function convertHub(campaign: ScnexusCampaign, removeSource: boolean): Promise<boolean> {
     try {
-      const destination = await api.pickExportPath(variant.name);
-      if (!destination) return;
-      setExporting(true);
-      const report = await api.exportVariant(slot.slug, variant.id, destination, mergePatches);
-
-      const parts = [report.maps + " 张地图", report.mods + " 个模组"];
-      if (report.patches.length) parts.push("附带 " + report.patches.length + " 个补丁");
-      let message = "已导出：" + parts.join(" · ");
-      if (report.expanded.length) {
-        message += "（有 " + report.expanded.length + " 项是目录树形态，CCM 可能读不了）";
-      }
-      host.notify("success", message);
+      const result = await api.convertScnexusCampaign(campaign.id, removeSource);
+      setConvertingHub(null);
+      setHubCampaigns((prev) => prev.filter((item) => item.id !== campaign.id));
+      host.refresh();
+      const extra = result.warnings.length > 0 ? "（" + result.warnings[0] + "）" : "";
+      host.notify("success", "已转为启动器托管：" + result.variant.name + extra);
+      return true;
     } catch (error) {
       host.notify("error", errorText(error));
-    } finally {
-      setExporting(false);
+      return false;
     }
   }
 
@@ -260,6 +277,24 @@ export function SlotMenu({
           ))}
         </div>
 
+        {/* 星际枢纽托管、还没转过来的战役 —— 空列表时整块不渲染 */}
+        {external.length > 0 && (
+          <section className="hub-section">
+            <div className="section-head">
+              <h3 className="section-head__title">
+                来自星际枢纽
+                <span className="section-head__count">{external.length}</span>
+              </h3>
+              <span className="section-head__hint">检测到由星际枢纽托管的战役，可转为启动器托管</span>
+            </div>
+            <div className="grid">
+              {external.map((item) => (
+                <ScnexusCard key={item.id} campaign={item} onConvert={() => setConvertingHub(item)} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* 自制战役：地图 + 挂载模组 + 启动 */}
         {isCustom && inspectedVariant && (
           <CustomCampaignPanel
@@ -324,18 +359,14 @@ export function SlotMenu({
           <button
             className="btn btn-outline"
             type="button"
-            disabled={exporting || selected === null}
-            onClick={() => void doExport(false)}
+            disabled={selected === null}
+            title="选择弥音包或星际枢纽兼容包，再选保存位置"
+            onClick={() => {
+              const target = slot.variants.find((item) => item.id === selected);
+              if (target) setExportTarget(target);
+            }}
           >
-            {exporting ? "导出中…" : "导出包"}
-          </button>
-          <button
-            className="btn btn-outline"
-            type="button"
-            disabled={exporting || selected === null}
-            onClick={() => void doExport(true)}
-          >
-            导出（含补丁）
+            导出包…
           </button>
           <button
             className="btn btn-outline"
@@ -364,6 +395,24 @@ export function SlotMenu({
           refresh={host.refresh}
           onBusy={setUpdateBusy}
         />
+
+        {exportTarget && (
+          <ExportSheet
+            slot={slot.slug}
+            variant={exportTarget}
+            notify={host.notify}
+            onBusy={setExporting}
+            onClose={() => setExportTarget(null)}
+          />
+        )}
+
+        {convertingHub && (
+          <ConvertScnexusSheet
+            campaign={convertingHub}
+            onClose={() => setConvertingHub(null)}
+            onConfirm={(removeSource) => convertHub(convertingHub, removeSource)}
+          />
+        )}
 
         {/* 编辑元数据 */}
         {editing && (

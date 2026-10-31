@@ -631,6 +631,13 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
   自己的界面，不另写一套。
 - **解压只走内置 7-Zip**：`UNPACKERS` 只剩内嵌的 `7z.exe`，不再调用系统 `tar` / `unrar`；
   加密包也用 7z 的 `-p`。
+- **星际枢纽托管检测**：读 `%APPDATA%\@scnexus\app-main\SCNexusStorage` 的
+  `store-profile.json` / `store-campaign.json` / `store-campaign-active.json`，
+  扫 `<LIBRARY_ROOT>/*/metadata.json` 与 store 点名的 CCM 目录；卡片标「来自于：星际枢纽」，
+  一键转托管（确认框；「删除枢纽副本」默认不勾，active 时禁止删）。实现见
+  `crates/miyin-core/src/hub/scnexus.rs`；元数据 schema 照 `reference/scnexus/packages/standard`。
+- **导出两种格式**：弥音包（完整保真）与星际枢纽兼容包；后者先 `preview` 列出会丢失的
+  内容（补丁绑定、封面、说明、勾选配置、自制战役等），不静默丢。见 `library/export/`。
 - **导入三层**：包内元数据（**以数据为准**）→ 证据链自动识别（**尽力而为**）→ 用户手动指定。
 - **手动指定永远可用，且优先级最高**：`import_package` 传了 slot 就按传的来。
   界面上始终要有"导入到哪部战役"的选择，默认填自动识别的结果。
