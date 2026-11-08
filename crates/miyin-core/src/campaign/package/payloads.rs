@@ -40,21 +40,26 @@ fn payload_root(relative: &Path) -> Option<(String, bool)> {
     None
 }
 
-/// 包内是否直接就是游戏目录镜像（顶层出现 `Maps` 或 `Mods`）。
-pub(crate) fn has_mirror_root(entries: &[Entry]) -> bool {
+/// `prefix` 这一层下面是不是直接放着游戏目录（`Maps` / `Mods` / `Interfaces`）。
+///
+/// 镜像根不一定在包根：作者常多套一层包名目录，而 `metadata.txt` 又落在
+/// `Maps/Campaign` 里（真实样本「叛逃皇卫完结版」：`叛逃皇卫/{Maps,Mods}`）。
+/// 那时内容根要取包名那一层，否则同包的 `Mods/` 会被切掉、模组静默丢失。
+pub(crate) fn has_game_dir_under(entries: &[Entry], prefix: &str) -> bool {
     entries.iter().any(|entry| {
-        entry
-            .relative
-            .components()
-            .next()
-            .map(|first| {
+        strip_prefix(&entry.relative, prefix)
+            .and_then(|relative| {
+                relative
+                    .components()
+                    .next()
+                    .map(|first| first.as_os_str().to_string_lossy().into_owned())
+            })
+            .is_some_and(|first| {
                 // 与 `payload_target` 一致，但**不区分大小写**：`maps/` 在 Windows 上就是 `Maps/`。
                 // Interfaces 也算 —— 白名单早就放行它，但这里一直不认，
                 // 结果是界面 Mod 装不进去（v3 要补的第一个缺口）。
-                let name = first.as_os_str().to_string_lossy();
-                canonical_game_dir(&name).is_some()
+                canonical_game_dir(&first).is_some()
             })
-            .unwrap_or(false)
     })
 }
 
