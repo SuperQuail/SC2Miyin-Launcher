@@ -55,7 +55,7 @@ use crate::error::{Error, Result};
 
 use self::declared::read_declarations;
 use self::extract::read_entry;
-use self::payloads::{collect_payloads, has_mirror_root};
+use self::payloads::{collect_payloads, has_game_dir_under};
 use self::types::{Entry, unusable};
 
 /// 读取并检查一个战役包。
@@ -340,13 +340,29 @@ fn scan_entries(archive: &contents::Contents) -> (Vec<Entry>, u64, Vec<HealthIss
 
 /// 阶段 3：内容根。
 ///
-/// 镜像包（顶层直接就是 Maps / Mods / Interfaces）的内容根必须是**包根** ——
+/// 镜像包（某一层直接就是 Maps / Mods / Interfaces）的内容根必须是**那一层** ——
 /// 否则 metadata 所在的那一层会把同包的其它目录切掉：真实案例是 metadata 在
 /// Maps/Campaign/void/，可内容同时包含 Maps/Campaign/voidprologue/。
+///
+/// 那一层不一定在包根：作者常多套一层包名目录，而 metadata.txt 落在
+/// Maps/Campaign 里（真实样本「叛逃皇卫完结版」：叛逃皇卫/{Maps,Mods}）。
+/// 从包根往下找**第一个**这样的祖先；都不像就用 metadata 所在目录。
 fn resolve_content_root(entries: &[Entry], discovered: String) -> String {
-    if has_mirror_root(entries) {
-        return String::new();
+    let mut prefix = String::new();
+    if has_game_dir_under(entries, &prefix) {
+        return prefix;
     }
+
+    for part in discovered.split('/').filter(|part| !part.is_empty()) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(part);
+        if has_game_dir_under(entries, &prefix) {
+            return prefix;
+        }
+    }
+
     discovered
 }
 

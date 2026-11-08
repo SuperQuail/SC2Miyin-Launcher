@@ -245,6 +245,65 @@ fn hots_evolution_subfolder_keeps_its_directory() {
     );
 }
 
+/// 真实样本「叛逃皇卫完结版」：游戏目录镜像外面多套了一层包名目录，
+/// metadata.txt 却埋在 `Maps/Campaign/` 里。导入后同包的 `Mods/` 必须跟着进库 ——
+/// 只装地图的话，地图里写死的模组依赖一个都找不到，游戏里根本进不去关卡。
+#[test]
+fn mirror_package_wrapped_in_a_named_folder_installs_its_mods() {
+    let fixture = fixture();
+    let path = build_zip(
+        fixture.work.path(),
+        "defectors.zip",
+        &[
+            (
+                "叛逃皇卫/Maps/Campaign/metadata.txt",
+                "title=M3K\ncampaign=WoL\nversion=0.1\n",
+            ),
+            ("叛逃皇卫/Maps/Campaign/tarcade.SC2Map", "stub"),
+            ("叛逃皇卫/Mods/CNightmareMod.SC2Mod", "stub"),
+            ("叛逃皇卫/Mods/醒悟者.SC2Mod/DocumentHeader", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &path, "wol", ImportMode::Rename).expect("import");
+    assert_eq!(variant.map_count, 1);
+    assert_eq!(variant.mod_count, 2, "同包的模组不能被内容根切掉");
+
+    activate(
+        &fixture.library,
+        &fixture.installation,
+        "wol",
+        Some(&variant.id),
+    )
+    .expect("activate");
+
+    assert!(
+        fixture
+            .installation
+            .campaign_maps_root
+            .join("tarcade.SC2Map")
+            .is_file(),
+        "地图应当铺到 Maps/Campaign/"
+    );
+    assert!(
+        fixture
+            .installation
+            .mods_root
+            .join("CNightmareMod.SC2Mod")
+            .is_file(),
+        "地图依赖的模组必须铺进 Mods/"
+    );
+    assert!(
+        fixture
+            .installation
+            .mods_root
+            .join("醒悟者.SC2Mod")
+            .join("DocumentHeader")
+            .is_file(),
+        "解开的模组目录也要原样铺进 Mods/"
+    );
+}
+
 /// 「从文件夹导入」：用户选的是**包外面那一层**，唯一的子目录才是包。
 ///
 /// 铺出来必须是 `maps/a.SC2Map`，不能带着 `MyCampaign/` 那层壳（游戏扫不到）。
