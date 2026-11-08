@@ -76,6 +76,42 @@ fn inspects_ccm_package_with_nested_metadata() {
     );
 }
 
+/// 真实样本「叛逃皇卫完结版」：包名一层里直接摆着 `Maps/` 和 `Mods/`，
+/// `metadata.txt` 却在 `Maps/Campaign/` 里面。内容根必须取包名那层 ——
+/// 取 metadata 所在目录会把同包的 `Mods/` 切掉，导入后模组一个都不剩。
+#[test]
+fn nested_metadata_inside_a_game_mirror_keeps_sibling_mods() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "defectors.zip",
+        &[
+            (
+                "叛逃皇卫/Maps/Campaign/metadata.txt",
+                b"title=M3K\ncampaign=WoL\nversion=0.1\n".as_slice(),
+            ),
+            ("叛逃皇卫/Maps/Campaign/tarcade.SC2Map", b"stub"),
+            ("叛逃皇卫/Mods/叛逃者.SC2Mod", b"stub"),
+            ("叛逃皇卫/Mods/醒悟者.SC2Mod/DocumentHeader", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert!(inspection.installable, "问题：{:?}", inspection.issues);
+    assert_eq!(inspection.content_root, "叛逃皇卫");
+    assert_eq!(inspection.map_count, 1);
+    assert_eq!(inspection.mod_count, 2);
+
+    let targets: Vec<String> = inspection
+        .payloads
+        .iter()
+        .map(Payload::target_path)
+        .collect();
+    assert!(targets.contains(&"Maps/Campaign/tarcade.SC2Map".to_string()));
+    assert!(targets.contains(&"Mods/叛逃者.SC2Mod".to_string()));
+    assert!(targets.contains(&"Mods/醒悟者.SC2Mod".to_string()));
+}
+
 #[test]
 fn refuses_archive_containing_traversal_entry() {
     let dir = tempfile::tempdir().expect("tempdir");
