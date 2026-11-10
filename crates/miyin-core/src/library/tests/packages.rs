@@ -177,7 +177,7 @@ fn a_package_shaped_like_the_game_root_keeps_map_folders() {
     );
     assert_eq!(
         mirrored,
-        PayloadTarget::Mirror {
+        PayloadTarget::GamePath {
             path: "Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map".to_string(),
         },
         "根上有 Mods/ 就说明作者按游戏根目录摆的，结构和名字都要原样保留"
@@ -192,7 +192,7 @@ fn a_package_shaped_like_the_game_root_keeps_map_folders() {
     );
     assert_eq!(
         launcher,
-        PayloadTarget::Mirror {
+        PayloadTarget::GamePath {
             path: "Maps/Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map".to_string(),
         }
     );
@@ -202,7 +202,7 @@ fn a_package_shaped_like_the_game_root_keeps_map_folders() {
     let plain = payload_target("maps/a.SC2Map", false, "", false);
     assert_eq!(
         plain,
-        PayloadTarget::Map {
+        PayloadTarget::CampaignMap {
             name: "a.SC2Map".to_string(),
         },
         "没有 Mods/ 信号就不敢动结构，按老规矩拍平"

@@ -1,10 +1,14 @@
 //! 从条目清单里认出载荷（地图 / 模组）：哪些条目算一张地图，它该落到哪里。
 //!
-//! 这里也是「按文件夹去重」的地方 —— Mods/Alenger/ 下的 15 个 .SC2Mod 是**一个**模组。
+//! - **载荷根**：一条路径里第一个以 `.SC2Map` / `.SC2Mod` 结尾的组件。
+//!   单文件 MPQ 与解开的目录树都靠这一条认出来（`expanded` 区分）。
+//! - **按文件夹去重**：`Mods/Alenger/` 下的 15 个 `.SC2Mod` 是**一个**模组。
+//! - **落点**：不在这里判 —— 交给 `paths::payload_target` 的判定表，
+//!   这里只把布局事实（内容根、是否游戏目录镜像）传下去。
 
 use std::path::Path;
 
-use super::paths::{canonical_game_dir, is_under, payload_target, strip_prefix};
+use super::paths::{payload_target, strip_prefix};
 use super::types::{Entry, Payload};
 
 /// 这条路径是不是落在我们自己的附加数据目录里。
@@ -40,67 +44,12 @@ fn payload_root(relative: &Path) -> Option<(String, bool)> {
     None
 }
 
-/// `prefix` 这一层下面是不是直接放着游戏目录（`Maps` / `Mods` / `Interfaces`）。
-///
-/// 镜像根不一定在包根：作者常多套一层包名目录，而 `metadata.txt` 又落在
-/// `Maps/Campaign` 里（真实样本「叛逃皇卫完结版」：`叛逃皇卫/{Maps,Mods}`）。
-/// 那时内容根要取包名那一层，否则同包的 `Mods/` 会被切掉、模组静默丢失。
-pub(crate) fn has_game_dir_under(entries: &[Entry], prefix: &str) -> bool {
-    entries.iter().any(|entry| {
-        strip_prefix(&entry.relative, prefix)
-            .and_then(|relative| {
-                relative
-                    .components()
-                    .next()
-                    .map(|first| first.as_os_str().to_string_lossy().into_owned())
-            })
-            .is_some_and(|first| {
-                // 与 `payload_target` 一致，但**不区分大小写**：`maps/` 在 Windows 上就是 `Maps/`。
-                // Interfaces 也算 —— 白名单早就放行它，但这里一直不认，
-                // 结果是界面 Mod 装不进去（v3 要补的第一个缺口）。
-                canonical_game_dir(&first).is_some()
-            })
-    })
-}
-
-/// 这个包是不是**按游戏根目录摆的**。
-///
-/// 判据：包根直接有个 `Mods/`（不是包名目录下面的）。
-///
-/// 真实样本教我们的 —— 复刻战役 SCMR 长这样：
-///
-/// `@text
-/// Mods/SCMRassets.SC2Mod          <- 已经在游戏根的位置上了
-/// Mods/SCMRmod.SC2Mod
-/// Starcraft Mass Recall/          <- 那这个兄弟目录就是 Maps/ 底下的
-/// ├── 1. Rebel Yell/Terran01.SC2Map
-/// └── SCMR Campaign Launcher.SC2Map
-/// `@
-///
-/// 它的启动器地图里写的是 `GameSetNextMap("Starcraft Mass Recall/1. Rebel Yell/Terran01")`
-/// —— 这个路径**相对 Maps/**。所以装完必须长成
-/// `Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map`。
-///
-/// 踩过：这些地图被当成「作者的分类目录」拍平成 `Maps/Campaign/Terran01.SC2Map`，
-/// 层级一没，启动器地图就联动不了任何关卡 —— 用户看到的就是
-/// 「能打开启动器，但点哪一关都进不去」。
-///
-/// `Mods/` 是作者给出来的**信号**，不是我们在猜。
-fn mirrors_game_root(entries: &[Entry]) -> bool {
-    entries.iter().any(|entry| {
-        let path = entry.relative.to_string_lossy().replace('\\', "/");
-        let first = path.split('/').next().unwrap_or_default();
-        path.len() > 4 && canonical_game_dir(first) == Some("Mods")
-    })
-}
-
 /// 从条目清单里找出所有载荷，并算出各自的落点。
-///
-/// 取"根"的办法：一条路径里**第一个**以 `.SC2Map` / `.SC2Mod` 结尾的组件就是载荷根，
-/// 这样无论它是单文件还是解开的目录树都能正确识别。
-pub(crate) fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Payload> {
-    // 这个包是不是按游戏根目录摆的（根上有 Mods/）—— 决定地图要不要保留目录结构
-    let mirrors = mirrors_game_root(entries);
+pub(crate) fn collect_payloads(
+    entries: &[Entry],
+    content_root: &str,
+    game_root_mirror: bool,
+) -> Vec<Payload> {
     let mut roots: Vec<(String, bool)> = Vec::new();
 
     for entry in entries {
@@ -125,9 +74,9 @@ pub(crate) fn collect_payloads(entries: &[Entry], content_root: &str) -> Vec<Pay
         .map(|(source, is_mod)| {
             let expanded = entries.iter().any(|entry| {
                 strip_prefix(&entry.relative, content_root)
-                    .is_some_and(|relative| is_under(&relative, &source))
+                    .is_some_and(|relative| super::paths::is_under(&relative, &source))
             });
-            let target = payload_target(&source, is_mod, content_root, mirrors);
+            let target = payload_target(&source, is_mod, content_root, game_root_mirror);
             Payload {
                 source,
                 target,
@@ -165,15 +114,12 @@ pub fn count_payloads(payloads: &[Payload]) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::campaign::identify::{self, CampaignEvidence};
-    use crate::campaign::metadata::CampaignType;
     use crate::campaign::package::PayloadTarget;
-    use std::path::PathBuf;
 
-    fn entry(path: &str, _is_dir: bool) -> Entry {
+    fn entry(path: &str) -> Entry {
         Entry {
             index: 0,
-            relative: PathBuf::from(path),
+            relative: std::path::PathBuf::from(path),
             size: 0,
         }
     }
@@ -181,263 +127,152 @@ mod tests {
     #[test]
     fn detects_single_file_payloads() {
         let entries = vec![
-            entry("metadata.txt", false),
-            entry("paiur01.SC2Map", false),
-            entry("HTXL.SC2Mod", false),
+            entry("metadata.txt"),
+            entry("paiur01.SC2Map"),
+            entry("HTXL.SC2Mod"),
         ];
-        let payloads = collect_payloads(&entries, "");
+        let payloads = collect_payloads(&entries, "", false);
         assert_eq!(payloads.len(), 2);
 
         let map = payloads
             .iter()
-            .find(|p| p.source == "paiur01.SC2Map")
-            .expect("map");
+            .find(|payload| payload.source == "paiur01.SC2Map")
+            .expect("地图");
         assert!(!map.expanded, "单文件 MPQ 不应标记为解开的目录");
-        assert!(matches!(&map.target, PayloadTarget::Map { name } if name == "paiur01.SC2Map"));
+        assert!(matches!(
+            &map.target,
+            PayloadTarget::CampaignMap { name } if name == "paiur01.SC2Map"
+        ));
 
-        let mode = payloads
+        let module = payloads
             .iter()
-            .find(|p| p.source == "HTXL.SC2Mod")
-            .expect("mod");
-        assert!(matches!(&mode.target, PayloadTarget::Mod { name } if name == "HTXL.SC2Mod"));
+            .find(|payload| payload.source == "HTXL.SC2Mod")
+            .expect("模组");
+        assert!(matches!(
+            &module.target,
+            PayloadTarget::Mod { name } if name == "HTXL.SC2Mod"
+        ));
     }
 
     #[test]
     fn detects_expanded_directory_payloads() {
         // 真实数据里 .SC2Map 经常是一棵解开的目录树
         let entries = vec![
-            entry("Maps/Campaign/void/metadata.txt", false),
-            entry("Maps/Campaign/void/epiloguestory01.SC2Map/", true),
-            entry(
-                "Maps/Campaign/void/epiloguestory01.SC2Map/DocumentHeader",
-                false,
-            ),
-            entry(
-                "Maps/Campaign/void/epiloguestory01.SC2Map/Base.SC2Data/x.xml",
-                false,
-            ),
+            entry("Maps/Campaign/void/metadata.txt"),
+            entry("Maps/Campaign/void/epiloguestory01.SC2Map/"),
+            entry("Maps/Campaign/void/epiloguestory01.SC2Map/DocumentHeader"),
+            entry("Maps/Campaign/void/epiloguestory01.SC2Map/Base.SC2Data/x.xml"),
         ];
-        let payloads = collect_payloads(&entries, "Maps/Campaign/void");
+        // 内容根已经落在官方战役目录里：包内相对路径是该战役目录之内的结构
+        let payloads = collect_payloads(&entries, "Maps/Campaign/void", false);
         assert_eq!(payloads.len(), 1);
 
         let payload = &payloads[0];
         assert_eq!(payload.source, "epiloguestory01.SC2Map");
         assert!(payload.expanded, "目录树应标记为 expanded");
-        // 包内已经是游戏目录镜像，落点保持原路径
-        assert!(payload.target_name().starts_with("epiloguestory01.SC2Map"));
-    }
-
-    #[test]
-    fn mirror_paths_are_preserved() {
-        let entries = vec![entry("Mods/Foo.SC2Mod/Base.SC2Data/a.xml", false)];
-        let payloads = collect_payloads(&entries, "");
-        assert_eq!(payloads.len(), 1);
+        assert!(matches!(
+            &payload.target,
+            PayloadTarget::CampaignMap { name } if name == "epiloguestory01.SC2Map"
+        ));
         assert_eq!(
-            payloads[0].target_path(),
-            "Mods/Foo.SC2Mod",
-            "镜像路径应当原样保留"
+            crate::library::compose::payload_target_path(
+                &payload.target,
+                &crate::library::compose::Placement::Campaign {
+                    sub: Some("void".into())
+                },
+            )
+            .as_deref(),
+            Some("Maps/Campaign/void/epiloguestory01.SC2Map")
         );
     }
 
     #[test]
-    fn identifies_packages_by_mirror_path_before_falling_back() {
-        // 镜像路径是"精确"证据，应当优先于文件名启发式
+    fn mirror_game_paths_stay_put_and_mods_go_to_mods() {
+        // 游戏目录镜像：Maps/ 与 Mods/ 都已摆好
         let entries = vec![
-            entry("Maps/Campaign/void/paiur01.SC2Map", false),
-            entry("Maps/Campaign/void/pkorhal01.SC2Map", false),
+            entry("Maps/Campaign/void/paiur01.SC2Map"),
+            entry("Mods/X.SC2Mod"),
         ];
-        let payloads = collect_payloads(&entries, "");
-        let mirror: Vec<String> = payloads.iter().map(|p| p.target_path()).collect();
-        let found = identify::from_mirror_paths(&mirror).expect("应当按镜像路径判定");
-        assert_eq!(found.campaign_type, CampaignType::Lotv);
-        assert_eq!(found.evidence, CampaignEvidence::MirrorPath);
-        assert!(found.evidence.is_exact());
-    }
-
-    #[test]
-    fn falls_back_to_map_name_prefixes() {
-        let types = collect_payloads(
-            &[
-                entry("paiur01.SC2Map", false),
-                entry("pkorhal01.SC2Map", false),
-                entry("ppurifier02.SC2Map", false),
-            ],
-            "",
-        );
-        let names: Vec<String> = types.iter().map(|p| p.target_name()).collect();
-        let found = identify::from_map_names(&names).expect("应当按文件名判定");
-        assert_eq!(found.campaign_type, CampaignType::Lotv);
-        assert_eq!(found.evidence, CampaignEvidence::MapNamePrefix);
-        assert!(!found.evidence.is_exact(), "文件名只是启发式，不算精确证据");
-
-        let hots = collect_payloads(
-            &[
-                entry("zchar01.SC2Map", false),
-                entry("zlab02.SC2Map", false),
-            ],
-            "",
-        );
-        let names: Vec<String> = hots.iter().map(|p| p.target_name()).collect();
+        let payloads = collect_payloads(&entries, "", true);
+        let targets: Vec<String> = payloads.iter().map(Payload::target_path).collect();
         assert_eq!(
-            identify::from_map_names(&names).map(|found| found.campaign_type),
-            Some(CampaignType::Hots)
+            targets,
+            vec![
+                "Maps/Campaign/void/paiur01.SC2Map".to_string(),
+                "Mods/X.SC2Mod".to_string(),
+            ]
         );
-
-        // 分不清时必须返回 None，交给界面问用户
-        let mixed = collect_payloads(
-            &[
-                entry("paiur01.SC2Map", false),
-                entry("zchar01.SC2Map", false),
-            ],
-            "",
-        );
-        let names: Vec<String> = mixed.iter().map(|p| p.target_name()).collect();
-        assert!(identify::from_map_names(&names).is_none());
-
-        // 自定义命名认不出来，但也不算错
-        let unknown = collect_payloads(&[entry("mymap.SC2Map", false)], "");
-        let names: Vec<String> = unknown.iter().map(|p| p.target_name()).collect();
-        assert!(identify::from_map_names(&names).is_none());
+        assert!(matches!(
+            &payloads[0].target,
+            PayloadTarget::GamePath { .. }
+        ));
+        assert!(matches!(&payloads[1].target, PayloadTarget::Mod { .. }));
     }
 
+    /// 真实样本「机翻版（中文启动）」：包根是游戏目录镜像（`Maps/` + `Mods/`），
+    /// metadata.txt 在 `Maps/` 里，地图直接躺在 `Maps/` 根上。
+    ///
+    /// 地图必须被认成战役地图而不是游戏路径 —— 否则会落到游戏不扫的 `Maps/` 根，
+    /// 导入成功、战役却一动不动。
     #[test]
-    fn keeps_relative_directories_inside_the_campaign_folder() {
-        // 真实样本「酒馆合作虫心」：内容根就是 X/swarm，进化地图在 evolution/ 下。
-        // 这一层必须保留，否则进化地图会被摆到虫心主目录，游戏里找不到。
+    fn flat_maps_beside_metadata_inside_a_game_mirror_are_campaign_maps() {
         let entries = vec![
-            entry("酒馆合作虫心/swarm/metadata.txt", false),
-            entry("酒馆合作虫心/swarm/zchar01.SC2Map", false),
-            entry(
-                "酒馆合作虫心/swarm/evolution/zevolutionbaneling.SC2Map",
-                false,
-            ),
+            entry("Maps/metadata.txt"),
+            entry("Maps/thanson01.SC2Map"),
+            entry("Mods/SCEvo_Core.SC2Mod"),
         ];
-        let payloads = collect_payloads(&entries, "酒馆合作虫心/swarm");
+        let payloads = collect_payloads(&entries, "", true);
 
-        let plain = payloads
+        let map = payloads
             .iter()
-            .find(|p| p.source == "zchar01.SC2Map")
-            .expect("普通地图");
-        assert_eq!(plain.target_name(), "zchar01.SC2Map");
-
-        let evolution = payloads
-            .iter()
-            .find(|p| p.source.contains("evolution"))
-            .expect("进化地图");
-        assert_eq!(
-            evolution.target_name(),
-            "evolution/zevolutionbaneling.SC2Map",
-            "战役目录之内的相对结构要原样保留"
-        );
+            .find(|payload| !payload.is_mod)
+            .expect("地图");
+        assert_eq!(map.source, "Maps/thanson01.SC2Map");
+        assert!(matches!(
+            &map.target,
+            PayloadTarget::CampaignMap { name } if name == "thanson01.SC2Map"
+        ));
         assert_eq!(
             crate::library::compose::payload_target_path(
-                &evolution.target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("swarm".into())
-                },
+                &map.target,
+                &crate::library::compose::Placement::Campaign { sub: None },
             )
             .as_deref(),
-            Some("Maps/Campaign/swarm/evolution/zevolutionbaneling.SC2Map")
+            Some("Maps/Campaign/thanson01.SC2Map")
         );
+
+        let module = payloads
+            .iter()
+            .find(|payload| payload.is_mod)
+            .expect("模组");
+        assert_eq!(module.target_path(), "Mods/SCEvo_Core.SC2Mod");
     }
 
     #[test]
-    fn recognises_official_campaign_directories_inside_the_package() {
-        // 真实样本「净化者纪元幼儿园」：内容根是包根，序章地图放在 voidprologue/。
-        // voidprologue 是官方目录名，说明作者按游戏结构摆好了，落点直接用。
+    fn nested_mod_directories_are_kept() {
+        // Alenger/ 下 15 个 .SC2Mod 是一个模组；结构要保留（依赖里写的就是它）
         let entries = vec![
-            entry("metadata.txt", false),
-            entry("paiur01.SC2Map", false),
-            entry("voidprologue/voidprologue01.SC2Map", false),
+            entry("Mods/Alenger/1钢铁.SC2Mod"),
+            entry("Mods/Alenger/2贝希摩斯.SC2Mod"),
+            entry("Mods/单文件.SC2Mod"),
         ];
-        let payloads = collect_payloads(&entries, "");
-
-        let main = payloads
-            .iter()
-            .find(|p| p.source == "paiur01.SC2Map")
-            .expect("主线地图");
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &main.target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("void".into())
-                },
-            )
-            .as_deref(),
-            Some("Maps/Campaign/void/paiur01.SC2Map")
-        );
-
-        let prologue = payloads
-            .iter()
-            .find(|p| p.source.contains("voidprologue"))
-            .expect("序章地图");
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &prologue.target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("void".into())
-                },
-            )
-            .as_deref(),
-            Some("Maps/Campaign/voidprologue/voidprologue01.SC2Map"),
-            "官方目录名要当绝对路径用，而不是塞进 void/ 下面"
-        );
+        let payloads = collect_payloads(&entries, "", true);
+        let targets: Vec<String> = payloads.iter().map(Payload::target_path).collect();
+        assert!(targets.contains(&"Mods/Alenger/1钢铁.SC2Mod".to_string()));
+        assert!(targets.contains(&"Mods/单文件.SC2Mod".to_string()));
     }
 
     #[test]
-    fn arbitrary_container_folders_are_flattened() {
-        // 作者的分类习惯（maps/、files/…）没有游戏语义，只取文件名 ——
-        // 否则地图会落到游戏根本不扫描的目录里
-        let entries = vec![entry("metadata.txt", false), entry("maps/01.SC2Map", false)];
-        let payloads = collect_payloads(&entries, "");
-        assert_eq!(payloads.len(), 1);
-        assert_eq!(payloads[0].target_name(), "01.SC2Map");
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &payloads[0].target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("void".into())
-                },
-            )
-            .as_deref(),
-            Some("Maps/Campaign/void/01.SC2Map")
-        );
-    }
-    #[test]
-    fn a_lowercase_maps_folder_is_the_same_as_maps() {
-        // 用户报的那个：包里的文件夹叫 maps，Windows 上它就是 Maps。
-        // 以前按大小写敏感比，认不出来，整包被塞成 Maps/maps/…，游戏找不到地图。
+    fn loads_of_kinds_are_counted_by_payload_not_by_extension() {
         let entries = vec![
-            entry("metadata.txt", false),
-            entry("maps/Campaign/void/01.SC2Map", false),
+            entry("Maps/Campaign/void/a.SC2Map/DocumentHeader"),
+            entry("Maps/Campaign/void/b.SC2Map/DocumentHeader"),
+            entry("Mods/Alenger/1钢铁.SC2Mod"),
+            entry("Mods/Alenger/2贝希摩斯.SC2Mod"),
         ];
-        let payloads = collect_payloads(&entries, "");
-        assert_eq!(payloads.len(), 1);
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &payloads[0].target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("void".into())
-                },
-            )
-            .as_deref(),
-            Some("Maps/Campaign/void/01.SC2Map"),
-            "小写 maps/ 要当 Maps/ 用，而且不许再套一层 maps"
-        );
-
-        // 但平坦的 maps/01 仍然是作者的分类习惯 —— 照旧拍平到能扫到的位置，
-        // 别为了修大小写把这类包送进 Maps 根目录。
-        let flat = vec![entry("metadata.txt", false), entry("maps/01.SC2Map", false)];
-        let flat_payloads = collect_payloads(&flat, "");
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &flat_payloads[0].target,
-                &crate::library::compose::Placement::Campaign {
-                    sub: Some("void".into())
-                },
-            )
-            .as_deref(),
-            Some("Maps/Campaign/void/01.SC2Map")
-        );
+        let payloads = collect_payloads(&entries, "", true);
+        let (maps, mods) = count_payloads(&payloads);
+        assert_eq!(maps, 2, "散成目录树的地图也要算");
+        assert_eq!(mods, 1, "Alenger/ 下的两个文件是一个模组");
     }
 }

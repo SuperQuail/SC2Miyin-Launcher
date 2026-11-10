@@ -153,10 +153,10 @@ impl Placement {
 /// 它留在库里等着被编辑器打开）。
 pub fn payload_target_path(target: &PayloadTarget, placement: &Placement) -> Option<String> {
     match target {
-        PayloadTarget::Mirror { path } => Some(path.replace('\\', "/")),
+        PayloadTarget::GamePath { path } => Some(path.replace('\\', "/")),
         // 模组两类战役都要进 Mods/ —— 地图依赖它
         PayloadTarget::Mod { name } => Some(format!("Mods/{name}")),
-        PayloadTarget::Map { name } => {
+        PayloadTarget::CampaignMap { name } => {
             // 自制战役：整包进 Maps/CustomCampaigns/<战役目录>/
             if let Placement::Custom { folder } = placement {
                 return Some(format!("Maps/CustomCampaigns/{folder}/{name}"));
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn map_targets_follow_the_sub_directory() {
-        let map = PayloadTarget::Map {
+        let map = PayloadTarget::CampaignMap {
             name: "paiur01.SC2Map".to_string(),
         };
         assert_eq!(
@@ -471,7 +471,7 @@ mod tests {
     /// 若目标子目录本身就是 swarm/evolution，别拼成两层。
     #[test]
     fn evolution_maps_are_not_doubled_under_the_sub_directory() {
-        let evolution = PayloadTarget::Map {
+        let evolution = PayloadTarget::CampaignMap {
             name: "evolution/zevolutionzergling.SC2Map".to_string(),
         };
         assert_eq!(
@@ -513,7 +513,7 @@ mod tests {
         );
 
         // 镜像路径不受子目录影响 —— 包作者已经写死了落点
-        let mirror = PayloadTarget::Mirror {
+        let mirror = PayloadTarget::GamePath {
             path: "Maps/Campaign/voidprologue/x.SC2Map".to_string(),
         };
         assert_eq!(
@@ -536,7 +536,7 @@ mod tests {
 
         let campaign = vec![payload(
             "a.SC2Map",
-            PayloadTarget::Map {
+            PayloadTarget::CampaignMap {
                 name: "a.SC2Map".to_string(),
             },
             false,
@@ -553,7 +553,7 @@ mod tests {
 
         let patch = vec![payload(
             "a.SC2Map",
-            PayloadTarget::Map {
+            PayloadTarget::CampaignMap {
                 name: "a.SC2Map".to_string(),
             },
             true,
@@ -583,7 +583,7 @@ mod tests {
 
     #[test]
     fn custom_campaigns_install_into_custom_campaigns() {
-        let map = PayloadTarget::Map {
+        let map = PayloadTarget::CampaignMap {
             name: "1. Rebel Yell/Terran01.SC2Map".to_string(),
         };
 

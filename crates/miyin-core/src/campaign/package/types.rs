@@ -34,7 +34,7 @@ pub const MIYIN_FORMAT_VERSION: u32 = 3;
 /// （`xxx.SC2Map/Base.SC2Data/...`），所以这里用 `expanded` 区分，落盘时保持原形态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Payload {
-    /// 相对内容根的路径（文件或目录）。
+    /// 相对内容根的路径（文件或目录）。**文件访问用这条**，与落点无关。
     pub source: String,
     /// 应该落到游戏目录的哪里。
     pub target: PayloadTarget,
@@ -42,43 +42,57 @@ pub struct Payload {
     pub expanded: bool,
     /// 载荷性质：`true` 是模组（`.SC2Mod`），`false` 是地图（`.SC2Map`）。
     ///
-    /// 单独记一份，是因为落点形式（镜像 / Mods / Maps）不能代表性质 ——
-    /// 包内写死 `Mods/x.SC2Mod` 的镜像载荷，落点是镜像，但它仍然是模组。
+    /// 单独记一份，是因为落点类型不代表性质 —— 旧记录里的模组落点可能是
+    /// `GamePath`（包内写死了 `Mods/…`），但它仍然是模组。
     pub is_mod: bool,
 }
 
 impl Payload {
-    /// 落点在游戏目录内的相对路径。
+    /// 落点在游戏目录内的相对路径（**还没有展开战役子目录**，见下）。
     ///
-    /// `Map` 类型只给出文件名，调用方需要补上战役的子目录
-    /// （自由之翼在根下，虫群之心在 `swarm/` ……）。
+    /// `CampaignMap` 只给出相对战役目录的路径，调用方还得补上战役的子目录
+    /// （自由之翼在根下，虫群之心在 `swarm/` ……）—— 展开用
+    /// `library::compose::payload_target_path`。
     pub fn target_path(&self) -> String {
         match &self.target {
-            PayloadTarget::Mirror { path } => path.clone(),
+            PayloadTarget::GamePath { path } => path.clone(),
             PayloadTarget::Mod { name } => format!("Mods/{name}"),
-            PayloadTarget::Map { name } => name.clone(),
+            PayloadTarget::CampaignMap { name } => name.clone(),
         }
     }
 
     /// 载荷名（最后一个路径片段）。
     pub fn target_name(&self) -> String {
         match &self.target {
-            PayloadTarget::Mirror { path } => path.rsplit('/').next().unwrap_or(path).to_string(),
-            PayloadTarget::Mod { name } | PayloadTarget::Map { name } => name.clone(),
+            PayloadTarget::GamePath { path } => path.rsplit('/').next().unwrap_or(path).to_string(),
+            PayloadTarget::Mod { name } | PayloadTarget::CampaignMap { name } => name.clone(),
         }
     }
 }
 
-/// 载荷的落点。
+/// 载荷的落点（三种语义，判定表见 `package::paths@@payload_target`）。
+///
+/// 序列化后的 `kind` 值保持旧写法（`mirror@@mod@@map`）——
+/// 战役库 `library.json` 与前端 IPC 都按它读，改语义不能改协议。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PayloadTarget {
-    /// 包内已经是游戏目录镜像：按这个相对路径落盘。
-    Mirror { path: String },
-    /// 落到 `<游戏>/Mods/<name>`。
+    /// **包内写死了游戏目录内的相对路径**（序列化写作 `mirror`，沿用旧名）：
+    /// `Maps/Campaign/…`、`Mods/…`、`Interfaces/…` 或镜像根下的兄弟目录。
+    #[serde(rename = "mirror", alias = "game_path")]
+    GamePath { path: String },
+    /// 模组：`name` 是相对 `Mods/` 的路径（可以带目录），落 `<游戏>/Mods/<name>`。
+    ///
+    /// 目录结构必须保留 —— 地图依赖里写的就是 `Mods\<作者目录>\…`。
     Mod { name: String },
-    /// 落到 `<游戏>/Maps/Campaign/[子目录]/<name>`，子目录由绑定的战役决定。
-    Map { name: String },
+    /// 战役地图：`name` 是相对**这个战役自己的目录**的路径（可以带目录，如 `evolution/…`）。
+    ///
+    /// 最终落点由导入槽位决定：官方改版进 `<游戏>/Maps/Campaign[/子目录]/`，
+    /// 自制战役进 `<游戏>/Maps/CustomCampaigns/<版本目录>/`。
+    ///
+    /// 序列化沿用旧名 `map`（见上一条：协议不能改）。
+    #[serde(rename = "map", alias = "campaign_map")]
+    CampaignMap { name: String },
 }
 
 /// 包内一个条目的摘要。
@@ -214,5 +228,46 @@ pub(crate) fn unusable(path: &Path, code: &str, message: String, hint: &str) -> 
         entry_count: 0,
         unpacked_bytes: 0,
         issues: vec![HealthIssue::broken(code, message).with_hint(hint)],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 序列化协议不能变：战役库 `library.json` 与前端 IPC 都按 `kind` 读，
+    /// 旧记录（`mirror`/`mod`/`map`）必须还能读，新记录旧版启动器也要能读。
+    #[test]
+    fn payload_target_json_stays_backward_compatible() {
+        let game: PayloadTarget =
+            serde_json::from_str(r#"{"kind":"mirror","path":"Maps/Campaign/a.SC2Map"}"#)
+                .expect("旧记录能读");
+        assert!(
+            matches!(&game, PayloadTarget::GamePath { path } if path == "Maps/Campaign/a.SC2Map")
+        );
+        assert_eq!(
+            serde_json::to_string(&game).expect("能写"),
+            r#"{"kind":"mirror","path":"Maps/Campaign/a.SC2Map"}"#
+        );
+
+        let module: PayloadTarget =
+            serde_json::from_str(r#"{"kind":"mod","name":"Alenger/1钢铁.SC2Mod"}"#)
+                .expect("旧记录能读");
+        assert!(matches!(&module, PayloadTarget::Mod { name } if name == "Alenger/1钢铁.SC2Mod"));
+        assert_eq!(
+            serde_json::to_string(&module).expect("能写"),
+            r#"{"kind":"mod","name":"Alenger/1钢铁.SC2Mod"}"#
+        );
+
+        let card: PayloadTarget =
+            serde_json::from_str(r#"{"kind":"map","name":"evolution/zevo.SC2Map"}"#)
+                .expect("旧记录能读");
+        assert!(
+            matches!(&card, PayloadTarget::CampaignMap { name } if name == "evolution/zevo.SC2Map")
+        );
+        assert_eq!(
+            serde_json::to_string(&card).expect("能写"),
+            r#"{"kind":"map","name":"evolution/zevo.SC2Map"}"#
+        );
     }
 }
