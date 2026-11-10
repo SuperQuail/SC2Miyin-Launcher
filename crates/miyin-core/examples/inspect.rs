@@ -54,9 +54,9 @@ fn main() {
                 );
                 for payload in inspection.payloads.iter().take(6) {
                     let target = match &payload.target {
-                        PayloadTarget::Mirror { path } => format!("镜像 {path}"),
+                        PayloadTarget::GamePath { path } => format!("镜像 {path}"),
                         PayloadTarget::Mod { name } => format!("Mods/{name}"),
-                        PayloadTarget::Map { name } => format!("战役目录/{name}"),
+                        PayloadTarget::CampaignMap { name } => format!("战役目录/{name}"),
                     };
                     println!(
                         "    - {} -> {} [{}]",

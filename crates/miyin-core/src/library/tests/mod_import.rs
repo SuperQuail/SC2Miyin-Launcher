@@ -422,39 +422,28 @@ fn a_package_with_several_mods_imports_all_of_them() {
 }
 
 #[test]
-fn mods_inside_a_named_package_keep_their_folder() {
+fn mods_keep_their_subfolders() {
     use crate::campaign::package::payload_target;
     use crate::library::compose::{Placement, payload_target_path};
 
-    // 真实样本的摆法：包根多一层「包名」目录，模组在它下面的 Mods/ 里。
+    // 地图依赖里写的是 Mods\Alenger\1钢铁.SC2Mod 这种**相对游戏根**的路径，
+    // 所以 Mods/ 之后的目录结构必须原样保留。
     //
-    // 踩过的坑：payload_target 原来只判断「开头是不是 Mods/」，
-    // 这一层包名目录把前缀吃掉了，于是掉进「模组取最后一段当名字」那条路，
-    // Mods/Alenger/1钢铁.SC2Mod 变成 Mods/1钢铁.SC2Mod ——
-    // **Alenger/ 这一层没了**，地图里声明的 Mods\Alenger\… 自然找不到。
+    // （以前这里还带一层「包名目录」，靠落点解析在整条路径里搜 Mods/ 段兜底；
+    //  现在那层由布局分析剥掉，见 package::layout —— 落点只认内容根相对路径的开头。）
     let campaign = Placement::Campaign { sub: None };
 
-    let nested = payload_target(
-        "疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod",
-        true,
-        "",
-        false,
-    );
+    let nested = payload_target("Mods/Alenger/1钢铁.SC2Mod", true, "", true);
     assert_eq!(
         payload_target_path(&nested, &campaign).as_deref(),
         Some("Mods/Alenger/1钢铁.SC2Mod"),
-        "包名下面那一层也要原样保留"
+        "Alenger/ 这一层不能丢"
     );
 
-    let expanded = payload_target(
-        "疯批帝国军械库2.3/Mods/kit_liberty_story.SC2Mod/Assets/x.dds",
-        true,
-        "",
-        false,
-    );
+    let expanded = payload_target("Mods/kit_liberty_story.SC2Mod", true, "", true);
     assert_eq!(
         payload_target_path(&expanded, &campaign).as_deref(),
-        Some("Mods/kit_liberty_story.SC2Mod/Assets/x.dds")
+        Some("Mods/kit_liberty_story.SC2Mod")
     );
 
     // 地图同理
@@ -497,7 +486,7 @@ fn payload_counts_use_payload_roots_not_file_extensions() {
     // 这正是 count_payloads 实际会看到的东西。
     let make = |path: &str, is_mod: bool| Payload {
         source: path.to_string(),
-        target: PayloadTarget::Mirror {
+        target: PayloadTarget::GamePath {
             path: path.to_string(),
         },
         expanded: !is_mod,

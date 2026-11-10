@@ -11,7 +11,7 @@ use std::path::PathBuf;
 fn declared_mod_without_suffix_matches_payload_with_suffix() {
     let payload = |source: &str| Payload {
         source: source.to_string(),
-        target: PayloadTarget::Mirror {
+        target: PayloadTarget::GamePath {
             path: source.to_string(),
         },
         expanded: true,
@@ -110,6 +110,257 @@ fn nested_metadata_inside_a_game_mirror_keeps_sibling_mods() {
     assert!(targets.contains(&"Maps/Campaign/tarcade.SC2Map".to_string()));
     assert!(targets.contains(&"Mods/叛逃者.SC2Mod".to_string()));
     assert!(targets.contains(&"Mods/醒悟者.SC2Mod".to_string()));
+}
+
+/// 真实样本「机翻版（中文启动）」：包根是游戏目录镜像（`Maps/` + `Mods/`），
+/// `metadata.txt` 在 `Maps/` 里，地图直接躺在 `Maps/` 根上。
+///
+/// 以前这些地图被当成镜像路径，激活后落在 `<游戏>/Maps/xxx.SC2Map` ——
+/// 游戏根本不扫那里：导入显示成功，战役一动不动。
+#[test]
+fn flat_maps_inside_a_game_mirror_land_in_campaign_maps() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "coop.zip",
+        &[
+            (
+                "Maps/metadata.txt",
+                "title=Coop AI Overhaul\ncampaign=WoL\nversion=Wol Coop AI 1.3\n".as_bytes(),
+            ),
+            ("Maps/thanson01.SC2Map", b"stub"),
+            ("Maps/tzeratul04.SC2Map", b"stub"),
+            ("Mods/SCEvo_Core.SC2Mod", b"stub"),
+            ("Mods/UED.SC2Mod/DocumentHeader", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert!(inspection.installable, "问题：{:?}", inspection.issues);
+    assert_eq!(inspection.format, CampaignFormat::Ccm);
+    assert_eq!(inspection.campaign_type, CampaignType::Wol);
+    assert_eq!(inspection.suggested_slot.as_deref(), Some("wol"));
+    assert_eq!(inspection.content_root, "", "镜像包的内容根是包根");
+    assert_eq!(inspection.map_count, 2);
+    assert_eq!(inspection.mod_count, 2);
+
+    let placement = crate::library::compose::Placement::of("wol", "coop", None);
+    let landings: Vec<String> = inspection
+        .payloads
+        .iter()
+        .filter_map(|payload| {
+            crate::library::compose::payload_target_path(&payload.target, &placement)
+        })
+        .collect();
+
+    for path in [
+        "Maps/Campaign/thanson01.SC2Map",
+        "Maps/Campaign/tzeratul04.SC2Map",
+        "Mods/SCEvo_Core.SC2Mod",
+        "Mods/UED.SC2Mod",
+    ] {
+        assert!(
+            landings.iter().any(|landing| landing == path),
+            "缺 {path}，实际：{landings:?}"
+        );
+    }
+    assert!(
+        !landings
+            .iter()
+            .any(|landing| landing == "Maps/thanson01.SC2Map"),
+        "不许再落到游戏不扫的 Maps 根：{landings:?}"
+    );
+}
+
+/// 没有元数据、包名那层里才是 `Maps/` + `Mods/`（真实样本「疯批帝国军械库2.4」）。
+///
+/// 内容根要剥掉包名那层 —— 以前靠落点解析在整条路径里搜 `Maps`/`Mods` 段兜底，
+/// 包名会跟着进库（载荷源路径全带前缀），现在布局这一步就剥干净。
+#[test]
+fn metadata_less_wrapped_mirror_strips_the_package_folder() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "arms.zip",
+        &[
+            ("疯批帝国军械库2.3/Maps/Campaign/tarcade.SC2Map", b"stub"),
+            ("疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert_eq!(inspection.content_root, "疯批帝国军械库2.3");
+    assert_eq!(inspection.map_count, 1);
+    assert_eq!(inspection.mod_count, 1);
+
+    let targets: Vec<String> = inspection
+        .payloads
+        .iter()
+        .map(Payload::target_path)
+        .collect();
+    assert_eq!(
+        targets,
+        vec![
+            "Maps/Campaign/tarcade.SC2Map".to_string(),
+            "Mods/Alenger/1钢铁.SC2Mod".to_string(),
+        ]
+    );
+}
+
+/// 复刻战役 SCMR 形态：根上有 `Mods/`，兄弟目录是 `Maps/` 里的内容。
+///
+/// 启动器地图按 `Maps/` 相对路径联动关卡（`GameSetNextMap("Starcraft Mass Recall/…")`），
+/// 所以目录结构必须原样保留到 `<游戏>/Maps/…`。
+#[test]
+fn mirror_root_sibling_directories_are_maps_relative() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "scmr.zip",
+        &[
+            ("Mods/SCMRmod.SC2Mod", b"stub"),
+            (
+                "Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+                b"stub",
+            ),
+            (
+                "Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map",
+                b"stub",
+            ),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert_eq!(inspection.content_root, "");
+    assert_eq!(inspection.map_count, 2);
+    assert!(
+        inspection
+            .issues
+            .iter()
+            .all(|issue| issue.code != "UNSAFE_ENTRY")
+    );
+
+    let targets: Vec<String> = inspection
+        .payloads
+        .iter()
+        .map(Payload::target_path)
+        .collect();
+    assert!(
+        targets.contains(&"Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map".to_string())
+    );
+    assert!(
+        targets.contains(&"Maps/Starcraft Mass Recall/SCMR Campaign Launcher.SC2Map".to_string())
+    );
+}
+
+/// 作者省了 `Maps/` 的官方分类目录：`Campaign/…`、`CustomCampaigns/…` 要补上。
+#[test]
+fn campaign_directories_without_the_maps_prefix_are_game_paths() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "short.zip",
+        &[
+            ("metadata.txt", "title=短写\ncampaign=LOTV\n".as_bytes()),
+            ("Campaign/void/paiur01.SC2Map", b"stub"),
+            ("CustomCampaigns/某战役/第1关.SC2Map", b"stub"),
+            ("Mods/X.SC2Mod", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    let targets: Vec<String> = inspection
+        .payloads
+        .iter()
+        .map(Payload::target_path)
+        .collect();
+    assert!(targets.contains(&"Maps/Campaign/void/paiur01.SC2Map".to_string()));
+    assert!(targets.contains(&"Maps/CustomCampaigns/某战役/第1关.SC2Map".to_string()));
+    assert!(targets.contains(&"Mods/X.SC2Mod".to_string()));
+}
+
+/// 两个分类目录里各有一张同名地图：拍平后会撞到同一个落点，必须提前说。
+#[test]
+fn duplicate_targets_are_reported() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "dup.zip",
+        &[
+            ("metadata.txt", "title=重名\ncampaign=WOL\n".as_bytes()),
+            ("maps/a.SC2Map", b"stub"),
+            ("files/a.SC2Map", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert_eq!(inspection.map_count, 2);
+    assert!(
+        inspection
+            .issues
+            .iter()
+            .any(|issue| issue.code == "DUPLICATE_TARGET"),
+        "{:?}",
+        inspection.issues
+    );
+}
+
+/// 模组自己带的 `metadata.txt` 不是包的元数据：拿它解析，标题与归属会全错。
+#[test]
+fn metadata_inside_a_mod_is_ignored() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "modmeta.zip",
+        &[
+            ("metadata.txt", "title=真包\ncampaign=WOL\n".as_bytes()),
+            (
+                "Mods/X.SC2Mod/metadata.txt",
+                "title=假包\ncampaign=LOTV\n".as_bytes(),
+            ),
+            ("Mods/X.SC2Mod/Base.SC2Data/a.xml", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    assert_eq!(inspection.name.as_deref(), Some("真包"));
+    assert_eq!(inspection.campaign_type, CampaignType::Wol);
+    assert_eq!(inspection.mod_count, 1);
+}
+
+/// 镜像包里每个战役目录各带一份元数据：取最浅、同层按路径排序（结果可复现），
+/// 并且报一声 —— 到底以哪份为准，得让人看得见。
+#[test]
+fn multiple_metadata_files_are_reported_and_deterministic() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "multi.zip",
+        &[
+            (
+                "Maps/Campaign/swarm/metadata.txt",
+                "title=虫心包\ncampaign=HOTS\n".as_bytes(),
+            ),
+            (
+                "Maps/CustomCampaigns/某战役/metadata.txt",
+                "title=自制包\ncampaign=custom\n".as_bytes(),
+            ),
+            ("Maps/Campaign/swarm/zlab.SC2Map", b"stub"),
+        ],
+    );
+
+    let inspection = inspect(&archive).expect("预检应成功");
+    // 两份深度相同，按路径排序 Campaign/… 在 CustomCampaigns/… 前面
+    assert_eq!(inspection.name.as_deref(), Some("虫心包"));
+    assert_eq!(inspection.campaign_type, CampaignType::Hots);
+    assert!(
+        inspection
+            .issues
+            .iter()
+            .any(|issue| issue.code == "MULTIPLE_METADATA"),
+        "{:?}",
+        inspection.issues
+    );
 }
 
 #[test]
