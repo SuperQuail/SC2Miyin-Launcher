@@ -22,11 +22,11 @@
 | 格式 | 怎么读 |
 | --- | --- |
 | **zip** | 原生读（快路径，也是绝大多数包的形态） |
-| **7z / rar / tar / cpio / …** | 交给系统自带的解压器解到临时目录，再按目录遍历 |
+| **7z / rar / tar / cpio / …** | 交给**内嵌的 7-Zip** 解到临时目录，再按目录遍历 |
 
-Windows 10 1803+ 自带的 `tar.exe` 其实就是 **bsdtar（libarchive）**，
-一个工具覆盖 zip / tar / 7z / **rar5** / cpio —— 所以"兼容任意打包形式"不需要任何额外安装。
-找不到 `tar` 时再依次试 7-Zip、UnRAR。
+启动器把 7-Zip 的 `7z.exe` 打进 exe（见 `docs/third-party.md`），运行时解到
+`%LOCALAPPDATA%\net.miyin.launcher\tools\7zip-2605\` —— 用户机器上不用装 7-Zip，
+7z / RAR5 / tar / cpio 都能读，加密包用 `-p`。
 
 实测：`枪兵之翼1.03幼儿园就这版 CCM.7z`（49 MB）与
 `平衡x2虫心（有单位升级）.rar`（186 MB，RAR5）都能直接导入，中文路径也解对了。
@@ -36,11 +36,10 @@ Windows 10 1803+ 自带的 `tar.exe` 其实就是 **bsdtar（libarchive）**，
 | 形态 | 判据 | 兼容对象 |
 | --- | --- | --- |
 | 标准包 | **包根**有 `metadata.json` | 星际枢纽标准 |
-| CCM 包 | 包内任意层级有 `metadata.txt` | CCM 生态 |
-| 镜像包 | 包内出现 `Maps/` 或 `Mods/` 顶层目录 | 玩家手工打包（见 §1.4） |
+| CCM 包 | 包内任意层级（**载荷之外**）有 `metadata.txt` | CCM 生态 |
+| 镜像包 | 内容根那一层直接摆着 `Maps/`、`Mods/` 或 `Interfaces/` | 玩家手工打包（见 §1.4） |
 | 最小地图包 | 只有 `.SC2Map`（文件或目录），没有任何元数据 | 玩家手工打包（见 §1.5） |
 
-`.rar`、`.7z` **不支持**，会明确提示（转换方法：解压后重新打成 zip）。
 
 ### 1.2 元数据
 
@@ -79,44 +78,79 @@ Windows 10 1803+ 自带的 `tar.exe` 其实就是 **bsdtar（libarchive）**，
 - **缺失时由启动器生成**：`auto-<8 位随机>`，并写回战役记录
 - **可以编辑**：用户在启动器里改 ID 会同时更新补丁的引用
 
-### 1.4 包内布局：镜像
+### 1.4 包内布局：内容根与「游戏目录镜像」
 
-玩家手工打的包经常直接就是游戏目录的样子：
+包内内容的摆放有两件事必须先确定，后面所有落点都由它们推出：
 
-```text
-Maps/Campaign/void/metadata.txt      <- 元数据也在这里
-Maps/Campaign/void/epiloguestory01.SC2Map/...
-Maps/Campaign/voidprologue/...
-Mods/SomeMod.SC2Mod/...
-```
+1. **内容根**：包里真正内容的起始层（解压时剥掉的上层）。
+2. **是不是游戏目录镜像**：内容根下直接摆着 `Mods/`（这时作者的兄弟目录就是
+   `Maps/` 里的内容，真实样本是复刻战役 SCMR）。
 
-启动器会**识别这种镜像结构**并把 `Maps/`、`Mods/` 作为落点依据（仍然要过白名单校验），
-而不是把整棵 `Maps/` 树塞进战役目录。
+判定顺序（实现见 `campaign::package::layout`）：
 
-外面再套一层包名目录也可以（`皇卫/Maps/…` + `皇卫/Mods/…`），
-**即使 `metadata.txt` 埋在 `Maps/Campaign/` 里**：内容根取包名那一层，
-否则同包的 `Mods/` 会被切掉，模组静默丢失（真实样本「叛逃皇卫完结版」）。
+| 情形 | 内容根 |
+| --- | --- |
+| 有元数据，且元数据目录**上面**某层直接装着 `Maps/` / `Mods/` / `Interfaces/` | 那一层（真实样本「叛逃皇卫完结版」：`叛逃皇卫/{Maps,Mods}`，metadata 埋在 `叛逃皇卫/Maps/Campaign/`） |
+| 有元数据，上面没有这样的层 | 元数据所在目录（CCM 平铺包就是包根） |
+| 没有元数据 | 包内**最浅**的、直接装着游戏目录的那一层（真实样本「疯批帝国军械库2.4」：`疯批帝国军械库2.3/{Maps,Mods}`） |
+| 没有元数据，也没有游戏目录 | 包根 |
 
-> `metadata.txt` 只声明「这是什么包」，**不定义内容根**。内容根由布局决定：
-> 从包根往下第一个直接放着 `Maps` / `Mods` / `Interfaces` 的目录。
-> 不要把它实现成「metadata 所在目录 = 内容边界」—— 那比 CCM 本身更严，
-> 会把 metadata 所在目录之外的兄弟目录（比如 `Mods/`）静默丢掉。
+几条硬规矩：
 
-**只认规范拼写 `Maps/` / `Mods/`**：包作者拿小写 `maps/` 当普通内容目录用的情况很常见，
-一律按镜像处理会把它们误送到游戏根下。
+- **`metadata.txt` 只声明「这是什么包」，不定义内容根。** 不要把它实现成
+  「metadata 所在目录 = 内容边界」—— 那比 CCM 本身更严，会把 metadata 所在目录之外的
+  兄弟目录（比如 `Mods/`）静默丢掉。
+- **只认规范拼写**：`Maps` / `Mods` / `Interfaces` 大小写不敏感（Windows 上本来
+  就是同一个目录），落点一律写规范拼写。小写 `maps/` 后面不是官方分类目录时，
+  按作者的分类习惯处理（见 §1.4.1）。
+- **`Miyin/` 是我们自己的附加数据**（导出包会把封面、说明、补丁原文塞进去），
+  它不是包内容，不算内容根、也不算载荷。
+- **多份元数据**：取最浅的；同层按路径排序（结果可复现），并给出
+  `MULTIPLE_METADATA` 警告 —— 镜像包里每个战役目录各带一份元数据的情况真会出现。
+  **载荷（`.SC2Map` / `.SC2Mod` 的解开目录树）里面的 `metadata.txt` 不算**：
+  模组自己也会带说明文件，拿它解析会把整个包的标题与归属读错。
+- **算不出内容根**时如实警告（`CONTENT_OUTSIDE_METADATA` / `MULTI_ROOT`），
+  不猜：宁可让用户看一眼，也不能悄悄装错。
 
-### 包内相对目录怎么解释
+镜像包的判断只有一条：**内容根下直接有 `Mods/`**。这时作者的兄弟目录相对 `Maps/`，
+目录结构要原样保留（SCMR 的启动器地图按 `GameSetNextMap("Starcraft Mass Recall/…")`
+这种相对 `Maps/` 的路径联动关卡，拍平就找不到任何关卡）。
 
-包里出现子目录时，它的含义**取决于内容根站在哪里**（两个真实样本教给我们的）：
+### 1.4.1 载荷落点判定
 
-| 情形 | 样本 | 规则 |
+**每个 `.SC2Map` / `.SC2Mod` 的落点由一条判定表决定**（实现见
+`campaign::package::paths::payload_target`）。输入是**内容根相对路径**与
+「是不是游戏目录镜像」两个事实，**只看路径开头**，不在整条路径里找 `Maps`/`Mods` 段
+（那样一个叫 `Maps` 的普通子目录也能把落点带偏）。
+
+| # | 包内路径（相对内容根） | 落点 |
 | --- | --- | --- |
-| 内容根**已经落在**官方战役目录里（`X/swarm/metadata.txt`） | 酒馆合作虫心 | 包内相对路径是**该战役目录之内**的结构，原样保留：`evolution/y.SC2Map` → `Maps/Campaign/swarm/evolution/y.SC2Map` |
-| 内容根是包根，顶层就是**官方目录名** | 净化者纪元幼儿园 | 那是绝对路径：`voidprologue/y.SC2Map` → `Maps/Campaign/voidprologue/y.SC2Map` |
-| 内容根是包根，顶层是**任意分类目录** | `maps/01.SC2Map` | 没有游戏语义，只取文件名：→ `Maps/Campaign/void/01.SC2Map` |
+| 1 | 模组：`Mods/Alenger/x.SC2Mod`、`MODS/x.SC2Mod` | `<游戏>/Mods/Alenger/x.SC2Mod`（`Mods/` 之后原样保留） |
+| 2 | 模组：`x.SC2Mod`（没写 `Mods/`） | `<游戏>/Mods/x.SC2Mod` |
+| 3 | 模组：`Alenger/x.SC2Mod`（没写 `Mods/`，带目录） | `<游戏>/Mods/Alenger/x.SC2Mod`（目录结构保留 —— 地图依赖写的就是它） |
+| 4 | 裸地图：`x.SC2Map`（没有任何目录层） | 战役地图：官方改版 → `Maps/Campaign[/子目录]/x.SC2Map`；自制战役 → `Maps/CustomCampaigns/<版本目录>/x.SC2Map` |
+| 5 | 显式游戏路径：`Maps/Campaign/…`、`Maps/CustomCampaigns/…`、`Maps/<作者目录>/…` | 原路径（落点必须真的被游戏扫描或按路径引用，见下） |
+| 6 | `Maps/` 根上的裸地图：`Maps/x.SC2Map` | 同第 4 行（游戏不扫 `Maps` 根，它只能是战役地图） |
+| 7 | 省了 `Maps/` 的官方分类目录：`Campaign/…`、`CustomCampaigns/…` | `Maps/Campaign/…`、`Maps/CustomCampaigns/…` |
+| 8 | 官方战役目录名开头：`voidprologue/…`、`swarm/…`、`swarm/evolution/…`、`nova/…` | 战役地图，相对战役目录保留原路径（展开时补 `Maps/Campaign[/子目录]/`） |
+| 9 | 进化任务：`evolution/…`（内容根是 swarm 或包根） | 战役地图 `evolution/…`（展开时落到 `Maps/Campaign/swarm/evolution/…`） |
+| 10 | 镜像根的兄弟目录：`Starcraft Mass Recall/1. Rebel Yell/x.SC2Map` | `Maps/Starcraft Mass Recall/1. Rebel Yell/x.SC2Map` |
+| 11 | 其余（作者的分类目录）：`maps/01.SC2Map`、`files/02.SC2Map` | 战役地图，只取文件名（游戏不扫作者自拟的目录名） |
 
-判错的后果很实在：进化地图被摆到虫心主目录、序章地图被摆进虚空之遗主目录 ——
-游戏都找不到。见 `payload_target` 与 `known_campaign_prefix`。
+**为什么 `Maps` 根上的裸地图（第 6 行）算战役地图**：游戏只按固定路径读官方战役
+（`Maps/Campaign/…`）、按目录公约读自制战役（`Maps/CustomCampaigns/…`），其余目录里
+的地图要被启动器地图**按路径引用**才有意义。`Maps/xxx.SC2Map` 谁都不引用它，
+作者真正的意思就是「这个包的战役地图」。真实样本「机翻版（中文启动）」：
+整个 CCM 包被套进了游戏目录镜像（`Maps/metadata.txt` + `Maps/*.SC2Map` + `Mods/…`），
+以前被当成镜像路径，落进游戏不扫的 `Maps/` 根 —— 导入显示成功、战役一动不动。
+
+同一份内容如果被判定成两个相同的落点（例如两个分类目录里各有一张同名地图），
+预检会报 `DUPLICATE_TARGET`：落盘不会出错，但游戏里只会剩一个。
+
+> 协议里的落点类型仍沿用旧写法 `mirror` / `mod` / `map`（战役库 `library.json`
+> 与前端 IPC 都按它读）：`mirror` = 包内写死的游戏目录相对路径，`mod` = 进 `Mods/`，
+> `map` = 战役地图（相对战役目录）。判定表里的第 1–3 行是 `mod`，第 5、7、10 行是
+> `mirror`，其余是 `map`。
 
 ### 1.5 最小地图包
 

@@ -137,7 +137,13 @@ export interface Identification {
   detail: string;
 }
 
-/** 载荷的落点。 */
+/**
+ * 载荷的落点（判定表见 docs/package-format.md §1.4.1）。
+ *
+ * - `mirror`：包内写死了游戏目录相对路径（协议沿用旧名，语义是 GamePath）
+ * - `mod`：落到 `<游戏>/Mods/<name>`
+ * - `map`：战役地图，`name` 相对战役目录，最终落点由槽位决定
+ */
 export type PayloadTarget =
   | { kind: "mirror"; path: string }
   | { kind: "mod"; name: string }

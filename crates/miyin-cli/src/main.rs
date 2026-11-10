@@ -394,9 +394,9 @@ fn expand_payloads(payloads: &[Payload], placement: &Placement) -> Vec<Placement
         .iter()
         .map(|payload| {
             let kind = match &payload.target {
-                PayloadTarget::Mirror { .. } => "mirror",
+                PayloadTarget::GamePath { .. } => "mirror",
                 PayloadTarget::Mod { .. } => "mod",
-                PayloadTarget::Map { .. } => "map",
+                PayloadTarget::CampaignMap { .. } => "map",
             };
             PlacementItem {
                 source: payload.source.clone(),

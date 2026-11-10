@@ -74,7 +74,7 @@ pub struct ModKey {
 ///
 /// 两种写法都算模组：
 /// - `PayloadTarget::Mod` —— 包内是裸的 `X.SC2Mod`
-/// - `PayloadTarget::Mirror` 且落在 `Mods/` 下 —— 包内是游戏目录镜像
+/// - `PayloadTarget::GamePath` 且落在 `Mods/` 下 —— 包内是游戏目录镜像
 ///   （真实样本几乎都是这种）
 pub fn mod_identity(payload: &Payload) -> Option<ModKey> {
     match &payload.target {
@@ -82,8 +82,8 @@ pub fn mod_identity(payload: &Payload) -> Option<ModKey> {
         // （名字里可能还带子目录，所以拼上前缀交给统一的解析）
         PayloadTarget::Mod { name } => mod_key_of(&format!("Mods/{name}")),
         // 游戏目录镜像：路径已经带 Mods/ 前缀了
-        PayloadTarget::Mirror { path } => mod_key_of(path),
-        PayloadTarget::Map { .. } => None,
+        PayloadTarget::GamePath { path } => mod_key_of(path),
+        PayloadTarget::CampaignMap { .. } => None,
     }
 }
 

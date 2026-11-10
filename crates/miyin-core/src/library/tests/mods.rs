@@ -81,7 +81,7 @@ fn mods_are_grouped_by_folder_not_by_file() {
     // 分组：同一个文件夹下的多个载荷归成一行
     let payload = |source: &str| Payload {
         source: source.to_string(),
-        target: PayloadTarget::Mirror {
+        target: PayloadTarget::GamePath {
             path: source.to_string(),
         },
         expanded: false,
