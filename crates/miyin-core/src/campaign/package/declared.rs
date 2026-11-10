@@ -18,7 +18,10 @@ use super::types::{Entry, MIYIN_FORMAT_VERSION};
 /// 只装「作者写了什么」；推导出来的东西（内容根、载荷、归属、目录名）都不在这里。
 pub(super) struct Declared {
     pub(super) format: CampaignFormat,
-    /// 元数据所在目录；镜像包会被换成空串（见 resolve_content_root）。
+    /// **元数据所在目录**（相对包根；空串 = 包根）。
+    ///
+    /// 注意它**不是内容根** —— 内容根由 `layout::analyze` 结合布局推出
+    /// （镜像包里元数据目录下面还有 Maps/Mods 的时候，两者不一样）。
     pub(super) content_root: String,
     pub(super) name: Option<String>,
     pub(super) author: Option<String>,
@@ -46,6 +49,22 @@ fn clean(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
+/// 这条元数据是不是躺在载荷（`.SC2Map` / `.SC2Mod` 解开目录树）里面。
+///
+/// 模组自己常带 README / metadata.txt —— 那不是「这个包的元数据」，
+/// 拿它解析会把整个包的标题、归属都读错。只看路径里的目录段，文件名本身不算。
+fn inside_payload(relative: &std::path::Path) -> bool {
+    let mut parts: Vec<&std::ffi::OsStr> = relative
+        .components()
+        .map(|component| component.as_os_str())
+        .collect();
+    parts.pop();
+    parts.iter().any(|part| {
+        let lower = part.to_string_lossy().to_ascii_lowercase();
+        lower.ends_with(".sc2map") || lower.ends_with(".sc2mod")
+    })
+}
+
 /// 阶段 2：元数据定位与解析。
 ///
 /// 三选一：包根 metadata.json（弥音标准）-> 最浅的 metadata.txt / patch.txt（CCM）
@@ -62,22 +81,45 @@ pub(super) fn read_declarations(
 
     // metadata.txt 是 CCM 的；patch.txt 是我们给**没有战役元数据的补丁**准备的同格式文件
     // （现实里的补丁往往只有一个说明.txt，作者想声明依赖就得有个地方写）。
-    let ccm_entry = entries
+    //
+    // 两份以上时取**最浅**的那份（包根 > 子目录），同层按路径排序保证结果可复现，
+    // 并且报一声 —— 镜像包里每个战役目录各带一份元数据的情况是真会出现的。
+    let mut ccm_candidates: Vec<&Entry> = entries
         .iter()
+        .filter(|entry| !inside_payload(&entry.relative))
         .filter(|entry| {
             entry.relative.file_name().is_some_and(|name| {
                 name.eq_ignore_ascii_case("metadata.txt") || name.eq_ignore_ascii_case("patch.txt")
             })
         })
-        .min_by_key(|entry| entry.relative.components().count());
+        .collect();
+    ccm_candidates.sort_by(|left, right| {
+        left.relative
+            .components()
+            .count()
+            .cmp(&right.relative.components().count())
+            .then_with(|| left.relative.cmp(&right.relative))
+    });
+    if ccm_candidates.len() > 1 {
+        issues.push(HealthIssue::warning(
+            "MULTIPLE_METADATA",
+            format!(
+                "包内有 {} 份元数据，已按最浅的那份（{}）解析",
+                ccm_candidates.len(),
+                ccm_candidates[0].relative.display()
+            ),
+        ));
+    }
+    let ccm_entry = ccm_candidates.first().copied();
 
     // 子目录里的 metadata.json 会被忽略：这是参考实现踩过的坑（装了却扫不到）
     if standard_entry.is_none()
         && entries.iter().any(|entry| {
-            entry
-                .relative
-                .file_name()
-                .is_some_and(|name| name.eq_ignore_ascii_case("metadata.json"))
+            !inside_payload(&entry.relative)
+                && entry
+                    .relative
+                    .file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("metadata.json"))
         })
     {
         issues.push(HealthIssue::warning(

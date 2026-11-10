@@ -200,17 +200,22 @@ JSON 里如实写 `"slug": null`。这不是"失败"，是结论（见 §4）。
 | `base` | 这个槽位的落点基址：`Maps/Campaign` 或 `Maps/CustomCampaigns/<folder>` |
 | `payloads[].target` | **游戏目录内**的相对路径（正斜杠）；`null` = 这个载荷不进游戏目录 |
 | `payloads[].raw_target` | 包自己给的落点；`target` 为 `null` 时看它（实际不会编一条假路径出来） |
-| `payloads[].kind` | `mirror` 包内已按游戏目录摆好 / `mod` 落到 `Mods/` / `map` 按槽位子目录展开 |
+| `payloads[].kind` | `mirror` 包内写死了游戏目录相对路径（判定表见 `docs/package-format.md` §1.4.1）/ `mod` 落到 `Mods/` / `map` 战役地图，按槽位子目录展开 |
 
 **`target` 只代表"会往哪写"，不等于已经写了。** 这份输出是**预演**，一个字节都没落盘。
 
 ### 落点由谁决定（读输出前先知道这几条）
 
-- **镜像包**：包根上有 `Mods/` 或 `Maps/` 时整包按镜像落盘，
-  连包内的大小写与层级一起保留（`package::mirrors_game_root`）
-- **官方战役**：`map` 落 `Maps/Campaign/<子目录>/`，子目录由槽位定（hots → `swarm`、lotv → `void`……）
-- **自制战役**：`Maps/CustomCampaigns/<folder>/` —— 那是 CCM 与玩家认的位置
-- **模组**：两类战役都进 `Mods/`（地图里写死了依赖路径，只去那里找）
+- **布局只分析一次**（`package::layout`）：内容根、包根是不是游戏目录镜像。
+- **显式游戏路径**（`mirror`）：包内写死了游戏目录相对路径（`Maps/Campaign/…`、
+  `Maps/<作者目录>/…`、镜像根下的兄弟目录），按原路径落盘
+- **战役地图**（`map`）：相对「这个战役自己的目录」，官方战役落
+  `Maps/Campaign/<子目录>/`（子目录由槽位定：hots → `swarm`、lotv → `void`……），
+  自制战役落 `Maps/CustomCampaigns/<folder>/`
+- **模组**（`mod`）：两类战役都进 `Mods/`，`Mods/` 之后的目录结构原样保留
+  （地图里写死了依赖路径，只去那里找）
+
+完整判定表（哪种包内形态落到哪）见 `docs/package-format.md` §1.4.1。
 
 ---
 

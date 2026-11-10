@@ -230,19 +230,19 @@ fn placements_follow_the_slot_subdirectory() {
     assert_eq!(item["raw_target"], "paiur01.SC2Map");
 }
 
-/// 镜像包（根上有 Mods/）：整包按游戏目录镜像落盘，连大小写一起保留。
+/// 游戏目录镜像里的显式路径原样落盘；模组一律进 Mods/。
 ///
-/// 这条是核心的既定规则（package::mirrors_game_root），不是 CLI 的选择 ——
+/// 这条是核心的既定规则（package::paths::payload_target 的判定表），不是 CLI 的选择 ——
 /// 别的 agent 拿 placements 判断落点时看到的就是这个结果。
 #[test]
-fn placements_keep_mirror_paths() {
+fn placements_keep_explicit_game_paths() {
     let dir = tempfile::tempdir().expect("tempdir");
     let archive = build_zip(
         dir.path(),
         "mirror.zip",
         &[
             ("metadata.txt", b"title=Mirror\ncampaign=LOTV\n".as_slice()),
-            ("maps/paiur01.SC2Map", b"stub".as_slice()),
+            ("Maps/Campaign/void/paiur01.SC2Map", b"stub".as_slice()),
             ("Mods/X.SC2Mod", b"stub".as_slice()),
         ],
     );
@@ -257,12 +257,61 @@ fn placements_keep_mirror_paths() {
         .iter()
         .map(|item| item["target"].as_str().expect("落点应当是字符串"))
         .collect();
-    assert!(targets.contains(&"Maps/maps/paiur01.SC2Map"));
+    assert!(targets.contains(&"Maps/Campaign/void/paiur01.SC2Map"));
     assert!(targets.contains(&"Mods/X.SC2Mod"));
-    assert!(
-        payloads.iter().all(|item| item["kind"] == "mirror"),
-        "镜像载荷的 kind 应当是 mirror"
+
+    // 落点类型：地图是写死的游戏路径（协议里的 kind 仍叫 mirror），模组是 mod
+    let kind_of = |target: &str| {
+        payloads
+            .iter()
+            .find(|item| item["target"] == target)
+            .map(|item| item["kind"].as_str().unwrap_or_default().to_string())
+            .expect("找到载荷")
+    };
+    assert_eq!(kind_of("Maps/Campaign/void/paiur01.SC2Map"), "mirror");
+    assert_eq!(kind_of("Mods/X.SC2Mod"), "mod");
+}
+
+/// 真实样本「机翻版（中文启动）」：`Maps/metadata.txt` + `Maps/*.SC2Map` + `Mods/`。
+///
+/// `Maps/` 根上的裸地图不是游戏会扫的位置 —— 它是战役地图，要落到 `Maps/Campaign/`；
+/// 同包的模组照常进 `Mods/`。
+#[test]
+fn placements_treat_flat_maps_inside_a_game_mirror_as_campaign_maps() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let archive = build_zip(
+        dir.path(),
+        "coop.zip",
+        &[
+            (
+                "Maps/metadata.txt",
+                b"title=Coop AI Overhaul\ncampaign=WOL\n".as_slice(),
+            ),
+            ("Maps/thanson01.SC2Map", b"stub".as_slice()),
+            ("Mods/X.SC2Mod", b"stub".as_slice()),
+        ],
     );
+
+    let output = cli(&["placements", archive.to_str().expect("utf-8 路径")]);
+    let report = stdout_json(&output);
+    assert_eq!(code(&output), 0);
+    assert_eq!(report["slot"], "wol");
+
+    let payloads = report["payloads"].as_array().expect("数组");
+    let find = |source: &str| {
+        payloads
+            .iter()
+            .find(|item| item["source"] == source)
+            .cloned()
+            .expect("找到载荷")
+    };
+    let map = find("Maps/thanson01.SC2Map");
+    assert_eq!(map["kind"], "map");
+    assert_eq!(map["target"], "Maps/Campaign/thanson01.SC2Map");
+
+    let module = find("Mods/X.SC2Mod");
+    assert_eq!(module["kind"], "mod");
+    assert_eq!(module["target"], "Mods/X.SC2Mod");
 }
 
 /// --slot 手动指定优先，且认不出来的 slug 是参数错（退出 2）而不是算一条假路径。
@@ -350,8 +399,8 @@ fn compat_official_revision_differs_but_both_recognized() {
         "reborn.zip",
         &[
             ("metadata.txt", b"title=Reborn\ncampaign=LOTV\n".as_slice()),
-            // 包根**不能**出现 Mods/ —— 那会让整包按游戏目录镜像落盘
-            // （package::mirrors_game_root），maps/ 就变成 Maps/maps/ 了
+            // 包根**不能**出现 Mods/ —— 有它就算游戏目录镜像，兄弟路径会拼到 Maps/ 下
+            // （见 package::layout::analyze）
             ("paiur01.SC2Map", b"stub".as_slice()),
             ("X.SC2Mod", b"stub".as_slice()),
         ],

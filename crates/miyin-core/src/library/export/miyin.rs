@@ -261,9 +261,9 @@ fn legacy_metadata(slot_slug: &str, variant: &Variant) -> String {
                 "source": payload.source,
                 "expanded": payload.expanded,
                 "target": match &payload.target {
-                    PayloadTarget::Mirror { path } => serde_json::json!({ "kind": "mirror", "path": path }),
+                    PayloadTarget::GamePath { path } => serde_json::json!({ "kind": "mirror", "path": path }),
                     PayloadTarget::Mod { name } => serde_json::json!({ "kind": "mod", "name": name }),
-                    PayloadTarget::Map { name } => serde_json::json!({ "kind": "map", "name": name }),
+                    PayloadTarget::CampaignMap { name } => serde_json::json!({ "kind": "map", "name": name }),
                 },
             })
         })

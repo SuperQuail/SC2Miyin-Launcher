@@ -2,6 +2,45 @@
 //!
 //! 全是纯函数 —— 只看字符串与路径，不碰压缩包、不写盘。判错的后果都是「游戏扫不到」，
 //! 所以每一条规则都带着真实样本的来历。
+//!
+//! # 落点只有三种语义
+//!
+//! | 类型 | 含义 | 最终落点 |
+//! | --- | --- | --- |
+//! | `GamePath` | 包里**写死**了游戏目录内的相对路径 | 原路径（见判定表） |
+//! | `Mod` | 模组，相对 `Mods/` 的路径（目录结构保留） | `Mods/…` |
+//! | `CampaignMap` | 战役地图，相对**这个战役自己的目录**的路径 | 由导入槽位决定 |
+//!
+//! `CampaignMap` 的名字可以带目录层（`evolution/…`、`voidprologue/…`），
+//! 展开成游戏路径是 `library::compose::payload_target_path` 的事。
+//!
+//! # 判定表
+//!
+//! 输入是**内容根相对路径**（`layout::analyze` 已经剥掉包装层）与两个布局事实
+//! （内容根、包根是不是游戏目录镜像）。顺序即优先级：
+//!
+//! | # | 形态 | 例子 | 结果 |
+//! | --- | --- | --- | --- |
+//! | 1 | 模组 | `Mods/Alenger/x.SC2Mod` / `X.SC2Mod` | `Mod { name: 相对 Mods 的路径 }` |
+//! | 2 | 裸地图（没有目录层） | `x.SC2Map` | `CampaignMap { x }` |
+//! | 3 | 游戏目录开头，`Maps/` 下还有目录 | `Maps/Campaign/void/a.SC2Map` | `GamePath` 原样 |
+//! | 4 | `Maps/` 根上直接躺着的裸地图 | `Maps/x.SC2Map` | `CampaignMap { x }`（游戏不扫 `Maps` 根） |
+//! | 5 | 省了 `Maps/` 的官方分类目录 | `Campaign/void/a.SC2Map` | `GamePath { Maps/Campaign/… }` |
+//! | 6 | 战役内容形态（官方战役目录名开头 / 内容根已在战役目录里） | `voidprologue/a.SC2Map`、`evolution/za.SC2Map` | `CampaignMap` |
+//! | 7 | 包根是游戏目录镜像时的兄弟路径 | `Starcraft Mass Recall/1. Rebel Yell/a.SC2Map` | `GamePath { Maps/… }` |
+//! | 8 | 其余（作者的分类目录） | `maps/01.SC2Map` | `CampaignMap { 01.SC2Map }` |
+//!
+//! 几条**为什么**：
+//!
+//! - 裸地图（2）没有目录层，写不出有意义的游戏相对路径 —— 游戏扫地图按目录找，
+//!   裸文件只能是战役地图。
+//! - `Maps` 根（4）不是游戏会扫描的位置：官方战役在 `Maps/Campaign`、自制战役在
+//!   `Maps/CustomCampaigns`，其余目录要作者在启动器地图里**按路径引用**。
+//!   `Maps/xxx.SC2Map` 谁都不引用它，实际含义就是「这个包的战役地图」。
+//!   （真实样本「机翻版（中文启动）」：`Maps/metadata.txt` + `Maps/*.SC2Map` + `Mods/…`
+//!   的 CCM 包被套进了游戏目录镜像。）
+//! - 大小写的差别在这里收掉（`maps/`、`MAPS/` 都是 `Maps/`）：Windows 上落盘后
+//!   本来就是同一个目录，按原文拼只会拼出游戏扫不到的 `Maps/maps/…`。
 
 use std::path::{Path, PathBuf};
 
@@ -77,77 +116,21 @@ pub(crate) fn canonical_game_dir(name: &str) -> Option<&'static str> {
     None
 }
 
-/// `Maps/` 后面是不是游戏会扫描的分类目录。
-///
-/// 平坦的 `maps/01.SC2Map` 是**作者的分类习惯**（不是镜像）：真当镜像摆到
-/// `Maps/01.SC2Map` 游戏根本不扫，地图就白装了 —— 那种要交给拍平逻辑。
-fn looks_like_game_category(rest: &[&str]) -> bool {
-    rest.first().is_some_and(|first| {
-        first.eq_ignore_ascii_case("campaign") || first.eq_ignore_ascii_case("customcampaigns")
-    })
-}
-
-/// 路径里第一段 `Maps` / `Mods`，从那里往后就是游戏目录内的相对路径。
-///
-/// **为什么不能只看开头**：包常常多一层「包名」目录 ——
-/// 真实样本是 `疯批帝国军械库2.3/Mods/Alenger/1钢铁.SC2Mod`。
-/// 只判断 `starts_with("Mods/")` 的话这一层就把整个前缀吃掉了，
-/// 掉到下面按 `is_mod` 取「最后一段当名字」，
-/// 结果 `Mods/Alenger/1钢铁.SC2Mod` 变成 `Mods/1钢铁.SC2Mod` ——
-/// **`Alenger/` 这一层没了**，地图里声明的 `Mods\Alenger\…` 自然找不到。
-///
-/// **大小写不敏感**：Windows 上 `maps/` 就是 `Maps/`，落盘之后没有区别 ——
-/// 用户在 Windows 上放 `maps/Campaign/…`，装完必须长成 `Maps/Campaign/…`。
-/// 认出来之后用**规范拼写**拼接，盘上的目录名始终是游戏认的那个。
-///
-/// `Maps` 还要求后面跟着游戏扫描的分类（`Campaign` / `CustomCampaigns`）：
-/// 平坦的 `maps/01.SC2Map` 是作者的分类习惯，交给拍平逻辑才对。
-fn game_relative(source: &str) -> Option<String> {
-    let normalised = source.replace('\\', "/");
-    let parts: Vec<&str> = normalised.split('/').collect();
-
-    for (index, part) in parts.iter().enumerate() {
-        let Some(canonical) = canonical_game_dir(part) else {
-            continue;
-        };
-        let rest = &parts[index + 1..];
-        // 只有**大小写不对**的写法才需要额外证据：`maps/` 既可能是镜像也可能是分类习惯。
-        // 规范拼写 `Maps/` 一律当镜像 —— 复刻战役那种 `Maps/Starcraft Mass Recall/…`
-        // 必须原样保留（它的启动器地图按相对 Maps/ 的路径联动关卡，拍平就废了）。
-        let non_canonical = *part != canonical;
-        if non_canonical && canonical == "Maps" && !looks_like_game_category(rest) {
-            continue;
-        }
-        let mut out: Vec<String> = rest.iter().map(|p| p.to_string()).collect();
-        out.insert(0, canonical.to_string());
-        return Some(out.join("/"));
-    }
-
-    None
-}
-
 /// 这个名字是不是官方战役目录（`Maps/Campaign` 下那一层的名字）。
 fn is_known_campaign_dir(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "swarm" | "void" | "voidprologue" | "nova" | "campaign"
+        "swarm" | "void" | "voidprologue" | "nova" | "campaign" | "evolution"
     )
 }
 
 /// 包内相对路径的**顶层目录**是不是官方战役目录名。
 ///
 /// 是的话说明作者已经按游戏的结构摆好了（`voidprologue/…`），落点直接用这条路径；
-/// 否则相对路径是相对"这个战役自己的目录"的（`evolution/…` -> swarm/evolution/）。
+/// 否则相对路径是相对「这个战役自己的目录」的（`evolution/…` -> swarm/evolution/）。
 pub fn known_campaign_prefix(source: &str) -> Option<&'static str> {
     // 长的排前面，避免 `swarm/evolution` 被 `swarm` 抢先匹配
-    const KNOWN: [&str; 6] = [
-        "swarm/evolution",
-        "voidprologue",
-        "swarm",
-        "void",
-        "nova",
-        "customcampaigns",
-    ];
+    const KNOWN: [&str; 5] = ["swarm/evolution", "voidprologue", "swarm", "void", "nova"];
 
     let lower = source.to_ascii_lowercase();
     KNOWN
@@ -155,84 +138,170 @@ pub fn known_campaign_prefix(source: &str) -> Option<&'static str> {
         .find(|prefix| lower.starts_with(&format!("{prefix}/")))
 }
 
-/// 决定载荷落到游戏目录的哪里。
+/// 决定载荷落到游戏目录的哪里。判定表见模块文档。
 ///
-/// 对 crate 内可见是为了能直接测：包名那层怎么剥，只有在这里才说得清。
+/// `content_root` 只用来判断「内容根是不是已经落在某个战役目录里」；
+/// `game_root_mirror` 由 `layout::analyze` 给出。
 pub(crate) fn payload_target(
     source: &str,
     is_mod: bool,
     content_root: &str,
-    mirrors_game_root: bool,
+    game_root_mirror: bool,
 ) -> PayloadTarget {
-    // 包内已经摆好了游戏目录那一层（`Maps/…` 或 `Mods/…`）-> 按原路径落盘
-    if let Some(relative) = game_relative(source) {
-        return PayloadTarget::Mirror { path: relative };
+    let path = normalise(source);
+    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+
+    // 载荷根一定带文件名；真遇到空路径也别 panic，当无名战役内容交给后面。
+    let Some(first) = segments.first().copied() else {
+        return PayloadTarget::CampaignMap {
+            name: String::new(),
+        };
+    };
+
+    // 1) 模组：唯一归宿是 `Mods/` 下 —— 地图依赖里写的是 `Mods\…` 这种相对游戏根的
+    //    路径，所以 `Mods/` 之后的目录结构必须原样保留（`Alenger/1钢铁.SC2Mod` 是
+    //    一个模组的一部分，不是两个）。没写 `Mods/` 的按「模组自己的目录」摆，同样保留结构。
+    if is_mod {
+        let name = strip_leading_dir(&segments, "Mods").unwrap_or_else(|| segments.join("/"));
+        return PayloadTarget::Mod { name };
     }
 
-    // 包是**按游戏根目录摆的**（根上有 `Mods/`）：那其余顶层目录就是 `Maps/`
-    // 底下的，**结构和名字都要原样保留**。
-    //
-    // 判据来自作者自己：他既然把 `Mods/` 摆在根上，兄弟目录就是 `Maps/` 的内容。
-    // 这里**不能**拍平 —— 复刻战役的启动器地图按 `Starcraft Mass Recall/…`
-    // 这个相对 Maps/ 的路径联动下一关，拍平了它就找不到任何关卡。
-    if mirrors_game_root {
-        let path = source.replace('\\', "/");
-        return PayloadTarget::Mirror {
+    // 2) 裸地图：没有目录层，写不出有意义的游戏相对路径 —— 只能是战役内容。
+    if segments.len() == 1 {
+        return campaign_map(&path, content_root);
+    }
+
+    // 3/4) 开头就是游戏目录（大小写不敏感，落点用规范拼写）
+    if let Some(canonical) = canonical_game_dir(first) {
+        let rest = &segments[1..];
+        return match canonical {
+            // `Maps/Campaign`、`maps/campaign` 也归一成规范拼写（Windows 上本来就是一回事）
+            "Maps" if rest.len() >= 2 => PayloadTarget::GamePath {
+                path: under_maps(rest),
+            },
+            // `Maps/` 根上直接躺着的地图不是游戏会扫的位置（官方战役在
+            // `Maps/Campaign`、自制在 `Maps/CustomCampaigns`、其余目录要按路径引用）——
+            // 它实际含义就是「这个包的战役地图」。
+            "Maps" => campaign_map(&rest.join("/"), content_root),
+            _ => PayloadTarget::GamePath {
+                path: join_parts(&[canonical], rest),
+            },
+        };
+    }
+
+    // 5) 省了 `Maps/` 的官方分类目录：`Campaign/…`、`CustomCampaigns/…`
+    if first.eq_ignore_ascii_case("campaign") || first.eq_ignore_ascii_case("customcampaigns") {
+        return PayloadTarget::GamePath {
+            path: under_maps(&segments),
+        };
+    }
+
+    // 6) 战役内容形态：内容根已经在战役目录里，或者作者按游戏结构写了官方目录名。
+    let root_last = content_root.rsplit('/').next().unwrap_or_default();
+    let in_campaign_dir = is_known_campaign_dir(root_last);
+    let leading_campaign_shape =
+        known_campaign_prefix(&path).is_some() || first_is_evolution(&path);
+    if in_campaign_dir || leading_campaign_shape {
+        return campaign_map(&path, content_root);
+    }
+
+    // 7) 包根是游戏目录镜像：兄弟目录相对 `Maps/`（复刻战役 SCMR 那种按路径联动关卡）。
+    if game_root_mirror {
+        return PayloadTarget::GamePath {
             path: format!("Maps/{path}"),
         };
     }
 
-    let path = source.replace('\\', "/");
+    // 8) 其余都是战役内容（作者的分类目录会拍平）。
+    campaign_map(&path, content_root)
+}
 
-    if is_mod {
-        // 走到这里说明路径里**没有** `Mods/` 这一段（比如包根光秃秃一个
-        // `X.SC2Mod`），那就当单文件模组，落到 `Mods/` 下。
-        // 有 `Mods/` 的情况上面已经按原路径处理掉了。
-        let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-        return PayloadTarget::Mod { name };
-    }
+/// 战役内容（`CampaignMap`）的相对路径怎么取。
+///
+/// - 内容根已经在战役目录里（`X/swarm/metadata.txt`）：包内相对路径是**该战役目录之内**
+///   的结构，原样保留；进化任务的内容根（`evolution`）要补回 `evolution/` 这一层。
+/// - 作者写了官方战役目录名（`voidprologue/…`、`swarm/…`、`nova/…`）：原样保留，
+///   由 placement 决定从哪一层拼。
+/// - 其余（作者的分类目录、被拒的 `Maps` 根裸地图）：只取文件名 —— 游戏不扫作者自拟的目录名。
+fn campaign_map(relative: &str, content_root: &str) -> PayloadTarget {
+    let path = relative.trim_matches('/');
+    let root_last = content_root.rsplit('/').next().unwrap_or_default();
 
-    // 地图该不该保留包内的相对目录，取决于**内容根站在哪里**：
-    //
-    // - 内容根已经落在官方战役目录里（`X/swarm/metadata.txt`）-> 包内相对路径是
-    //   该战役目录**之内**的结构，要原样保留（`evolution/…` -> swarm/evolution/…）
-    // - 否则相对路径是**并列**于战役目录的：顶层是官方目录名（`voidprologue/…`）
-    //   就说明作者按游戏结构摆好了；其余（`maps/…`）只是作者的分类习惯，只取文件名
-    // **HotS 的进化任务**：官方的目录是 `Maps/Campaign/swarm/evolution/`。
-    // 作者经常把包内顶层写成 `evolution/…` —— 这是**相对战役目录**的结构
-    // （见 known_campaign_prefix 的说明），要保留这一层交给 placement 拼到 `swarm/` 下。
-    // 拍平到 swarm 根的话，游戏在「进化」里根本找不到这些地图（真实样本：AI盟友虫群之心）。
-    // 另一种写法是 metadata.txt 就放在 evolution/ 里（内容根自己就是 evolution），同理。
-    let evolution_root = content_root
-        .rsplit('/')
-        .next()
-        .is_some_and(|name| name.eq_ignore_ascii_case("evolution"));
-    let leading_evolution = path.contains('/')
-        && path
-            .split('/')
-            .next()
-            .is_some_and(|name| name.eq_ignore_ascii_case("evolution"));
-    if evolution_root || leading_evolution {
-        let name = if evolution_root && !leading_evolution {
-            format!("evolution/{path}")
-        } else {
-            path.clone()
+    if root_last.eq_ignore_ascii_case("evolution") {
+        return PayloadTarget::CampaignMap {
+            name: if first_is_evolution(path) {
+                path.to_string()
+            } else {
+                format!("evolution/{path}")
+            },
         };
-        return PayloadTarget::Map { name };
     }
 
-    let leading_is_campaign_dir = known_campaign_prefix(&path).is_some();
-    let root_is_campaign_dir = content_root
-        .rsplit('/')
+    if is_known_campaign_dir(root_last) {
+        return PayloadTarget::CampaignMap {
+            name: path.to_string(),
+        };
+    }
+
+    if known_campaign_prefix(path).is_some() || first_is_evolution(path) {
+        return PayloadTarget::CampaignMap {
+            name: path.to_string(),
+        };
+    }
+
+    let name = path.rsplit('/').next().unwrap_or(path);
+    PayloadTarget::CampaignMap {
+        name: name.to_string(),
+    }
+}
+
+/// 统一分隔符、去掉首尾与重复的 `/`。
+fn normalise(source: &str) -> String {
+    source
+        .replace('\\', "/")
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// `segments` 以 `dir` 开头（大小写不敏感）时返回其余部分。
+fn strip_leading_dir(segments: &[&str], dir: &str) -> Option<String> {
+    let first = segments.first()?;
+    first
+        .eq_ignore_ascii_case(dir)
+        .then(|| segments[1..].join("/"))
+        .filter(|rest| !rest.is_empty())
+}
+
+/// `Maps/` 下的路径：`Campaign` / `CustomCampaigns` 这一层用规范拼写。
+fn under_maps(rest: &[&str]) -> String {
+    match rest.first() {
+        Some(first) if first.eq_ignore_ascii_case("campaign") => {
+            join_parts(&["Maps", "Campaign"], &rest[1..])
+        }
+        Some(first) if first.eq_ignore_ascii_case("customcampaigns") => {
+            join_parts(&["Maps", "CustomCampaigns"], &rest[1..])
+        }
+        _ => join_parts(&["Maps"], rest),
+    }
+}
+
+fn join_parts(prefix: &[&str], rest: &[&str]) -> String {
+    prefix
+        .iter()
+        .copied()
+        .chain(rest.iter().copied())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// 路径第一段是不是 `evolution`（HotS 进化任务，相对战役目录的那一层）。
+fn first_is_evolution(path: &str) -> bool {
+    path.split('/')
         .next()
-        .is_some_and(is_known_campaign_dir);
-
-    if path.contains('/') && (root_is_campaign_dir || leading_is_campaign_dir) {
-        return PayloadTarget::Map { name: path };
-    }
-
-    let name = path.rsplit('/').next().unwrap_or(&path).to_string();
-    PayloadTarget::Map { name }
+        .is_some_and(|first| first.eq_ignore_ascii_case("evolution"))
 }
 
 /// `candidate` 是否位于 `root` 之下（用来判断载荷是不是解开的目录树）。
@@ -246,6 +315,285 @@ pub(crate) fn is_under(candidate: &Path, root: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::compose::{Placement, payload_target_path};
+
+    /// 判定表的一行。
+    fn check(
+        source: &str,
+        is_mod: bool,
+        content_root: &str,
+        mirror: bool,
+        expected: PayloadTarget,
+    ) {
+        let found = payload_target(source, is_mod, content_root, mirror);
+        assert_eq!(found, expected, "输入 {source:?}");
+    }
+
+    fn card(name: &str) -> PayloadTarget {
+        PayloadTarget::CampaignMap {
+            name: name.to_string(),
+        }
+    }
+
+    fn game(path: &str) -> PayloadTarget {
+        PayloadTarget::GamePath {
+            path: path.to_string(),
+        }
+    }
+
+    fn module(name: &str) -> PayloadTarget {
+        PayloadTarget::Mod {
+            name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn campaign_content_is_recognised_in_every_written_form() {
+        // 平铺 CCM：内容根旁边的地图
+        check("paiur01.SC2Map", false, "", false, card("paiur01.SC2Map"));
+        // 作者的分类目录：拍平（游戏不扫作者自拟的目录名）
+        check("maps/01.SC2Map", false, "", false, card("01.SC2Map"));
+        check("files/扩展/02.SC2Map", false, "", false, card("02.SC2Map"));
+        // 官方战役目录名开头：原样保留
+        check(
+            "voidprologue/voidprologue01.SC2Map",
+            false,
+            "",
+            false,
+            card("voidprologue/voidprologue01.SC2Map"),
+        );
+        check(
+            "swarm/evolution/zevo.SC2Map",
+            false,
+            "",
+            false,
+            card("swarm/evolution/zevo.SC2Map"),
+        );
+        check(
+            "nova/nova01.SC2Map",
+            false,
+            "",
+            false,
+            card("nova/nova01.SC2Map"),
+        );
+        // 进化任务：相对 swarm 战役目录的那一层
+        check(
+            "evolution/zevolutionzergling.SC2Map",
+            false,
+            "",
+            false,
+            card("evolution/zevolutionzergling.SC2Map"),
+        );
+        // 内容根已经落在战役目录里：包内路径是该战役目录之内的结构
+        check(
+            "evolution/zevo.SC2Map",
+            false,
+            "酒馆合作虫心/swarm",
+            false,
+            card("evolution/zevo.SC2Map"),
+        );
+        check(
+            "zchar01.SC2Map",
+            false,
+            "酒馆合作虫心/swarm",
+            false,
+            card("zchar01.SC2Map"),
+        );
+        // 内容根自己就是 evolution：补回这一层
+        check(
+            "zevo.SC2Map",
+            false,
+            "某包/evolution",
+            false,
+            card("evolution/zevo.SC2Map"),
+        );
+    }
+
+    #[test]
+    fn explicit_game_paths_are_kept_exactly_as_written() {
+        // 官方战役镜像
+        check(
+            "Maps/Campaign/void/paiur01.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/Campaign/void/paiur01.SC2Map"),
+        );
+        // 复刻战役：Maps 下的作者目录（启动器地图按相对 Maps/ 的路径联动关卡）
+        check(
+            "Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+            false,
+            "",
+            true,
+            game("Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map"),
+        );
+        // 自制战役目录
+        check(
+            "Maps/CustomCampaigns/精英虫心1.55 汉化/zchar01.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/CustomCampaigns/精英虫心1.55 汉化/zchar01.SC2Map"),
+        );
+        // 大小写与反斜杠都归一成规范拼写
+        check(
+            "maps/campaign/void/a.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/Campaign/void/a.SC2Map"),
+        );
+        check(
+            "MAPS\\CUSTOMCAMPAIGNS\\X\\a.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/CustomCampaigns/X/a.SC2Map"),
+        );
+        // 省了 Maps/ 的官方分类目录
+        check(
+            "Campaign/void/a.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/Campaign/void/a.SC2Map"),
+        );
+        check(
+            "CustomCampaigns/X/a.SC2Map",
+            false,
+            "",
+            false,
+            game("Maps/CustomCampaigns/X/a.SC2Map"),
+        );
+        // 界面 Mod：原样落
+        check(
+            "Interfaces/Pro_2020/UI.SC2Interface",
+            false,
+            "",
+            false,
+            game("Interfaces/Pro_2020/UI.SC2Interface"),
+        );
+    }
+
+    #[test]
+    fn maps_flat_at_the_maps_root_are_campaign_maps() {
+        // 真实样本「机翻版（中文启动）」：Maps/metadata.txt + Maps/*.SC2Map + Mods/…
+        check(
+            "Maps/thanson01.SC2Map",
+            false,
+            "",
+            true,
+            card("thanson01.SC2Map"),
+        );
+        check(
+            "Maps/thanson01.SC2Map",
+            false,
+            "",
+            false,
+            card("thanson01.SC2Map"),
+        );
+        check(
+            "maps/thanson01.SC2Map",
+            false,
+            "",
+            true,
+            card("thanson01.SC2Map"),
+        );
+        check(
+            "MAPS/thanson01.SC2Map",
+            false,
+            "",
+            true,
+            card("thanson01.SC2Map"),
+        );
+    }
+
+    #[test]
+    fn bare_files_are_never_game_paths() {
+        // 裸文件写不出游戏相对路径：镜像根上也不行（以前会变成 Maps/x.SC2Map —— 死路）
+        check("launcher.SC2Map", false, "", true, card("launcher.SC2Map"));
+        check("launcher.SC2Map", false, "", false, card("launcher.SC2Map"));
+    }
+
+    #[test]
+    fn mirror_root_makes_sibling_directories_maps_relative() {
+        // 复刻战役 SCMR：Mods/ 在包根，兄弟目录是 Maps/ 里的内容
+        check(
+            "Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+            false,
+            "",
+            true,
+            game("Maps/Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map"),
+        );
+        // 不在镜像根里就仍按战役内容处理
+        check(
+            "Starcraft Mass Recall/1. Rebel Yell/Terran01.SC2Map",
+            false,
+            "",
+            false,
+            card("Terran01.SC2Map"),
+        );
+    }
+
+    #[test]
+    fn mods_always_land_under_mods_with_their_directories_kept() {
+        check("Mods/X.SC2Mod", true, "", true, module("X.SC2Mod"));
+        check("mods/X.SC2Mod", true, "", false, module("X.SC2Mod"));
+        check("MODS/X.SC2Mod", true, "", false, module("X.SC2Mod"));
+        // 目录结构保留：地图依赖里写的就是带目录的名字
+        check(
+            "Mods/Alenger/1钢铁.SC2Mod",
+            true,
+            "",
+            true,
+            module("Alenger/1钢铁.SC2Mod"),
+        );
+        check(
+            "Alenger/1钢铁.SC2Mod",
+            true,
+            "",
+            false,
+            module("Alenger/1钢铁.SC2Mod"),
+        );
+        // 裸模组 + 镜像根：以前会被塞到 Maps/ 下（死路），现在一律 Mods/
+        check("SCMRmod.SC2Mod", true, "", true, module("SCMRmod.SC2Mod"));
+    }
+
+    #[test]
+    fn landings_are_what_the_game_reads() {
+        // 战役地图：wol 直接进 Maps/Campaign，hots 进 swarm 子目录
+        let wol = Placement::Campaign { sub: None };
+        let hots = Placement::Campaign {
+            sub: Some("swarm".into()),
+        };
+        let custom = Placement::of("custom", "某包", None);
+
+        assert_eq!(
+            payload_target_path(&card("a.SC2Map"), &wol).as_deref(),
+            Some("Maps/Campaign/a.SC2Map")
+        );
+        assert_eq!(
+            payload_target_path(&card("evolution/zevo.SC2Map"), &hots).as_deref(),
+            Some("Maps/Campaign/swarm/evolution/zevo.SC2Map")
+        );
+        assert_eq!(
+            payload_target_path(&card("voidprologue/a.SC2Map"), &wol).as_deref(),
+            Some("Maps/Campaign/voidprologue/a.SC2Map")
+        );
+        assert_eq!(
+            payload_target_path(&card("a.SC2Map"), &custom).as_deref(),
+            Some("Maps/CustomCampaigns/某包/a.SC2Map")
+        );
+        // 模组与游戏路径不受槽位影响
+        assert_eq!(
+            payload_target_path(&module("Alenger/x.SC2Mod"), &custom).as_deref(),
+            Some("Mods/Alenger/x.SC2Mod")
+        );
+        assert_eq!(
+            payload_target_path(&game("Maps/Starcraft Mass Recall/x.SC2Map"), &wol).as_deref(),
+            Some("Maps/Starcraft Mass Recall/x.SC2Map")
+        );
+    }
 
     #[test]
     fn rejects_traversal_and_absolute_entry_names() {
@@ -282,45 +630,5 @@ mod tests {
     fn strip_prefix_drops_content_root() {
         let stripped = strip_prefix(Path::new("MyCampaign/maps/a.SC2Map"), "MyCampaign");
         assert_eq!(stripped, Some(PathBuf::from("maps/a.SC2Map")));
-    }
-
-    /// HotS 进化任务：包内顶层 `evolution/` 是**相对战役目录**的结构，
-    /// 不能被拍平到 swarm 根（真实样本：AI盟友虫群之心）。
-    #[test]
-    fn evolution_maps_keep_their_campaign_relative_prefix() {
-        let target = payload_target("evolution/zevolutionzergling.SC2Map", false, "", false);
-        assert!(
-            matches!(&target, PayloadTarget::Map { name } if name == "evolution/zevolutionzergling.SC2Map"),
-            "{target:?}"
-        );
-
-        // metadata.txt 放在 evolution/ 里：内容根自己就是 evolution
-        let nested = payload_target("zevolutionzergling.SC2Map", false, "evolution", false);
-        assert!(
-            matches!(&nested, PayloadTarget::Map { name } if name == "evolution/zevolutionzergling.SC2Map"),
-            "{nested:?}"
-        );
-
-        // 普通分类目录仍然拍平（maps/a.SC2Map -> a.SC2Map），别把所有目录都保留
-        let flat = payload_target("maps/a.SC2Map", false, "", false);
-        assert!(
-            matches!(&flat, PayloadTarget::Map { name } if name == "a.SC2Map"),
-            "{flat:?}"
-        );
-    }
-
-    /// 界面 Mod：`Interfaces/` 下的东西要原样落到 `<游戏>/Interfaces/`。
-    #[test]
-    fn interface_payloads_keep_their_path() {
-        let target = payload_target("Interfaces/Pro_2020/UI.SC2Interface", false, "", false);
-        assert_eq!(
-            crate::library::compose::payload_target_path(
-                &target,
-                &crate::library::compose::Placement::Campaign { sub: None }
-            )
-            .as_deref(),
-            Some("Interfaces/Pro_2020/UI.SC2Interface"),
-            "界面 Mod 必须原样落，不能拍进 Maps"
-        );
     }
 }

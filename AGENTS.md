@@ -575,10 +575,34 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 `metadata.txt` 直接放在 `evolution/` 里的包同理（内容根就是 evolution）。
 普通分类目录（`maps/`）仍然拍平，别把这条规则扩大化。
 
-另一个坑：包内可能是**游戏目录镜像**（顶层有 `Maps/` 或 `Mods/`）。
-这时内容根必须是**包根**，否则 metadata 所在的那一层会把同包的其它目录切掉 ——
+另一个坑：包内可能是**游戏目录镜像**（内容根那层直接摆着 `Maps/` / `Mods/`）。
+这时内容根必须是**那一层**，否则 metadata 所在目录会把同包的其它目录切掉 ——
 真实案例：metadata 在 `Maps/Campaign/void/`，内容却还包含 `Maps/Campaign/voidprologue/`。
-见 `has_mirror_root`。
+
+**布局只分析一次**（`campaign::package::layout`），产出两个事实：
+
+- **内容根**：有元数据时取「元数据目录或它上面第一个直接装着游戏目录的祖先」；
+  没有元数据时取「包内最浅的直接装着游戏目录的那层」（真实样本「疯批帝国军械库2.4」）。
+  多份元数据取最浅、排序稳定并告警；载荷目录树里的 `metadata.txt` 不算包元数据。
+- **游戏目录镜像**：内容根下直接有 `Mods/`，这时作者的兄弟目录相对 `Maps/`
+  （SCMR：`Starcraft Mass Recall/…` 与 `Mods/` 并列）。
+
+**载荷落点是一张判定表**（`campaign::package::paths::payload_target`，文档见
+`docs/package-format.md` §1.4.1），只看内容根相对路径的**开头**，不再在整条路径里
+找 `Maps`/`Mods` 段（那样一个叫 `Maps` 的普通子目录就能把落点带偏）。几条容易忘的：
+
+- **模组一律进 `Mods/`**，`Mods/` 之后的目录结构原样保留（地图依赖写的就是
+  `Mods\Alenger\…`）。裸模组、镜像根上的裸模组也一样 —— 不能再被塞进 `Maps/`。
+- **裸地图（没有目录层）只能是战役地图**：`Maps/xxx.SC2Map`（游戏不扫 `Maps` 根）、
+  镜像根上的 `xxx.SC2Map` 都落到 `Maps/Campaign[/子目录]/` 或
+  `Maps/CustomCampaigns/<版本目录>/`（真实样本「机翻版（中文启动）」：
+  `Maps/metadata.txt` + `Maps/*.SC2Map` + `Mods/…`）。
+- `Campaign/…`、`CustomCampaigns/…`（省了 `Maps/`）补成 `Maps/…`；
+  `Maps/campaign/…` 这类大小写归一成规范拼写。
+- 两个载荷算出同一个落点时预检报 `DUPLICATE_TARGET`（落盘会静默只留一个）。
+
+落点类型在协议里仍叫 `mirror` / `mod` / `map`（`library.json` 与前端 IPC 都按它读，
+改语义不能改协议）：`mirror` = 包内写死的游戏目录相对路径。
 
 ### 14.6 补丁与版本
 

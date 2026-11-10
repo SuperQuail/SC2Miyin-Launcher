@@ -18,15 +18,17 @@
 //! # 拆分
 //!
 //! - types：结果与载荷的形状、体积上限（对外的类型都在这里）
-//! - paths：包内路径 -> 游戏目录落点的纯函数
+//! - layout：**包内布局**（内容根、包根是不是游戏目录镜像）—— 只分析一次
+//! - paths：包内路径 -> 游戏目录落点的纯函数（判定表）
 //! - payloads：从条目清单里认出地图与模组
 //! - extract：解压到目标目录
 //!
-//! inspect 本身只做编排：安全闸门 -> 元数据 -> 镜像根 -> 载荷 -> 归属 -> 命名。
-//! 六步各有一个私有函数，**顺序不能换**（后一步依赖前一步的结论，问题清单也按这个顺序出）。
+//! inspect 本身只做编排：安全闸门 -> 元数据 -> 布局 -> 载荷 -> 归属 -> 命名。
+//! 各步之间**顺序不能换**（后一步依赖前一步的结论，问题清单也按这个顺序出）。
 
 mod declared;
 mod extract;
+mod layout;
 mod paths;
 mod payloads;
 mod types;
@@ -55,7 +57,8 @@ use crate::error::{Error, Result};
 
 use self::declared::read_declarations;
 use self::extract::read_entry;
-use self::payloads::{collect_payloads, has_game_dir_under};
+use self::layout::Layout;
+use self::payloads::collect_payloads;
 use self::types::{Entry, unusable};
 
 /// 读取并检查一个战役包。
@@ -97,12 +100,19 @@ fn inspect_source(path: &Path, password: Option<&str>) -> Result<PackageInspecti
     // ---- 元数据 ----
     let (declared, mut campaign_type) = read_declarations(&mut archive, &entries, &mut issues);
 
-    // ---- 镜像根 ----
-    let content_root = resolve_content_root(&entries, declared.content_root);
+    // ---- 布局（内容根 + 包根是不是游戏目录镜像）----
+    // 元数据有没有、在哪一层是两个事实：Plain = 没有元数据（布局说了算），
+    // 其余格式的元数据目录可以是空串（就在包根），那也说明包有元数据。
+    let metadata_dir =
+        (declared.format != CampaignFormat::Plain).then_some(declared.content_root.as_str());
+    let layout = layout::analyze(&entries, metadata_dir);
+    issues.extend(layout.issues.clone());
+    let content_root = layout.content_root.clone();
 
     // ---- 载荷 ----
     let mut kind = declared.kind;
-    let payloads = build_payloads(&entries, &content_root, &mut kind, &mut issues);
+    let payloads = build_payloads(&entries, &layout, &mut kind, &mut issues);
+    check_duplicate_targets(&payloads, &mut issues);
 
     // ---- 归属 ----
     let identification = resolve_identification(
@@ -338,34 +348,6 @@ fn scan_entries(archive: &contents::Contents) -> (Vec<Entry>, u64, Vec<HealthIss
     (entries, unpacked_bytes, issues)
 }
 
-/// 阶段 3：内容根。
-///
-/// 镜像包（某一层直接就是 Maps / Mods / Interfaces）的内容根必须是**那一层** ——
-/// 否则 metadata 所在的那一层会把同包的其它目录切掉：真实案例是 metadata 在
-/// Maps/Campaign/void/，可内容同时包含 Maps/Campaign/voidprologue/。
-///
-/// 那一层不一定在包根：作者常多套一层包名目录，而 metadata.txt 落在
-/// Maps/Campaign 里（真实样本「叛逃皇卫完结版」：叛逃皇卫/{Maps,Mods}）。
-/// 从包根往下找**第一个**这样的祖先；都不像就用 metadata 所在目录。
-fn resolve_content_root(entries: &[Entry], discovered: String) -> String {
-    let mut prefix = String::new();
-    if has_game_dir_under(entries, &prefix) {
-        return prefix;
-    }
-
-    for part in discovered.split('/').filter(|part| !part.is_empty()) {
-        if !prefix.is_empty() {
-            prefix.push('/');
-        }
-        prefix.push_str(part);
-        if has_game_dir_under(entries, &prefix) {
-            return prefix;
-        }
-    }
-
-    discovered
-}
-
 /// 单张地图最多读多少字节（畸形包防线）。
 const MAX_MAP_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -434,11 +416,11 @@ fn collect_map_declarations(
 /// 顺带判补丁：**只有模组、一张地图都没有** 且元数据没表态时，按补丁处理。
 fn build_payloads(
     entries: &[Entry],
-    content_root: &str,
+    layout: &Layout,
     kind: &mut PackageKind,
     issues: &mut Vec<HealthIssue>,
 ) -> Vec<Payload> {
-    let payloads = collect_payloads(entries, content_root);
+    let payloads = collect_payloads(entries, &layout.content_root, layout.game_root_mirror);
 
     // 启发式：**只有模组、一张地图都没有** 且元数据没表态 -> 判定为补丁。
     // 现实里的补丁（幼儿园补丁、优化覆盖补丁……）正是这个样子：一堆 .SC2Mod，没有 metadata。
@@ -457,6 +439,35 @@ fn build_payloads(
     }
 
     payloads
+}
+
+/// 两个载荷算出来会落到同一个位置 —— **后落盘的静默盖掉先落盘的**。
+///
+/// 这几乎总是包内文件名撞了（两个分类目录里各有一个同名地图，拍平后同一个落点），
+/// 或者作者的覆盖规则写重了。落盘不会报错、游戏里只会少东西，所以必须提前说一声。
+///
+/// Windows 路径不区分大小写，所以比较时按小写。
+fn check_duplicate_targets(payloads: &[Payload], issues: &mut Vec<HealthIssue>) {
+    let mut seen: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
+
+    for payload in payloads {
+        let key = payload.target_path().to_lowercase();
+        match seen.get(&key) {
+            Some(first) => issues.push(
+                HealthIssue::warning(
+                    "DUPLICATE_TARGET",
+                    format!(
+                        "包内两个载荷会落到同一个位置（{} 与 {}），安装后只会留下一个",
+                        first, payload.source
+                    ),
+                )
+                .with_hint("请让包作者确认这两个文件是否重名；或者手动去掉其中一个再导入"),
+            ),
+            None => {
+                seen.insert(key, payload.source.as_str());
+            }
+        }
+    }
 }
 
 /// 阶段 5：归属判定。

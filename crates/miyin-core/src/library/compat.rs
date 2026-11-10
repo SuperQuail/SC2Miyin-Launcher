@@ -14,7 +14,7 @@
 //! | 官方改版（`campaign=wol`…） | `Maps/Campaign[/子目录]/` | `Maps/CustomCampaigns/<名字>/` |
 //! | 自制战役（`campaign=custom`） | `Maps/CustomCampaigns/<名字>/` | `Maps/CustomCampaigns/<名字>/` |
 //! | 模组 | `Mods/<名字>` | `Mods/<名字>` |
-//! | 镜像载荷（`PayloadTarget::Mirror`） | 按包内写死的路径 | 同样按包内写死的路径 |
+//! | 镜像载荷（`PayloadTarget::GamePath`） | 按包内写死的路径 | 同样按包内写死的路径 |
 //!
 //! 两套都走同一份落点规则（[crate::library::compose]），这里只是**喂不同的 placement** ——
 //! 不另发明一套规则（见 `docs/package-format.md` §1.4 与 AGENTS.md §14.5）。
@@ -245,9 +245,9 @@ fn why(
 
 fn kind_of(target: &PayloadTarget) -> &'static str {
     match target {
-        PayloadTarget::Mirror { .. } => "mirror",
+        PayloadTarget::GamePath { .. } => "mirror",
         PayloadTarget::Mod { .. } => "mod",
-        PayloadTarget::Map { .. } => "map",
+        PayloadTarget::CampaignMap { .. } => "map",
     }
 }
 
@@ -299,7 +299,7 @@ mod tests {
     fn map(name: &str) -> Payload {
         Payload {
             source: name.to_string(),
-            target: PayloadTarget::Map {
+            target: PayloadTarget::CampaignMap {
                 name: name.to_string(),
             },
             expanded: false,
@@ -321,7 +321,7 @@ mod tests {
     fn mirror(path: &str) -> Payload {
         Payload {
             source: path.to_string(),
-            target: PayloadTarget::Mirror {
+            target: PayloadTarget::GamePath {
                 path: path.to_string(),
             },
             expanded: false,

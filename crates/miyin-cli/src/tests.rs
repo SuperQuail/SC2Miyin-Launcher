@@ -84,7 +84,7 @@ mod tests {
     /// 落点：官方战役按子目录展开，自制战役进 CustomCampaigns，模组一律进 Mods。
     #[test]
     fn expands_payloads_per_placement() {
-        let map = payload(PayloadTarget::Map {
+        let map = payload(PayloadTarget::CampaignMap {
             name: "paiur01.SC2Map".to_string(),
         });
         let module = Payload {
