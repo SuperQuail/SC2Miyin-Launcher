@@ -180,6 +180,7 @@ export interface LauncherApi {
     slot: string | null,
     mode: ImportMode,
     password?: string | null,
+    name?: string | null,
   ): Promise<Variant>;
   /** 改一个已导入版本的元数据。 */
   updateVariant(

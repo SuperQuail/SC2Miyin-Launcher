@@ -109,8 +109,14 @@ const desktop: LauncherApi = {
     invoke<ConvertedScnexus>("convert_scnexus_campaign", { id, removeSource }),
   prepareImport: (path, entry, password) =>
     invoke<ImportPreview>("prepare_import", { path, entry: entry ?? null, password: password ?? null }),
-  importPackageWith: (path, slot, mode, password) =>
-    invoke<Variant>("import_package", { path, slot, mode, password: password ?? null }),
+  importPackageWith: (path, slot, mode, password, name) =>
+    invoke<Variant>("import_package", {
+      path,
+      slot,
+      mode,
+      password: password ?? null,
+      name: name ?? null,
+    }),
   updateVariant: (slot, variantId, changes) =>
     invoke<Variant>("update_variant", { slot, variantId, changes }),
 

@@ -18,7 +18,7 @@ export interface NavigationApi {
   openDevPage: () => void;
   /** 安装页的入口：战役包还是自制战役包（决定预检按哪套规则认归属）—— 来自 `?entry=`。 */
   installEntry: "campaign" | "custom";
-  /** 进「安装整合包」页。**先到页面、再在那里选文件** —— 别一上来就弹系统选择器。 */
+  /** 进「导入战役包」页。**先到页面、再在那里选文件** —— 别一上来就弹系统选择器。 */
   openInstall: (entry?: "campaign" | "custom") => void;
   /** 回上一处（装完 / 返回）。 */
   back: () => void;
