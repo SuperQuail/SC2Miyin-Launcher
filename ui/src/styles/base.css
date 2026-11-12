@@ -215,13 +215,28 @@ textarea {
 
 .sheet__card {
   width: min(460px, 92vw);
+  /* 弹窗最高只能占满一屏（.sheet 上下各有 24px 内边距）—— 内容再多也不许溢出屏幕 */
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
   padding: 20px 22px;
   border-radius: var(--radius-lg);
   background: var(--surface-1);
   box-shadow: var(--shadow-3);
+  /* 手写 .sheet__card 的老弹窗没有 .sheet__body，退化成整张卡片滚动 */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 内容区：超长时只滚这里，标题与底部按钮固定不动 */
+.sheet__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .sheet__title {
+  flex: none;
   margin: 0 0 6px;
   font-size: 17px;
 }
@@ -235,6 +250,7 @@ textarea {
 }
 
 .sheet__actions {
+  flex: none;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
