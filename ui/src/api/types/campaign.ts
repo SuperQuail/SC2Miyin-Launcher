@@ -307,7 +307,7 @@ export interface MapEntry {
 /** 主地图的解析结果。 */
 export interface MainMapChoice {
   path: string | null;
-  /** 是不是「只有一张地图，替你选了」。 */
+  /** 是不是**推测**出来的（打表 / 单图 / 包根入口启发式），而不是包或用户声明的。 */
   automatic: boolean;
   /** 声明了却找不到时的提示 —— 只警告，不阻断。 */
   warning: string | null;

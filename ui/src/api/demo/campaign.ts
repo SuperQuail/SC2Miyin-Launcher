@@ -542,14 +542,15 @@ export const campaignDemo = {
       conflict: null,
     }),
 
-  importPackageWith: (path, slot, mode) =>
+  importPackageWith: (path, slot, mode, _password, name) =>
     delay(
       (() => {
         const id = nextDemoCounter();
+        const title = name?.trim() || "导入的战役包";
         const created = variant(
           "导入的战役包 v" + id,
-          "导入的战役包",
-          "未知作者",
+          title,
+          "未提供",
           "1." + id,
           id,
           512_000_000,

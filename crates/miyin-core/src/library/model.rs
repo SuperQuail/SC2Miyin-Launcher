@@ -85,9 +85,12 @@ pub struct Variant {
     /// 找不到就是 `None` —— 界面据此决定不显示「说明」入口。
     #[serde(default)]
     pub doc: Option<String>,
-    /// 包内**声明为依赖**的模组键（`Mods/` 之后的第一段）。
+    /// 这个版本**依赖**的模组键（`Mods/` 之后的第一段）。
     ///
-    /// 与 `mounted_mods` 不是一回事：这个说的是「作者要求必须有」，
+    /// **作者没声明任何模组**时（没有元数据，或元数据里没写 `mods=`），
+    /// 导入会把包里带的模组全部记进来 —— 导出时原样写回元数据，别处再导入就能认出这些依赖；
+    /// 作者写了就按作者的声明来。
+    /// 与 `mounted_mods` 不是一回事：这个说的是「这个战役要用哪些模组」，
     /// 那个说的是「用户当前挂了哪些」。界面拿它标出哪些是必需的。
     #[serde(default)]
     pub declared_mods: Vec<String>,
@@ -214,7 +217,7 @@ pub struct MapEntry {
 pub struct MainMapChoice {
     /// 选中的地图（相对路径）。
     pub path: Option<String>,
-    /// 是不是「只有一张地图，替你选了」。
+    /// 是不是**推测**出来的（打表 / 单图 / 包根入口启发式），而不是包或用户声明的。
     pub automatic: bool,
     /// 声明了却找不到时的提示 —— **只警告，不阻断**。
     pub warning: Option<String>,

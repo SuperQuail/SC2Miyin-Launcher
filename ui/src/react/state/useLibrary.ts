@@ -57,7 +57,7 @@ export interface LibraryApi {
   activate: (slot: string, variantId: string | null) => Promise<boolean>;
   /** 从库里删除一个版本。 */
   removeVariant: (slot: string, variantId: string) => Promise<boolean>;
-  /** 启动游戏。 */
+  /** 启动暴雪战网（登录后再从战网里进游戏）。 */
   launch: () => Promise<void>;
 }
 
@@ -239,7 +239,7 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
   const launch = useCallback(async () => {
     try {
       await api.launchGame();
-      notify("success", "正在启动星际争霸 II…");
+      notify("success", "正在启动暴雪战网…");
     } catch (error) {
       notify("error", errorText(error));
     }

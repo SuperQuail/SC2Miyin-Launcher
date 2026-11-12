@@ -98,10 +98,15 @@ describe("Sheet 的结构", () => {
     expect(host.querySelector(".sheet")?.classList.contains("sheet--wide")).toBe(false);
   });
 
-  it("内容直接渲染在卡片里（不是塞进 actions）", () => {
-    const host = renderSheet({ children: createElement("p", { className: "body" }, "正文") });
+  it("内容在可滚动区里，和 actions 分开（长弹窗只滚内容）", () => {
+    const host = renderSheet({
+      children: createElement("p", { className: "body" }, "正文"),
+      actions: createElement("button", null, "确定"),
+    });
 
-    expect(host.querySelector(".sheet__card > .body")?.textContent).toBe("正文");
+    expect(host.querySelector(".sheet__body > .body")?.textContent).toBe("正文");
+    expect(host.querySelector(".sheet__body .sheet__actions")).toBeNull();
+    expect(host.querySelector(".sheet__card > .sheet__actions")?.textContent).toBe("确定");
   });
 });
 
