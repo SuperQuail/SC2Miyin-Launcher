@@ -1,70 +1,82 @@
-//! **知名复刻战役的入口地图**，打表。
+//! **知名复刻战役的入口地图**：数据在 `crates/miyin-core/assets/known_campaigns.json`，
+//! 这里只负责匹配。
 //!
 //! # 为什么打表
 //!
 //! 这些战役是固定的、作者是固定的、入口地图的文件名也是固定的 ——
 //! 表比启发式可靠得多：不会把某一版的分组目录误判，也不会因为作者改了个
-//! 不起眼的名字就失效。新增一个只要加一行。
+//! 不起眼的名字就失效。
 //!
-//! 表里每一条都要有**实证**：真的见过这个包、或者真的读过它的启动器脚本。
-//! 不确定的名字不要往里填 —— 填错了比不填更糟，用户会以为启动器认对了。
+//! # 数据文件
 //!
-//! # 加一条要什么
+//! 预设数据是 `crates/miyin-core/assets/known_campaigns.json`，构建时 `include_str!`
+//! 进 exe —— 绿色版只有一个 exe，数据跟着版本走，更新器不用碰 `data/`。
+//! **加一条预设 = 往 JSON 的 `campaigns` 数组追加一段，不要改这个文件里的逻辑**：
 //!
-//! ```text
-//! KnownRemake {
-//!     // 给用户看的名字
-//!     name: "某某复刻",
-//!     // 认包的依据：地图路径里出现**任意一条**就算（用 / 分隔，跟内部表示一致）
-//!     signatures: &["特征目录/", "特征文件名.SC2Map"],
-//!     // 入口地图的**文件名**（不带路径 —— 同一个名字可能出现在多处）
-//!     launcher: "某某 Campaign Launcher.SC2Map",
+//! ```json
+//! {
+//!   "name": "给用户看的名字",
+//!   "signatures": ["特征目录/", "特征文件名.SC2Map"],
+//!   "launcher": "某某 Campaign Launcher.SC2Map",
+//!   "note": "实证：在哪见过这个包、入口脚本怎么写"
 //! }
 //! ```
+//!
+//! - `signatures`：地图路径里出现**任意一条**就算（用 `/` 分隔，跟内部表示一致）。
+//! - `launcher`：入口地图的**文件名**（不带路径 —— 同一个名字可能出现在多处）。
+//! - `note`：给维护者留的实证说明，代码不读。**每条都要有实证**，不确定的不要填 ——
+//!   填错了比不填更糟，用户会以为启动器认对了。
+//! - 数组顺序 = 优先级；签名不要跨条目重复。
+//!
+//! 内嵌文件解析失败时退化成空表（认不出入口 = 让用户自己挑，不 panic），
+//! 由 `the_embedded_preset_file_is_well_formed` 测试兜底。
+
+use std::sync::LazyLock;
+
+use serde::Deserialize;
 
 use super::MapEntry;
 
+/// 内嵌的预设数据；构建期进 exe，运行期只解析一次。
+const PRESETS_JSON: &str = include_str!("../../assets/known_campaigns.json");
+
 /// 一条已知的复刻战役。
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KnownRemake {
     /// 给用户看的名字。
-    pub name: &'static str,
+    pub name: String,
     /// 认包的依据：地图路径里出现其中**任意一条**就算。
-    pub signatures: &'static [&'static str],
+    pub signatures: Vec<String>,
     /// 入口地图的文件名（不带路径）。
-    pub launcher: &'static str,
+    pub launcher: String,
+    /// 维护者留的实证说明；代码不读，存在数据文件里跟着条目走。
+    #[serde(default)]
+    pub note: String,
 }
 
-/// 表。
+/// 数据文件的外层结构。
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresetFile {
+    campaigns: Vec<KnownRemake>,
+}
+
+/// 解析好的表。
 ///
-/// ## 星际争霸：复刻战役（Starcraft Mass Recall / SCMR）
-///
-/// 星际争霸 1 的完整复刻，**一个包就是这一部战役**。
-///
-/// 实证：
-///
-/// - 包根有 `Starcraft Mass Recall/` 目录，里面分章节放地图
-/// - 入口是同目录下的 `SCMR Campaign Launcher.SC2Map`（1.7 MB）
-/// - 它的启动器脚本里写的是 `GameSetNextMap("Starcraft Mass Recall/…")`
-///   —— 相对 `Maps/`
-///
-/// **包里的 `Enslavers Redux Campaign Launcher.SC2Map` 不是另一个战役** ——
-/// 那是这部战役里的一个章节（`8. Enslavers Redux/`），不单独成表。
-/// 早先我照着地图列表加了它一条，是**从截图过度推断**，已经删掉。
-///
-/// 表里一条都不许「看着像」就填：填错了用户会以为启动器认对了，
-/// 比不认更糟。
-pub const KNOWN_REMAKES: &[KnownRemake] = &[KnownRemake {
-    name: "星际争霸：复刻战役",
-    // 用**目录前缀**而不是完整路径 —— 作者可能换个文件名，但目录名不会变
-    signatures: &["Starcraft Mass Recall/", "SCMRmod.SC2Mod"],
-    launcher: "SCMR Campaign Launcher.SC2Map",
-}];
+/// 内嵌数据坏了就退化成空表 —— 认不出入口只是让用户自己挑一张，比 panic 好；
+/// 数据本身的合法性由测试保证。
+static PRESETS: LazyLock<Vec<KnownRemake>> = LazyLock::new(|| {
+    serde_json::from_str::<PresetFile>(PRESETS_JSON)
+        .map(|file| file.campaigns)
+        .unwrap_or_default()
+});
 
 /// 从地图列表里认出这是哪部知名复刻的入口；认不出返回 `None`。
 ///
 /// 返回的是**地图路径**（相对版本目录），跟 `MapEntry::path` 一致。
 pub fn find_launcher(maps: &[MapEntry]) -> Option<(String, &'static KnownRemake)> {
-    for remake in KNOWN_REMAKES {
+    for remake in PRESETS.iter() {
         // 这个包是不是它：地图路径里出现任意一条签名
         let hit = maps.iter().any(|map| {
             let path = map.path.replace('\\', "/");
@@ -87,7 +99,7 @@ pub fn find_launcher(maps: &[MapEntry]) -> Option<(String, &'static KnownRemake)
             .iter()
             .filter(|map| {
                 let last = map.path.rsplit('/').next().unwrap_or(&map.path);
-                last.eq_ignore_ascii_case(remake.launcher)
+                last.eq_ignore_ascii_case(&remake.launcher)
             })
             .min_by_key(|map| map.path.matches('/').count())
             .map(|map| map.path.clone());
@@ -122,6 +134,38 @@ mod tests {
             chapter: None,
             size: 0,
             is_main: false,
+        }
+    }
+
+    /// 内嵌的 JSON 至少要能解析、每条都填齐 —— 预设只改数据文件，这份测试就是
+    /// 数据文件的校验；加条目时不用再写一条功能测试。
+    #[test]
+    fn the_embedded_preset_file_is_well_formed() {
+        assert!(!PRESETS.is_empty(), "预设文件不能为空");
+
+        // 签名重复会让「谁先命中」变成隐式的数组顺序问题
+        let mut signatures = std::collections::HashSet::new();
+        for remake in PRESETS.iter() {
+            assert!(!remake.name.trim().is_empty(), "预设缺少名字");
+            assert!(
+                !remake.launcher.trim().is_empty(),
+                "{} 缺少入口地图",
+                remake.name
+            );
+            assert!(
+                !remake.launcher.contains('/') && !remake.launcher.contains('\\'),
+                "{} 的 launcher 只能写文件名，不能带路径：{}",
+                remake.name,
+                remake.launcher
+            );
+            assert!(!remake.signatures.is_empty(), "{} 没有签名", remake.name);
+            for signature in &remake.signatures {
+                assert!(!signature.trim().is_empty(), "{} 有空签名", remake.name);
+                assert!(
+                    signatures.insert(signature.clone()),
+                    "签名重复，命中谁会变成隐式顺序问题：{signature}"
+                );
+            }
         }
     }
 

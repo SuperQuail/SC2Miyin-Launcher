@@ -1,0 +1,13 @@
+{
+  "campaigns": [
+    {
+      "name": "星际争霸：复刻战役",
+      "signatures": [
+        "Starcraft Mass Recall/",
+        "SCMRmod.SC2Mod"
+      ],
+      "launcher": "SCMR Campaign Launcher.SC2Map",
+      "note": "实证：包根有 Starcraft Mass Recall/ 目录，里面分章节放地图；入口是同目录下的 SCMR Campaign Launcher.SC2Map（1.7 MB）；它的启动器脚本里写的是 GameSetNextMap(\"Starcraft Mass Recall/…\")，路径相对 Maps/。包里的 Enslavers Redux Campaign Launcher.SC2Map 不是另一个战役 —— 那是这部战役里的章节（8. Enslavers Redux/），不单独成表。"
+    }
+  ]
+}
