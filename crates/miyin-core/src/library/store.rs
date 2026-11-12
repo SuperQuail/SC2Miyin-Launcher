@@ -14,6 +14,27 @@ use walkdir::WalkDir;
 use super::install::{Manifest, Owner};
 use super::{ImportMode, Library, Variant, now_seconds, require_slot, unique_suffix};
 
+/// 导入时补依赖：**作者没声明任何模组**时，默认把包里带的模组全算依赖。
+///
+/// 「没声明」包括两种情况：包里根本没有元数据（记录由启动器生成），
+/// 或者有元数据但没写 `mods=`。作者写了就**以作者的声明为准**，不替他加 / 减。
+fn declared_mods_of(inspection: &package::PackageInspection) -> Vec<String> {
+    if !inspection.declared_mods.is_empty() {
+        return inspection.declared_mods.clone();
+    }
+
+    let mut keys: Vec<String> = Vec::new();
+    for payload in &inspection.payloads {
+        let Some(found) = super::mod_identity(payload) else {
+            continue;
+        };
+        if !keys.contains(&found.key) {
+            keys.push(found.key);
+        }
+    }
+    keys
+}
+
 /// 把一个战役包导入到指定槽位，返回新建的版本记录。
 ///
 /// 同一个战役可以导入多个版本：目录名重复时会自动加序号，
@@ -24,7 +45,7 @@ pub fn import(
     slot_slug: &str,
     mode: ImportMode,
 ) -> Result<Variant> {
-    import_with_password(library, package, slot_slug, mode, None)
+    import_named_with_password(library, package, slot_slug, mode, None, None)
 }
 
 /// 同上，带密码（加密包）。
@@ -37,6 +58,18 @@ pub fn import_with_password(
     slot_slug: &str,
     mode: ImportMode,
     password: Option<&str>,
+) -> Result<Variant> {
+    import_named_with_password(library, package, slot_slug, mode, password, None)
+}
+
+/// 同上；`name` 是**用户改过的显示名**（导入页可编辑），空 / 只有空白时按包内标题走。
+pub fn import_named_with_password(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+    password: Option<&str>,
+    name: Option<&str>,
 ) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
@@ -51,13 +84,19 @@ pub fn import_with_password(
         return Err(Error::PackageRejected(reason));
     }
 
-    // 显示名优先用元数据里的标题，退回来源的文件名 / 目录名
-    let display_name = inspection
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .or_else(|| package::source_stem(package))
-        .unwrap_or_else(|| "未命名战役".to_string());
+    // 显示名：用户填的优先，其次元数据标题，最后来源的文件名 / 目录名
+    let display_name = name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            inspection
+                .name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| package::source_stem(package))
+                .unwrap_or_else(|| "未命名战役".to_string())
+        });
 
     let slot_dir = library.slot_dir(slot_slug);
     std::fs::create_dir_all(&slot_dir)?;
@@ -166,7 +205,7 @@ pub fn import_with_password(
         main_map: inspection.main_map.clone(),
         // 不写清单 = 还没配过 = 全挂（见 Variant::mounted_mods）
         mounted_mods: None,
-        declared_mods: inspection.declared_mods.clone(),
+        declared_mods: declared_mods_of(&inspection),
         doc: resolve_doc(&target, inspection.doc.as_deref()),
         target_sub,
         cover,

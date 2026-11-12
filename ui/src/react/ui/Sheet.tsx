@@ -34,7 +34,8 @@ export function Sheet({
     >
       <div className={"sheet__card" + (className ? " " + className : "")}>
         {title !== undefined && <h3 className="sheet__title">{title}</h3>}
-        {children}
+        {/* 内容超过一屏时只滚这一块 —— 标题与底部按钮留在原位 */}
+        <div className="sheet__body">{children}</div>
         {actions && <div className="sheet__actions">{actions}</div>}
       </div>
     </div>

@@ -263,10 +263,16 @@ export function CustomCampaignPanel({
         </header>
 
         {mainMap ? (
-          <p className="custom__main">
-            主地图：<code>{mainMap}</code>
-            {choice?.automatic && <span className="custom__auto">（此版本仅有一张地图，已自动选择）</span>}
-          </p>
+          <>
+            <p className="custom__main">
+              主地图：<code>{mainMap}</code>
+            </p>
+            {choice?.automatic && (
+              <p className="custom__warn">
+                主地图为推测结果，如果启动错误请询问发布者或查看文件以获知正确的主地图是什么。
+              </p>
+            )}
+          </>
         ) : choice?.warning ? (
           <p className="custom__warn">{choice.warning}</p>
         ) : (

@@ -203,6 +203,25 @@
   word-break: break-all;
 }
 
+/* 清单里的战役名可改：长得像输入框，但不像表单那样抢空间 */
+.install__row-name-input {
+  width: min(320px, 100%);
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: var(--surface-2);
+  color: inherit;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.install__row-name-input:hover:not(:disabled),
+.install__row-name-input:focus {
+  border-color: var(--outline);
+  outline: none;
+}
+
 .install__row-meta {
   font-size: 12px;
   color: var(--on-surface-variant);

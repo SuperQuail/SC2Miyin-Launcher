@@ -400,3 +400,123 @@ fn registry_version() -> Option<String> {
     }
     None
 }
+
+/// 找到暴雪战网客户端（`Battle.net.exe`）。
+///
+/// 星际争霸 II 必须**从战网登录后**才能玩；直接拉游戏本体只会停在未登录状态。
+/// 所以「开始游戏」改成启动战网 —— 战网可以装在任意盘（本机就在 `F:\`），
+/// 先读它注册的 `battlenet://` 协议（安装器一定会写），再退回卸载项，最后试默认位置。
+#[cfg(windows)]
+pub(crate) fn battle_net_executable() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    use winreg::RegKey;
+    use winreg::enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+
+    // 1) battlenet:// 协议：`HKCR\battlenet\shell\open\command` 的默认值形如
+    //    "F:\Program Files\Battle.net\Battle.net.exe" --uri="%1"
+    let from_protocol = RegKey::predef(HKEY_CLASSES_ROOT)
+        .open_subkey(r"battlenet\shell\open\command")
+        .ok()
+        .and_then(|key| key.get_value::<String, _>("").ok())
+        .and_then(|command| executable_from_spec(&command));
+    if let Some(path) = from_protocol.filter(|path| path.is_file()) {
+        return Some(path);
+    }
+
+    // 2) 卸载项：机器级（32 位视图 + 原生视图）与用户级
+    const UNINSTALL: &str = r"Microsoft\Windows\CurrentVersion\Uninstall\Battle.net";
+    for (root, prefix) in [
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\"),
+        (HKEY_LOCAL_MACHINE, r"SOFTWARE\"),
+        (HKEY_CURRENT_USER, r"SOFTWARE\"),
+    ] {
+        let Ok(key) = RegKey::predef(root).open_subkey(format!("{prefix}{UNINSTALL}")) else {
+            continue;
+        };
+        let candidates = [
+            key.get_value::<String, _>("DisplayIcon")
+                .ok()
+                .and_then(|icon| executable_from_spec(&icon)),
+            key.get_value::<String, _>("InstallLocation")
+                .ok()
+                .map(|dir| PathBuf::from(dir).join("Battle.net.exe")),
+        ];
+        for candidate in candidates.into_iter().flatten() {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // 3) 战网安装器的默认位置
+    ["ProgramFiles(x86)", "ProgramFiles"]
+        .into_iter()
+        .filter_map(std::env::var_os)
+        .map(|base| {
+            PathBuf::from(base)
+                .join("Battle.net")
+                .join("Battle.net.exe")
+        })
+        .find(|candidate| candidate.is_file())
+}
+
+/// 非 Windows：没有战网客户端可找。
+#[cfg(not(windows))]
+pub(crate) fn battle_net_executable() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// 从注册表里的「可执行文件 + 参数」写法中取出可执行文件路径。
+///
+/// 见过两种：`"...\Battle.net.exe" --uri="%1"`（带引号，后面跟参数）
+/// 与 `...\Battle.net.exe,0`（`DisplayIcon` 用逗号跟图标序号）。
+#[cfg(windows)]
+fn executable_from_spec(spec: &str) -> Option<std::path::PathBuf> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return None;
+    }
+    let path = if let Some(rest) = spec.strip_prefix('"') {
+        &rest[..rest.find('"')?]
+    } else {
+        // 没引号时可能带 `",0"`（DisplayIcon 的图标序号）或 ` --uri=...`；
+        // 路径本身也可能有空格（`Program Files`），所以以 `.exe` 为界截断。
+        let end = spec.to_ascii_lowercase().find(".exe")? + ".exe".len();
+        &spec[..end]
+    };
+    let path = path.trim();
+    (!path.is_empty()).then_some(std::path::PathBuf::from(path))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    /// 注册表里的两种写法都要能取出 exe 路径（战网装在哪不受我们控制）。
+    #[test]
+    fn launcher_specs_from_the_registry_are_parsed() {
+        let command = r#""F:\Program Files\Battle.net\Battle.net.exe" --uri="%1""#;
+        assert_eq!(
+            executable_from_spec(command),
+            Some(std::path::PathBuf::from(
+                r"F:\Program Files\Battle.net\Battle.net.exe"
+            ))
+        );
+
+        let icon = r"F:\Program Files\Battle.net\Battle.net.exe,0";
+        assert_eq!(
+            executable_from_spec(icon),
+            Some(std::path::PathBuf::from(
+                r"F:\Program Files\Battle.net\Battle.net.exe"
+            ))
+        );
+
+        let bare = r"C:\Battle.net\Battle.net.exe --uri=x";
+        assert_eq!(
+            executable_from_spec(bare),
+            Some(std::path::PathBuf::from(r"C:\Battle.net\Battle.net.exe"))
+        );
+
+        assert_eq!(executable_from_spec("   "), None);
+    }
+}

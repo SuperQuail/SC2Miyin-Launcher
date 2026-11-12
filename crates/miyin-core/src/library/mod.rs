@@ -72,8 +72,8 @@ pub use model::{
 pub use slot::{CampaignSlot, SlotView};
 pub use store::{
     Replaced, VariantChanges, find_target_for_package, find_target_for_package_with_password,
-    import, import_with_password, remove_variant, replace_variant, replace_variant_with_password,
-    update_variant,
+    import, import_named_with_password, import_with_password, remove_variant, replace_variant,
+    replace_variant_with_password, update_variant,
 };
 
 /// 原子写：先写同目录的临时文件，再改名覆盖。

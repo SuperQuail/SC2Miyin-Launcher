@@ -20,6 +20,8 @@ interface Row {
   error: string | null;
   /** 装到哪部战役（可改；认不出归属的包就靠它）。 */
   target: string;
+  /** 用户改过的战役名；null = 用预检里的名字。 */
+  name: string | null;
   /** 自己这一份的结果 —— 一个失败不影响别的包。 */
   state: "idle" | "ok" | "failed";
   failure: string | null;
@@ -30,6 +32,17 @@ interface Row {
 /** 文件名（路径的最后一段），预检失败时当名字用。 */
 function fileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** 预检里带来的显示名；没有就用文件名。 */
+function autoName(row: Row): string {
+  return row.preview?.inspection.name ?? fileName(row.path);
+}
+
+/** 用户改过且非空的显示名；null = 交给后端沿用包内标题。 */
+function customName(row: Row): string | null {
+  const edited = row.name?.trim();
+  return edited ? edited : null;
 }
 
 /** 归属判定的可信度档位（AGENTS §14.7：包内声明 = 确定；目录结构 / 地图依赖 = 较可靠；文件名前缀 = 推测）。 */
@@ -53,11 +66,11 @@ function tierText(tier: Tier): string {
 }
 
 /**
- * 安装整合包（独立一页）。
+ * 导入战役包（独立一页）。
  *
- * 一次可以拖好几个包，**两种形态共用同一套预检与安装逻辑**（`install()` 一个入口）：
+ * 一次可以拖好几个包，**两种形态共用同一套校验与导入逻辑**（`install()` 一个入口）：
  * - 只有 1 个包：居中那张卡片 —— 封面 + 左标签右值的属性表，和以前一样；
- * - 2 个及以上：清单，每行一个包、各自选归属，底下「全部安装」逐行跑，一个失败不中止整批。
+ * - 2 个及以上：清单，每行一个包、各自选归属，底下「全部导入」逐行跑，一个失败不中止整批。
  *
  * **归属判定的可信度**两处都照旧摆明（AGENTS §14.7）—— 不许把推断说成确定的。
  */
@@ -106,6 +119,7 @@ export function InstallView({
       preview: null,
       error: null,
       target: "",
+      name: null,
       state: "idle",
       failure: null,
       password: null,
@@ -207,7 +221,7 @@ export function InstallView({
   const anyConflict = rows.some((row) => row.preview?.conflict);
 
   /**
-   * 安装 —— **两种形态唯一的入口**。
+   * 导入 —— **两种形态唯一的入口**。
    *
    * **每份独立成败**：一个包失败只记在它自己那一行，后面的照装 ——
    * 拖进来一批却因为第三个包坏了就全停下，是最烦人的那种。
@@ -215,7 +229,7 @@ export function InstallView({
   async function install(): Promise<void> {
     const queue = rows.filter((row) => row.state !== "ok");
     if (queue.length === 0) {
-      notify("warning", "请先选择要安装的整合包");
+      notify("warning", "请先添加要导入的战役包");
       return;
     }
 
@@ -229,34 +243,35 @@ export function InstallView({
     try {
       for (let index = 0; index < queue.length; index += 1) {
         const row = queue[index];
-        const name = row.preview?.inspection.name ?? fileName(row.path);
+        const name = customName(row) ?? autoName(row);
         setProgress({ done: index, total: queue.length });
 
         if (!row.preview) {
-          const why = row.error ?? "预检未通过";
+          const why = row.error ?? "校验未通过";
           failures.push(name + "：" + why);
           patch(row.id, { state: "failed", failure: why });
           continue;
         }
         if (row.preview.inspection.needs_password) {
-          const why = "这个包有密码，请先输入密码";
+          const why = "该包已加密，请先输入密码";
           failures.push(name + "：" + why);
           patch(row.id, { state: "failed", failure: why });
           continue;
         }
         if (!row.target) {
-          const why = "尚未选择安装到哪部战役";
+          const why = "尚未选择导入到哪部战役";
           failures.push(name + "：" + why);
           patch(row.id, { state: "failed", failure: why });
           continue;
         }
 
         try {
+          const custom = customName(row);
           await permission.run(
-            () => api.importPackageWith(row.path, row.target, mode, row.password),
+            () => api.importPackageWith(row.path, row.target, mode, row.password, custom),
             {
               op: "import_package",
-              args: { path: row.path, slot: row.target, mode, password: row.password },
+              args: { path: row.path, slot: row.target, mode, password: row.password, name: custom },
             },
           );
           installed += 1;
@@ -276,9 +291,9 @@ export function InstallView({
     }
 
     if (failures.length === 0) {
-      notify("success", installed === 1 ? "已安装：" + lastName : "已安装 " + installed + " 个包");
+      notify("success", installed === 1 ? "已导入：" + lastName : "已导入 " + installed + " 个包");
     } else if (installed === 0) {
-      notify("error", "全部安装失败：" + failures.join("；"));
+      notify("error", "全部导入失败：" + failures.join("；"));
     } else {
       notify("warning", "成功 " + installed + " 个，失败 " + failures.length + " 个：" + failures.join("；"));
     }
@@ -297,7 +312,7 @@ export function InstallView({
         <Button variant="outline" onClick={onBack}>
           ← 返回
         </Button>
-        <h2 className="install__title">安装整合包</h2>
+        <h2 className="install__title">导入战役包</h2>
         <Button variant="text" onClick={onBack}>
           关闭
         </Button>
@@ -306,15 +321,15 @@ export function InstallView({
       {rows.length === 0 && (
         <>
           <button className="install__drop" type="button" onClick={() => void add()} disabled={busy}>
-            <span className="install__drop-title">将整合包拖到此处</span>
+            <span className="install__drop-title">将战役包拖放到此处</span>
             <span className="install__drop-hint">
-              可一次拖入多个包批量安装，也可点击选择文件（支持 zip / 7z / rar，加密包会问你要密码）。
-              此步骤只做检查，不写入任何文件。
+              可一次拖放多个包批量导入，也可点击选择文件（支持 zip / 7z / rar；加密包会提示输入密码）。
+              此步骤仅进行校验，不会写入任何文件。
             </span>
           </button>
           <div className="install__drop-more">
             <Button variant="text" disabled={busy} onClick={() => void addFolder()}>
-              或者从文件夹导入（已解开的包）
+              或从文件夹导入（适用于已解压的包）
             </Button>
           </div>
         </>
@@ -331,6 +346,7 @@ export function InstallView({
           installable={installable.length > 0}
           onMode={setMode}
           onTarget={(target) => patch(single.id, { target })}
+          onName={(name) => patch(single.id, { name })}
           onReplace={() => remove(single.id)}
           onUnlock={() => setAsking({ id: single.id, wrong: single.password !== null })}
           onInstall={() => void install()}
@@ -343,10 +359,10 @@ export function InstallView({
           <div className="install__rows">
             <div className="install__list-head">
               <span className="install__list-title">
-                待安装
+                待导入
                 <span className="install__tag">{rows.length}</span>
               </span>
-              {checking && <span className="install__hint">正在逐个预检…</span>}
+              {checking && <span className="install__hint">正在逐个校验…</span>}
             </div>
 
             {anyConflict && <ConflictChoice mode={mode} onMode={setMode} batch />}
@@ -359,6 +375,7 @@ export function InstallView({
                   slots={slots}
                   busy={busy}
                   onTarget={(target) => patch(row.id, { target })}
+                  onName={(name) => patch(row.id, { name })}
                   onRemove={() => remove(row.id)}
                   onUnlock={() => setAsking({ id: row.id, wrong: row.password !== null })}
                 />
@@ -378,7 +395,7 @@ export function InstallView({
                 <Progress
                   value={progress.done}
                   max={progress.total}
-                  label="正在安装"
+                  label="正在导入"
                   detail={progress.done + " / " + progress.total}
                 />
               )}
@@ -390,7 +407,7 @@ export function InstallView({
               disabled={installable.length === 0}
               onClick={() => void install()}
             >
-              全部安装（{installable.length}）
+              全部导入（{installable.length}）
             </Button>
           </footer>
         </section>
@@ -454,7 +471,7 @@ function TargetSelect({
       value={row.target}
       disabled={busy || row.state === "ok"}
       onChange={(event) => onTarget(event.target.value)}
-      aria-label={"安装到哪部战役：" + name}
+      aria-label={"导入到哪部战役：" + name}
     >
       <option value="">（选一部战役）</option>
       {slots.map((slot) => (
@@ -476,6 +493,7 @@ function SingleCard({
   installable,
   onMode,
   onTarget,
+  onName,
   onReplace,
   onUnlock,
   onInstall,
@@ -488,6 +506,7 @@ function SingleCard({
   installable: boolean;
   onMode: (mode: ImportMode) => void;
   onTarget: (target: string) => void;
+  onName: (name: string) => void;
   onReplace: () => void;
   /** 重新弹密码框（加密包）。 */
   onUnlock: () => void;
@@ -516,32 +535,43 @@ function SingleCard({
           row.error ? (
             <p className="install__row-bad">✗ 无法读取此包：{row.error}</p>
           ) : (
-            <p className="install__hint">{checking ? "正在预检…" : "正在读取此包…"}</p>
+            <p className="install__hint">{checking ? "正在校验…" : "正在读取包内容…"}</p>
           )
         ) : (
           <>
-            <Field label="安装目标" row hint="选择安装到哪部战役；决定包内地图写入哪个战役目录">
+            <Field label="导入到" row hint="选择导入到哪部战役；决定包内地图写入哪个战役目录">
               <TargetSelect row={row} slots={slots} busy={busy} onTarget={onTarget} />
             </Field>
 
-            <Field label="整合包名称" row>
-              <span className="install__value">{inspection.name ?? fileName(row.path)}</span>
+            <Field
+              label={inspection.kind === "patch" ? "补丁名称" : "战役名称"}
+              row
+              hint="导入后显示的名字，可修改"
+            >
+              <input
+                type="text"
+                value={row.name ?? autoName(row)}
+                placeholder={autoName(row)}
+                disabled={busy || row.state === "ok"}
+                onChange={(event) => onName(event.target.value)}
+                aria-label="战役名称"
+              />
             </Field>
 
             <Field label="版本" row>
               <span className="install__value">
-                {inspection.version ?? "（包内没写）"}
+                {inspection.version ?? "未提供"}
                 <span className="install__tag">{inspection.kind === "patch" ? "补丁包" : "战役包"}</span>
               </span>
             </Field>
 
             <Field label="作者" row>
-              <span className="install__value">{inspection.author ?? "未知"}</span>
+              <span className="install__value">{inspection.author ?? "未提供"}</span>
             </Field>
 
-            <Field label="归属战役" row>
+            <Field label="所属战役" row>
               <span className="install__value">
-                {slotName ?? "无法识别，请在上方手动选择"}
+                {slotName ?? "无法自动识别，请在上方手动选择"}
                 {tier && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
               </span>
             </Field>
@@ -549,15 +579,15 @@ function SingleCard({
             {inspection.identification && (
               <p className="install__why">
                 可信度：{tierText(tier)}。依据：{inspection.identification.detail}。
-                {tier !== "exact" && "该结果并非确定，如判断有误可在上方修改归属。"}
+                {tier !== "exact" && "该结果仅为推断，如有误可在上方修改归属。"}
               </p>
             )}
 
-            <Field label="包里有什么" row>
+            <Field label="包含内容" row>
               <span className="install__value">
                 {inspection.map_count} 张地图 · {inspection.mod_count} 个模组
                 {inspection.mod_count > 0 && (
-                  <span className="install__hint">（模组是地图的依赖，安装时将一并启用）</span>
+                  <span className="install__hint">（模组为地图依赖项，导入时一并启用）</span>
                 )}
               </span>
             </Field>
@@ -565,8 +595,8 @@ function SingleCard({
             {conflict && (
               <>
                 <p className="install__why">
-                  战役库已有「{conflict.existing_name}
-                  {conflict.existing_version ?? ""}」，这一份是 {conflict.incoming_version ?? "未标注版本"}。
+                  战役库中已存在「{conflict.existing_name}
+                  {conflict.existing_version ?? ""}」，本次导入的版本为 {conflict.incoming_version ?? "未标注版本"}。
                 </p>
                 <ConflictChoice mode={mode} onMode={onMode} />
               </>
@@ -576,11 +606,11 @@ function SingleCard({
 
         {inspection?.needs_password && (
           <p className="install__why">
-            这个包有密码，需要输入密码才能读取包内内容。
+            该包已加密，需输入密码后才能读取包内容。
           </p>
         )}
 
-        {row.state === "ok" && <span className="install__row-good">✓ 已安装</span>}
+        {row.state === "ok" && <span className="install__row-good">✓ 已导入</span>}
         {row.state === "failed" && <span className="install__row-bad">✗ 失败：{row.failure}</span>}
       </div>
 
@@ -594,7 +624,7 @@ function SingleCard({
           </Button>
         )}
         <Button variant="primary" size="lg" loading={busy} disabled={!installable} onClick={onInstall}>
-          安装
+          导入
         </Button>
       </footer>
     </section>
@@ -607,6 +637,7 @@ function BatchRow({
   slots,
   busy,
   onTarget,
+  onName,
   onRemove,
   onUnlock,
 }: {
@@ -614,6 +645,7 @@ function BatchRow({
   slots: SlotView[];
   busy: boolean;
   onTarget: (target: string) => void;
+  onName: (name: string) => void;
   onRemove: () => void;
   /** 重新弹密码框（加密包）。 */
   onUnlock: () => void;
@@ -628,45 +660,53 @@ function BatchRow({
     <div className={"install__row" + (row.state === "ok" ? " install__row--ok" : "") + (row.state === "failed" ? " install__row--bad" : "")}>
       <div className="install__row-main">
         <span className="install__row-name">
-          {inspection?.name ?? fileName(row.path)}
+          <input
+            className="install__row-name-input"
+            type="text"
+            value={row.name ?? autoName(row)}
+            placeholder={autoName(row)}
+            disabled={busy || row.state === "ok"}
+            onChange={(event) => onName(event.target.value)}
+            aria-label={"战役名称：" + autoName(row)}
+          />
           {inspection && <span className="install__tag">{inspection.kind === "patch" ? "补丁包" : "战役包"}</span>}
           {conflict && <span className="install__tag install__tag--warn">冲突</span>}
         </span>
 
         {row.error ? (
-          <span className="install__row-bad">✗ 无法读取此包：{row.error}</span>
+          <span className="install__row-bad">✗ 无法读取该包：{row.error}</span>
         ) : !row.preview ? (
-          <span className="install__row-meta">正在预检…</span>
+          <span className="install__row-meta">正在校验…</span>
         ) : (
           <>
             <span className="install__row-meta">
-              {inspection?.version ?? "（包内没写版本）"} · {inspection?.author ?? "未知作者"} ·{" "}
+              {inspection?.version ?? "未提供"} · {inspection?.author ?? "未提供"} ·{" "}
               {inspection?.map_count ?? 0} 张地图 · {inspection?.mod_count ?? 0} 个模组
             </span>
             <span className="install__row-meta">
-              归属：{slotName ?? "无法识别，请在右侧选择战役"}
+              所属战役：{slotName ?? "无法自动识别，请在右侧选择战役"}
               {tierLabel && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
             </span>
             {inspection?.identification && (
               <span className="install__row-why">
                 可信度：{tierLabel}。依据：{inspection.identification.detail}。
-                {tier !== "exact" && "该结果并非确定，如判断有误可在右侧修改归属。"}
+                {tier !== "exact" && "该结果仅为推断，如有误可在右侧修改归属。"}
               </span>
             )}
             {conflict && (
               <span className="install__row-why">
-                战役库已有「{conflict.existing_name}
-                {conflict.existing_version ?? ""}」，这一份是 {conflict.incoming_version ?? "未标注版本"}。
+                战役库中已存在「{conflict.existing_name}
+                {conflict.existing_version ?? ""}」，本次导入的版本为 {conflict.incoming_version ?? "未标注版本"}。
               </span>
             )}
           </>
         )}
 
         {inspection?.needs_password && (
-          <span className="install__row-bad">✗ 这个包有密码，请先输入密码</span>
+          <span className="install__row-bad">✗ 该包已加密，请先输入密码</span>
         )}
 
-        {row.state === "ok" && <span className="install__row-good">✓ 已安装</span>}
+        {row.state === "ok" && <span className="install__row-good">✓ 已导入</span>}
         {row.state === "failed" && <span className="install__row-bad">✗ 失败：{row.failure}</span>}
       </div>
 
