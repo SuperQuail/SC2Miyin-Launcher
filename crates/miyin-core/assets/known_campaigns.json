@@ -1,13 +1,23 @@
 {
   "campaigns": [
     {
+      "name": "群雄纪元",
+      "launcher": "SCMR RPG Campaign Launcher",
+      "note": "社区复刻战役改版「群雄纪元」的启动器地图；优先级高于原版复刻战役 —— 同一个包里两张都在时用它。没有 signatures：只要包里出现这张地图就命中。"
+    },
+    {
       "name": "星际争霸：复刻战役",
       "signatures": [
-        "Starcraft Mass Recall/",
-        "SCMRmod.SC2Mod"
+        "Starcraft Mass Recall/"
       ],
-      "launcher": "SCMR Campaign Launcher.SC2Map",
+      "launcher": "SCMR Campaign Launcher",
       "note": "实证：包根有 Starcraft Mass Recall/ 目录，里面分章节放地图；入口是同目录下的 SCMR Campaign Launcher.SC2Map（1.7 MB）；它的启动器脚本里写的是 GameSetNextMap(\"Starcraft Mass Recall/…\")，路径相对 Maps/。包里的 Enslavers Redux Campaign Launcher.SC2Map 不是另一个战役 —— 那是这部战役里的章节（8. Enslavers Redux/），不单独成表。"
+    },
+    {
+      "name": "通用入口（兜底）",
+      "launcher": "Launcher",
+      "note": "优先级最低的兜底：文件名（去掉 .SC2Map）不区分大小写等于 Launcher，且必须放在**包根**（章节里的 Launcher 不算入口）。前面所有预设都不中时才轮到它。",
+      "root_only": true
     }
   ]
 }

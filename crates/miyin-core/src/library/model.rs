@@ -214,7 +214,7 @@ pub struct MapEntry {
 pub struct MainMapChoice {
     /// 选中的地图（相对路径）。
     pub path: Option<String>,
-    /// 是不是「只有一张地图，替你选了」。
+    /// 是不是**推测**出来的（打表 / 单图 / 包根入口启发式），而不是包或用户声明的。
     pub automatic: bool,
     /// 声明了却找不到时的提示 —— **只警告，不阻断**。
     pub warning: Option<String>,
