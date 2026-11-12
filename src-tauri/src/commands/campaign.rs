@@ -521,7 +521,7 @@ pub(crate) fn delete_variant(
         .map_err(|error| error.to_string())
 }
 
-/// 启动游戏。
+/// 启动暴雪战网（星际争霸要从战网登录后进入，直接拉游戏只会停在未登录状态）。
 #[tauri::command(async)]
 pub(crate) fn launch_game(state: State<'_, AppState>) -> Result<(), String> {
     let installation = require_installation(&state)?;
@@ -545,12 +545,15 @@ pub(crate) fn launch_game(state: State<'_, AppState>) -> Result<(), String> {
         ));
     }
 
-    let launcher = installation.preferred_launcher().to_path_buf();
+    // **启动暴雪战网，而不是星际本体**：直接拉 SC2 时账号还没登录，进去也玩不了。
+    // 战网登录后由用户自己点「开始游戏」；登录态交给战网。
+    let battle_net = crate::platform::battle_net_executable().ok_or_else(|| {
+        "没有找到暴雪战网客户端。请先安装战网，或手动打开战网再启动星际争霸 II。".to_string()
+    })?;
 
-    std::process::Command::new(&launcher)
-        .current_dir(&installation.root)
+    std::process::Command::new(&battle_net)
         .spawn()
-        .map_err(|error| format!("启动失败：{error}"))?;
+        .map_err(|error| format!("启动暴雪战网失败：{error}"))?;
 
     Ok(())
 }
