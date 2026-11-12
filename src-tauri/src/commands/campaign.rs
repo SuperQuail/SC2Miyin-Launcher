@@ -170,12 +170,14 @@ pub(crate) fn prepare_import(
 ///
 /// - 槽位可以不传：按包内声明自动判断（进化包会归到「虫群之心」）
 /// - mode 决定遇到已有同名 / 同 ID 版本时，是**覆盖更新**还是**重命名后导入**
+/// - name 是导入页让用户改的显示名；不传 / 空就沿用包内标题
 #[tauri::command(async)]
 pub(crate) fn import_package(
     path: String,
     slot: Option<String>,
     mode: Option<ImportMode>,
     password: Option<String>,
+    name: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Variant, String> {
     let inspection = package::inspect_with_password(Path::new(&path), password.as_deref())
@@ -186,12 +188,13 @@ pub(crate) fn import_package(
         .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
         .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
 
-    library::import_with_password(
+    library::import_named_with_password(
         &state.library,
         Path::new(&path),
         &chosen,
         mode.unwrap_or_default(),
         password.as_deref(),
+        name.as_deref(),
     )
     .map_err(|error| error.to_string())
 }

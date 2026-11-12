@@ -1,7 +1,9 @@
 //! 导入、槽位落点与封面。
 
 use super::fixture::*;
-use crate::library::{ImportMode, activate, import, import_with_password};
+use crate::library::{
+    ImportMode, activate, import, import_named_with_password, import_with_password,
+};
 
 #[test]
 fn slots_follow_official_release_order() {
@@ -53,6 +55,37 @@ fn imports_multiple_versions_of_the_same_campaign() {
     let wol = slot(&fixture, "wol");
     assert_eq!(wol.variants.len(), 2);
     assert_eq!(wol.active, None, "默认应当是原版战役");
+}
+
+#[test]
+fn import_can_take_a_user_edited_name() {
+    let fixture = fixture();
+
+    // 用户在导入页改的名字优先于包内标题
+    let path = package(&fixture, "named.zip", "包内标题", &["01.SC2Map"]);
+    let named = import_named_with_password(
+        &fixture.library,
+        &path,
+        "wol",
+        ImportMode::Rename,
+        None,
+        Some("  用户改的名字  "),
+    )
+    .expect("import");
+    assert_eq!(named.name, "用户改的名字");
+
+    // 空 / 只有空白时退回自动命名，不允许出现空名字
+    let path = package(&fixture, "auto.zip", "包内标题", &["01.SC2Map"]);
+    let auto = import_named_with_password(
+        &fixture.library,
+        &path,
+        "wol",
+        ImportMode::Rename,
+        None,
+        Some("   "),
+    )
+    .expect("import");
+    assert_eq!(auto.name, "包内标题");
 }
 
 #[test]

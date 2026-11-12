@@ -24,7 +24,7 @@ pub fn import(
     slot_slug: &str,
     mode: ImportMode,
 ) -> Result<Variant> {
-    import_with_password(library, package, slot_slug, mode, None)
+    import_named_with_password(library, package, slot_slug, mode, None, None)
 }
 
 /// 同上，带密码（加密包）。
@@ -37,6 +37,18 @@ pub fn import_with_password(
     slot_slug: &str,
     mode: ImportMode,
     password: Option<&str>,
+) -> Result<Variant> {
+    import_named_with_password(library, package, slot_slug, mode, password, None)
+}
+
+/// 同上；`name` 是**用户改过的显示名**（导入页可编辑），空 / 只有空白时按包内标题走。
+pub fn import_named_with_password(
+    library: &Library,
+    package: &Path,
+    slot_slug: &str,
+    mode: ImportMode,
+    password: Option<&str>,
+    name: Option<&str>,
 ) -> Result<Variant> {
     let slot_kind = require_slot(slot_slug)?;
 
@@ -51,13 +63,19 @@ pub fn import_with_password(
         return Err(Error::PackageRejected(reason));
     }
 
-    // 显示名优先用元数据里的标题，退回来源的文件名 / 目录名
-    let display_name = inspection
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .or_else(|| package::source_stem(package))
-        .unwrap_or_else(|| "未命名战役".to_string());
+    // 显示名：用户填的优先，其次元数据标题，最后来源的文件名 / 目录名
+    let display_name = name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            inspection
+                .name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| package::source_stem(package))
+                .unwrap_or_else(|| "未命名战役".to_string())
+        });
 
     let slot_dir = library.slot_dir(slot_slug);
     std::fs::create_dir_all(&slot_dir)?;
