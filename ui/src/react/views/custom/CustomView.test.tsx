@@ -33,6 +33,7 @@ const showMenu = vi.fn(
 vi.mock("../../../api/bridge", () => ({
   api: {
     variantCover: async () => null,
+    variantMods: async () => [],
   },
 }));
 
@@ -152,6 +153,33 @@ describe("自制战役页的卡片接线", () => {
     await fire(confirm as Element, "click");
 
     expect(removeVariant).toHaveBeenCalledWith("custom", "scmr");
+  });
+
+  it("卡片的右键菜单能编辑信息", async () => {
+    const view = await mountView(makeHost());
+
+    const card = view.querySelector("article.variant");
+    await fire(card as Element, "contextmenu");
+    expect((lastItems as CampaignMenuItem[]).some((item) => item.id === "edit")).toBe(true);
+
+    await act(async () => {
+      lastPick?.("edit");
+    });
+    expect(document.body.textContent).toContain("编辑「SCMR8.0」");
+  });
+
+  it("卡片的右键菜单能打开导出向导", async () => {
+    const view = await mountView(makeHost());
+
+    const card = view.querySelector("article.variant");
+    await fire(card as Element, "contextmenu");
+    expect((lastItems as CampaignMenuItem[]).some((item) => item.id === "export")).toBe(true);
+
+    await act(async () => {
+      lastPick?.("export");
+    });
+    expect(document.body.textContent).toContain("导出「SCMR8.0」");
+    expect(document.body.textContent).toContain("弥音包格式");
   });
 
   it("卡片的右键真的会弹菜单，菜单里的删除也走确认框", async () => {

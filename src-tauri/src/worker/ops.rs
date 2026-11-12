@@ -74,18 +74,20 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
         "import_package" => {
             let path = source(args, "path")?;
             let password = optional_text(args, "password");
+            let name = optional_text(args, "name");
             let inspection = package::inspect_with_password(&path, password.as_deref())
                 .map_err(|error| error.to_string())?;
             let slot = optional_text(args, "slot")
                 .filter(|slot| !slot.trim().is_empty())
                 .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
                 .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
-            value(library::import_with_password(
+            value(library::import_named_with_password(
                 &context.library,
                 &path,
                 &slot,
                 import_mode(args, "mode")?,
                 password.as_deref(),
+                name.as_deref(),
             ))
         }
         "update_variant" => {

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 
-import { api } from "../../../api/bridge";
-import { errorText } from "../../../api/errors";
 import type { DocInfo, Variant } from "../../../api/types";
 import { DocViewer } from "../../components/DocViewer";
 import { VariantCard } from "../../components/VariantCard";
@@ -11,6 +9,8 @@ import { setParams, useRoute } from "../../lib/router";
 import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
 import { SortableCard } from "../campaigns/SortableCard";
+import { ExportSheet } from "../campaigns/slot-menu/ExportSheet";
+import { VariantEditSheet } from "../campaigns/slot-menu/VariantEditSheet";
 import { useVariantOrder } from "../campaigns/useVariantOrder";
 import { variantPath } from "../campaigns/host";
 import type { CustomHost } from "./host";
@@ -34,6 +34,10 @@ export function CustomView(host: CustomHost) {
   const [openedDoc, setOpenedDoc] = useState<DocInfo | null>(null);
   /** 等待确认删除的那个版本 —— 删战役是不可逆的，先问一句。 */
   const [confirming, setConfirming] = useState<Variant | null>(null);
+  /** 正在编辑元数据的版本。 */
+  const [editing, setEditing] = useState<Variant | null>(null);
+  /** 正在导出向导里的版本。 */
+  const [exportTarget, setExportTarget] = useState<Variant | null>(null);
 
   useEffect(() => {
     host.bootstrap();
@@ -78,14 +82,16 @@ export function CustomView(host: CustomHost) {
           id: "toggle",
           label: customSlot?.active === variant.id ? "停用" : "启用",
         },
-        { id: "export", label: "导出这个包…", separatorBefore: true },
-        { id: "copy", label: "复制版本目录路径" },
+        { id: "edit", label: "编辑信息…", separatorBefore: true },
+        { id: "export", label: "导出这个包…" },
+        { id: "copy", label: "复制版本目录路径", separatorBefore: true },
         { id: "drop", label: "从战役库删除", danger: true, separatorBefore: true },
       ],
       (id) => {
         if (id === "open") setOpened(variant.id);
         if (id === "toggle") void toggleActive(variant);
-        if (id === "export") void doExport(variant);
+        if (id === "edit") setEditing(variant);
+        if (id === "export") setExportTarget(variant);
         if (id === "copy") void copyVariantPath(variant);
         if (id === "drop") setConfirming(variant);
       },
@@ -97,22 +103,6 @@ export function CustomView(host: CustomHost) {
     const path = variantPath(host.libraryRoot, "custom", variant.id);
     const ok = await copyText(path);
     host.notify(ok ? "success" : "info", ok ? "已复制路径：" + path : path);
-  }
-
-  /** 导出成一个包。 */
-  async function doExport(variant: Variant): Promise<void> {
-    try {
-      const destination = await api.pickExportPath(variant.name);
-      if (!destination) return;
-
-      const report = await api.exportVariant("custom", variant.id, destination, false);
-      host.notify(
-        "success",
-        "已导出：" + [report.maps + " 张地图", report.mods + " 个模组"].join("、"),
-      );
-    } catch (error) {
-      host.notify("error", errorText(error));
-    }
   }
 
   /** 用户在确认框里点了「删除」。 */
@@ -271,6 +261,27 @@ export function CustomView(host: CustomHost) {
             doc={openedDoc}
             onClose={() => setOpenedDoc(null)}
             notify={host.notify}
+          />
+        )}
+
+        {/* 编辑元数据 */}
+        {editing && (
+          <VariantEditSheet
+            slot="custom"
+            variant={editing}
+            notify={host.notify}
+            refresh={host.refresh}
+            onClose={() => setEditing(null)}
+          />
+        )}
+
+        {/* 导出向导：和战役页同一个组件，不再走"直接选保存位置"的老路 */}
+        {exportTarget && (
+          <ExportSheet
+            slot="custom"
+            variant={exportTarget}
+            notify={host.notify}
+            onClose={() => setExportTarget(null)}
           />
         )}
       </div>

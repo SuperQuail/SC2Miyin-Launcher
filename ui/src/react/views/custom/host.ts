@@ -10,7 +10,7 @@ import type { SlotView } from "../../../api/types";
 import type { CampaignMenuItem, CampaignPendingActivation } from "../campaigns/host";
 
 export interface CustomHost {
-  /** 进「安装整合包」页（自制战役版）。 */
+  /** 进「导入战役包」页（自制战役版）。 */
   openInstall: () => void;
   /** 选一个**文件夹**当战役包，然后进安装页（已解开的包走这条）。 */
   openInstallFolder: () => void;
