@@ -89,6 +89,84 @@ fn import_can_take_a_user_edited_name() {
 }
 
 #[test]
+fn a_package_without_metadata_gets_all_its_mods_as_dependencies() {
+    let fixture = fixture();
+    let path = build_zip(
+        fixture.work.path(),
+        "plain-mods.zip",
+        &[
+            ("Maps/CustomCampaigns/Plain/mission01.SC2Map", "stub"),
+            ("Mods/Alenger/1钢铁.SC2Mod", "stub"),
+            ("Mods/Alenger/2贝希摩斯虫群.SC2Mod", "stub"),
+            ("Mods/ExtraMod/x.SC2Mod", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &path, "custom", ImportMode::Rename).expect("import");
+
+    // **没有元数据**：这份记录是我们自己生成的，包里带的模组全算依赖；
+    // 同一个模组目录下的多个文件归成一个键。
+    let mut declared = variant.declared_mods.clone();
+    declared.sort();
+    assert_eq!(
+        declared,
+        vec!["Alenger".to_string(), "ExtraMod".to_string()]
+    );
+}
+
+#[test]
+fn metadata_without_mods_defaults_to_all_bundled_mods() {
+    let fixture = fixture();
+    let path = build_zip(
+        fixture.work.path(),
+        "meta-no-mods.zip",
+        &[
+            (
+                "Reborn/metadata.txt",
+                "title=有元数据但没写模组\ncampaign=WOL\nversion=1.0\n",
+            ),
+            ("Reborn/maps/01.SC2Map", "stub"),
+            ("Reborn/Mods/Alenger/1钢铁.SC2Mod", "stub"),
+            ("Reborn/Mods/Alenger/2贝希摩斯虫群.SC2Mod", "stub"),
+            ("Reborn/Mods/ExtraMod/x.SC2Mod", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &path, "wol", ImportMode::Rename).expect("import");
+
+    // 有元数据但没写 mods=：和没元数据一样，默认全算依赖
+    let mut declared = variant.declared_mods.clone();
+    declared.sort();
+    assert_eq!(
+        declared,
+        vec!["Alenger".to_string(), "ExtraMod".to_string()]
+    );
+}
+
+#[test]
+fn metadata_keeps_the_author_declared_dependencies() {
+    let fixture = fixture();
+    let path = build_zip(
+        fixture.work.path(),
+        "meta-mods.zip",
+        &[
+            (
+                "Reborn/metadata.txt",
+                "title=带元数据的战役\ncampaign=WOL\nversion=1.0\nmods=Alenger\n",
+            ),
+            ("Reborn/maps/01.SC2Map", "stub"),
+            ("Reborn/Mods/Alenger/1钢铁.SC2Mod", "stub"),
+            ("Reborn/Mods/ExtraMod/x.SC2Mod", "stub"),
+        ],
+    );
+
+    let variant = import(&fixture.library, &path, "wol", ImportMode::Rename).expect("import");
+
+    // 作者写了元数据：只认声明的 Alenger，不替他加 ExtraMod
+    assert_eq!(variant.declared_mods, vec!["Alenger".to_string()]);
+}
+
+#[test]
 fn rejects_unknown_or_malicious_slots() {
     let fixture = fixture();
     let path = package(&fixture, "a.zip", "重生", &["01.SC2Map"]);
