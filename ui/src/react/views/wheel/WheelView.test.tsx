@@ -194,6 +194,22 @@ describe("WheelView", () => {
     expect(spinButton(host).disabled).toBe(true);
   });
 
+  it("超过 10 个候选时轮盘与左栏使用同一套编号", async () => {
+    const variants = Array.from({ length: 11 }, (_, index) => variant("v" + index, "战役" + index));
+    const host = await renderView({ slots: [slot("wol", "自由之翼", variants)] });
+
+    const wheelLabels = [...host.querySelectorAll(".wheel-disc text")].map((item) =>
+      [...item.childNodes]
+        .filter((node) => node.nodeType === 3)
+        .map((node) => node.textContent ?? "")
+        .join(""),
+    );
+    const indices = [...host.querySelectorAll(".wheel-index")].map((item) => item.textContent);
+
+    expect(wheelLabels).toEqual(Array.from({ length: 11 }, (_, index) => String(index + 1)));
+    expect(indices).toEqual(Array.from({ length: 11 }, (_, index) => String(index + 1)));
+  });
+
   it("具体战役分组默认折叠", async () => {
     const host = await renderView();
 

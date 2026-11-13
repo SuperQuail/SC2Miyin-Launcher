@@ -5,7 +5,7 @@ import { Button, Checkbox, Disclosure, Sheet } from "../../ui";
 import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
 import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
-import { pickIndex, targetRotation } from "./wheelData";
+import { pickIndex, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
 import { readPalette } from "./wheelPalette";
 import "./wheel.css";
 
@@ -57,6 +57,11 @@ export function WheelView({
   const [drawnVersion, setDrawnVersion] = useState(0);
   const drawn = useRef<Set<string>>(new Set());
   const stopTimer = useRef<number | null>(null);
+  const numbered = pool.length > WHEEL_TEXT_LIMIT;
+  const poolIndex = useMemo(
+    () => new Map(pool.map((item, index) => [item.id, index + 1] as const)),
+    [pool],
+  );
 
   const palette = useMemo(() => readPalette(), [theme]);
   const reducedMotion = prefersReducedMotion();
@@ -265,6 +270,9 @@ export function WheelView({
                       onChange={(checked) => toggleCampaign(item.id, checked)}
                       disabled={spinning}
                     >
+                      {numbered && poolIndex.has(item.id) ? (
+                        <span className="wheel-index">{poolIndex.get(item.id)}</span>
+                      ) : null}
                       {item.label}
                     </Checkbox>
                   ))}

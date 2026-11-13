@@ -26,6 +26,9 @@ export interface WheelPalette {
 /** 轮上标签最多放几个字：扇区里只放得下一行短标签。 */
 export const WHEEL_LABEL_MAX = 4;
 
+/** 超过这个数量就改用编号，不再往扇区塞短标签。 */
+export const WHEEL_TEXT_LIMIT = 10;
+
 /**
  * 抽一个下标。
  *

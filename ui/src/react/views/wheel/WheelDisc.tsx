@@ -1,5 +1,5 @@
 import { labelPlacement, sectorPath, WHEEL_CENTER, WHEEL_OUTER, WHEEL_VIEW } from "./wheelGeometry";
-import { shortLabel, type WheelEntry, type WheelPalette } from "./wheelData";
+import { shortLabel, WHEEL_TEXT_LIMIT, type WheelEntry, type WheelPalette } from "./wheelData";
 
 /** 轮盘边长；SVG 是矢量，改这个值不会糊。 */
 export const WHEEL_SIZE = 440;
@@ -16,6 +16,8 @@ export function WheelDisc({
   entries: readonly WheelEntry[];
   palette: WheelPalette;
 }) {
+  const numbered = entries.length > WHEEL_TEXT_LIMIT;
+
   return (
     <div className="wheel-disc" style={{ width: WHEEL_SIZE, height: WHEEL_SIZE }}>
       <svg
@@ -34,7 +36,7 @@ export function WheelDisc({
         ))}
 
         {entries.map((entry, index) => {
-          const label = labelPlacement(index, entries.length);
+          const label = labelPlacement(index, entries.length, numbered ? 36 : undefined);
           return (
             <text
               key={entry.id}
@@ -44,11 +46,18 @@ export function WheelDisc({
               textAnchor="middle"
               dominantBaseline="central"
               fill={palette.text}
-              fontSize={3.8}
-              fontWeight={600}
+              fontSize={numbered ? 4.2 : 3.8}
+              fontWeight={numbered ? 700 : 600}
               fontFamily="sans-serif"
             >
-              {entry.short ?? shortLabel(entry.label)}
+              {numbered ? (
+                <>
+                  <title>{entry.label}</title>
+                  {index + 1}
+                </>
+              ) : (
+                entry.short ?? shortLabel(entry.label)
+              )}
             </text>
           );
         })}
