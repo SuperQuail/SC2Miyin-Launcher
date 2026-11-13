@@ -194,6 +194,14 @@ describe("WheelView", () => {
     expect(spinButton(host).disabled).toBe(true);
   });
 
+  it("具体战役分组默认折叠", async () => {
+    const host = await renderView();
+
+    const groups = host.querySelectorAll<HTMLDetailsElement>(".wheel-filter__list details");
+    expect(groups).toHaveLength(1);
+    expect(groups[0].open).toBe(false);
+  });
+
   it("取消战役类型筛选后按钮禁用", async () => {
     const host = await renderView();
     const type = host.querySelector<HTMLInputElement>('input[name="wheel-type-wol"]');

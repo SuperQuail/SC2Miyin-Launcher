@@ -4,7 +4,7 @@ import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
 import { useAppState } from "../../state/AppState";
-import { Button, Checkbox, Choice, Field, Progress, Sheet } from "../../ui";
+import { Button, Checkbox, Choice, Disclosure, Field, Progress, Sheet } from "../../ui";
 import { WheelDisc } from "../wheel/WheelDisc";
 import type { WheelEntry } from "../wheel/wheelData";
 import { readPalette } from "../wheel/wheelPalette";
@@ -185,6 +185,20 @@ export function UserSidePage() {
             禁用
           </Checkbox>
         </div>
+      </Card>
+
+      <Card
+        title="控件层 · Disclosure"
+        note="react/ui/Disclosure —— 折叠分组；长列表先收起，点标题再展开。"
+      >
+        <Disclosure title="演示分组">
+          <Checkbox checked={autoApplyDemo} onChange={setAutoApplyDemo}>
+            自动应用
+          </Checkbox>
+          <Checkbox checked={false} onChange={() => {}}>
+            剔除已抽取
+          </Checkbox>
+        </Disclosure>
       </Card>
 
       <Card

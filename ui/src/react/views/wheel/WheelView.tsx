@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Preview, SlotView } from "../../../api/types";
-import { Button, Checkbox, Sheet } from "../../ui";
+import { Button, Checkbox, Disclosure, Sheet } from "../../ui";
 import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
 import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
@@ -71,6 +71,17 @@ export function WheelView({
   const campaignsForTypes = useMemo(
     () => candidates.filter((item) => !offTypes.has(item.type)),
     [candidates, offTypes],
+  );
+
+  const campaignGroups = useMemo(
+    () =>
+      typeEntries
+        .filter((entry) => !offTypes.has(entry.type))
+        .map((entry) => ({
+          ...entry,
+          items: candidates.filter((item) => item.type === entry.type),
+        })),
+    [typeEntries, candidates, offTypes],
   );
 
   const visible = useMemo(
@@ -244,16 +255,20 @@ export function WheelView({
               </div>
             </div>
             <div className="wheel-filter__list">
-              {campaignsForTypes.map((item) => (
-                <Checkbox
-                  key={item.id}
-                  name={"wheel-campaign-" + item.id}
-                  checked={!offCampaigns.has(item.id)}
-                  onChange={(checked) => toggleCampaign(item.id, checked)}
-                  disabled={spinning}
-                >
-                  {item.label}
-                </Checkbox>
+              {campaignGroups.map((group) => (
+                <Disclosure key={group.type} title={group.label}>
+                  {group.items.map((item) => (
+                    <Checkbox
+                      key={item.id}
+                      name={"wheel-campaign-" + item.id}
+                      checked={!offCampaigns.has(item.id)}
+                      onChange={(checked) => toggleCampaign(item.id, checked)}
+                      disabled={spinning}
+                    >
+                      {item.label}
+                    </Checkbox>
+                  ))}
+                </Disclosure>
               ))}
             </div>
           </div>
