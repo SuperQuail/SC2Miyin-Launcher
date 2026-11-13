@@ -5,6 +5,7 @@ import { errorText } from "../../../../api/errors";
 import type { BoundPatch } from "../../../../api/types";
 import { usePermissionGate } from "../../../state/usePermission";
 
+import { DeletePatchSheet } from "./DeletePatchSheet";
 import { PatchEditSheet } from "./PatchEditSheet";
 
 /**
@@ -29,6 +30,7 @@ export function PatchPanel({
   const [available, setAvailable] = useState<BoundPatch[]>([]);
   const [showAvailable, setShowAvailable] = useState(false);
   const [editingPatch, setEditingPatch] = useState<BoundPatch | null>(null);
+  const [deletingPatch, setDeletingPatch] = useState<BoundPatch | null>(null);
 
   /** 跑一个会改动补丁的动作，然后刷新列表。 */
   async function guard(action: () => Promise<unknown>): Promise<void> {
@@ -68,6 +70,23 @@ export function PatchPanel({
 
   function bindPatchItem(item: BoundPatch): Promise<void> {
     return guard(() => api.bindPatch(slot, item.id));
+  }
+
+  /** 用户在确认框里点了删除：从库里彻底删掉（同时解绑所有战役）。 */
+  async function confirmDelete(): Promise<void> {
+    const item = deletingPatch;
+    if (!item) return;
+    setDeletingPatch(null);
+    try {
+      await permission.run(() => api.deletePatch(item.id), {
+        op: "delete_patch",
+        args: { patchId: item.id },
+      });
+      await loadPatches();
+      notify("success", "补丁「" + item.name + "」已删除");
+    } catch (error) {
+      notify("error", errorText(error));
+    }
   }
 
   async function setPriority(item: BoundPatch, raw: string): Promise<void> {
@@ -182,6 +201,14 @@ export function PatchPanel({
                 <button className="btn btn-text" type="button" onClick={() => void unbindPatch(item)}>
                   移出
                 </button>
+                <button
+                  className="btn btn-text"
+                  type="button"
+                  title="从库里彻底删除（会从所有战役上解绑）"
+                  onClick={() => setDeletingPatch(item)}
+                >
+                  删除
+                </button>
               </li>
             ))}
           </ul>
@@ -205,6 +232,14 @@ export function PatchPanel({
                 <button className="btn btn-tonal" type="button" onClick={() => void bindPatchItem(item)}>
                   挂上
                 </button>
+                <button
+                  className="btn btn-text"
+                  type="button"
+                  title="从库里彻底删除"
+                  onClick={() => setDeletingPatch(item)}
+                >
+                  删除
+                </button>
               </div>
             ))}
             {available.length === 0 && <p className="patches__hint">补丁库是空的，先导入补丁包。</p>}
@@ -218,6 +253,14 @@ export function PatchPanel({
           notify={notify}
           onSaved={loadPatches}
           onClose={() => setEditingPatch(null)}
+        />
+      )}
+
+      {deletingPatch && (
+        <DeletePatchSheet
+          patch={deletingPatch}
+          onClose={() => setDeletingPatch(null)}
+          onConfirm={() => void confirmDelete()}
         />
       )}
     </>
