@@ -102,6 +102,9 @@ describe("WheelView", () => {
       "/wheel/dajiaozhu-pointer.png",
     );
     expect(spinButton(host).textContent).toBe("抽取");
+    expect(host.querySelector(".wheel-page__notice")?.textContent).toBe(
+      "使用本转盘默认已同意进入战场引导太阳轰炸 --雨樱",
+    );
   });
 
   it("抽取后指针指向中奖扇区，并自动启用中奖版本", async () => {

@@ -353,6 +353,8 @@ export function WheelView({
               {spinning ? "抽取中…" : "抽取"}
             </Button>
           </div>
+
+          <p className="wheel-page__notice">使用本转盘默认已同意进入战场引导太阳轰炸 --雨樱</p>
         </section>
 
         <aside className="wheel-panel">
