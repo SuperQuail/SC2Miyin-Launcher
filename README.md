@@ -80,21 +80,19 @@ cargo test --workspace
 pnpm -C ui build            # 含 vue-tsc 类型检查
 ```
 
-CI 在 `dev` / `main` / `release` 三个分支上跑，见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
+CI 在 `main` 上跑，见 [.github/workflows/ci.yml](.github/workflows/ci.yml)。
 
 ## 分支模型
 
 | 分支 | 用途 |
 | --- | --- |
-| `dev` | 日常开发，CI 必须全绿 |
-| `main` | 稳定分支，随时可发布 |
-| `release` | 发版分支，只接受从 `main` 合并的提交 |
-| `feat/*` `fix/*` | 特性与修复，合回 `dev` |
+| `main` | 唯一长期分支：日常开发 + 稳定发布 |
+| `feat/*` `fix/*` `chore/*` `docs/*` | 短分支，PR 到 main，合并后删除 |
 
 打 tag 触发发行（**tag 用紧凑写法**，且文件名要与 tag 完全对应）：
 
 ```bash
-git tag -a v0.1.0a7 origin/release -m "0.1.0a7" && git push origin v0.1.0a7
+git tag -a v0.1.0a7 origin/main -m "0.1.0a7" && git push origin v0.1.0a7
 ```
 
 CI 会拿 `docs/release-notes/v0.1.0a7.md` 当 Release 正文 —— 名字对不上就没有正文。
