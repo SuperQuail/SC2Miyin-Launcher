@@ -203,7 +203,8 @@ textarea {
 
 .sheet {
   position: fixed;
-  inset: 0;
+  /* 顶栏也是标题栏（关掉了系统边框）：遮罩从顶栏下沿开始，弹窗才不会压住页签/窗口按钮 */
+  inset: var(--header-height) 0 0;
   z-index: 60;
   display: flex;
   align-items: center;
@@ -215,8 +216,8 @@ textarea {
 
 .sheet__card {
   width: min(460px, 92vw);
-  /* 弹窗最高只能占满一屏（.sheet 上下各有 24px 内边距）—— 内容再多也不许溢出屏幕 */
-  max-height: calc(100vh - 48px);
+  /* 弹窗最高只能占满顶栏以下的一屏（.sheet 上下各有 24px 内边距）—— 内容再多也不许溢出屏幕 */
+  max-height: calc(100vh - var(--header-height) - 48px);
   display: flex;
   flex-direction: column;
   padding: 20px 22px;
