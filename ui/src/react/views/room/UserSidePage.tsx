@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from "react";
-import { Wheel } from "react-custom-roulette";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
 import { useAppState } from "../../state/AppState";
 import { Button, Choice, Field, Progress, Sheet } from "../../ui";
+import { WheelDisc } from "../wheel/WheelDisc";
+import type { WheelEntry } from "../wheel/wheelData";
+import { readPalette } from "../wheel/wheelPalette";
 import { ToastCandidates } from "./toast-lab/ToastCandidates";
 
 /**
@@ -55,7 +57,12 @@ function fakeSlot(over: Partial<SlotView> = {}): SlotView {
 }
 
 /** 房间里只摆静态轮盘，不转：验外观用。 */
-const ROOM_WHEEL = [{ option: "重制" }, { option: "复刻" }, { option: "肉鸽" }, { option: "原版" }];
+const ROOM_WHEEL: WheelEntry[] = [
+  { id: "remake", label: "重制" },
+  { id: "remaster", label: "复刻" },
+  { id: "rogue", label: "肉鸽" },
+  { id: "vanilla", label: "原版" },
+];
 
 function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
@@ -73,7 +80,8 @@ export function UserSidePage() {
   const [demoText, setDemoText] = useState("演示文本");
   const [dismissed, setDismissed] = useState("");
   // 提示（正式版）演示：直接推真的 notify，走的就是生产那条路
-  const { notify } = useAppState();
+  const { notify, theme } = useAppState();
+  const roomPalette = useMemo(() => readPalette(), [theme.theme]);
   // Choice 演示：安装页那个「覆盖更新 / 重命名后导入」就是它
   const [conflict, setConflict] = useState<"overwrite" | "rename">("overwrite");
 
@@ -261,11 +269,11 @@ export function UserSidePage() {
       </Card>
 
       <Card
-        title="第三方组件 · Wheel"
-        note="react-custom-roulette —— 大转盘页用的库。这里只静态渲染，不转；完整交互在顶栏「转盘」。"
+        title="自绘组件 · WheelDisc"
+        note="SVG 自绘的静止轮盘（大转盘页的轮盘本体）；指针在页面里单独转。"
       >
         <div className="room__row room__wheel">
-          <Wheel mustStartSpinning={false} prizeNumber={0} data={ROOM_WHEEL} disableInitialAnimation />
+          <WheelDisc entries={ROOM_WHEEL} palette={roomPalette} />
         </div>
       </Card>
 

@@ -20,16 +20,8 @@
 
 7-Zip 以 LGPL 分发，本项目未修改其二进制；源码可从 https://www.7-zip.org/source.html 获取。
 
-## react-custom-roulette 1.4.1（前端依赖，大转盘）
+## 前端转盘
 
-| 项 | 值 |
-| --- | --- |
-| 位置 | `ui/package.json` 的 dependencies；打包进用户侧 bundle |
-| 使用点 | `ui/src/react/views/wheel/WheelView.tsx` |
-| 上游 | https://github.com/effectussoftware/react-custom-roulette |
-| 许可证 | MIT（Copyright (c) 2020 Effectus Software） |
-| 随包内容 | 该包的 `dist/bundle.js` 内含 webfontloader 1.6.28（Apache-2.0）与 styled-components 5.x（MIT） |
-| 许可全文 | `docs/licenses/react-custom-roulette-MIT.txt`、`docs/licenses/webfontloader-Apache-2.0.txt`、`docs/licenses/styled-components-MIT.txt` |
-
-本项目不改这个库的源码。运行时不向 Google Fonts 发请求：WheelView 只传 WEB_FONTS
-白名单里的 `sans-serif`，库只有在字体不在白名单时才调用 `WebFont.load`。
+**没有第三方转盘依赖。** 轮盘是 `WheelDisc.tsx` 用 SVG 自绘的，指针是页面上的 DOM + CSS transform；
+`react-custom-roulette` 与 `lucky-canvas` 都已在试玩后移除。选型过程见
+`docs/design/wheel-library-report.md`。

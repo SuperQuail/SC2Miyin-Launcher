@@ -7,13 +7,15 @@ function fakeStyle(values: Record<string, string>): CSSStyleDeclaration {
 }
 
 describe("readPalette", () => {
-  it("从设计令牌读四个颜色", () => {
+  it("从设计令牌读颜色", () => {
     const palette = readPalette(
       fakeStyle({
         "--accent-soft": " #abc ",
         "--surface-3": "#def",
         "--on-surface": "#123",
         "--outline": "#456",
+        "--accent": "#789",
+        "--surface-1": "#000",
       }),
     );
 
@@ -21,6 +23,8 @@ describe("readPalette", () => {
       background: ["#abc", "#def"],
       text: "#123",
       border: "#456",
+      accent: "#789",
+      surface: "#000",
     });
   });
 
@@ -31,5 +35,7 @@ describe("readPalette", () => {
     expect(palette.background.every(Boolean)).toBe(true);
     expect(palette.text).toBeTruthy();
     expect(palette.border).toBeTruthy();
+    expect(palette.accent).toBeTruthy();
+    expect(palette.surface).toBeTruthy();
   });
 });

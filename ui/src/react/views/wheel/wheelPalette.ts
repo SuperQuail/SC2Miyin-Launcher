@@ -1,6 +1,6 @@
 // 从设计令牌读转盘配色。
 //
-// 库把扇区画在 canvas 里，拿不到 CSS 变量，只能渲染时把令牌值读出来传给它。
+// 轮盘与指针的颜色都从令牌读出来，集中在这一次读取里。
 // 主题变化时调用方用 theme 作依赖重新调用一次即可（见 WheelView）。
 
 import type { WheelPalette } from "./wheelData";
@@ -10,6 +10,8 @@ const FALLBACK: WheelPalette = {
   background: ["#dbe6ff", "#e8eefb"],
   text: "#191c22",
   border: "#cdd5e5",
+  accent: "#3b6ce0",
+  surface: "#ffffff",
 };
 
 function token(style: CSSStyleDeclaration, name: string, fallback: string): string {
@@ -18,7 +20,7 @@ function token(style: CSSStyleDeclaration, name: string, fallback: string): stri
 }
 
 /**
- * 读 --accent-soft / --surface-3 / --on-surface / --outline。
+ * 读 --accent-soft / --surface-3 / --on-surface / --outline / --accent / --surface-1。
  *
  * 参数可注入：测试传一个假的 CSSStyleDeclaration，不依赖 jsdom 是否支持自定义属性。
  */
@@ -32,5 +34,7 @@ export function readPalette(
     ],
     text: token(style, "--on-surface", FALLBACK.text),
     border: token(style, "--outline", FALLBACK.border),
+    accent: token(style, "--accent", FALLBACK.accent),
+    surface: token(style, "--surface-1", FALLBACK.surface),
   };
 }

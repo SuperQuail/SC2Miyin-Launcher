@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SAMPLE_ENTRIES, pickIndex, shortLabel, toWheelData } from "./wheelData";
+import { pickIndex, sectorCenter, shortLabel, targetRotation } from "./wheelData";
 
 describe("pickIndex", () => {
   it("落在 [0, count-1]，注入越界值也不出去", () => {
@@ -24,17 +24,28 @@ describe("shortLabel", () => {
   });
 });
 
-describe("toWheelData", () => {
-  it("数量、交替底色、文字色都对，且不写 per-item 字体", () => {
-    const palette = { background: ["#aaa", "#bbb"], text: "#111", border: "#222" };
-    const data = toWheelData(SAMPLE_ENTRIES, palette);
+describe("sectorCenter", () => {
+  it("8 个扇区时从 22.5° 开始，每格 45°", () => {
+    expect(sectorCenter(0, 8)).toBe(22.5);
+    expect(sectorCenter(1, 8)).toBe(67.5);
+    expect(sectorCenter(7, 8)).toBe(337.5);
+    expect(sectorCenter(0, 1)).toBe(180);
+  });
+});
 
-    expect(data).toHaveLength(SAMPLE_ENTRIES.length);
-    expect(data[0].option).toBe("自由之翼…");
-    expect(data[0].style?.backgroundColor).toBe("#aaa");
-    expect(data[1].style?.backgroundColor).toBe("#bbb");
-    expect(data[2].style?.backgroundColor).toBe("#aaa");
-    expect(data[0].style?.textColor).toBe("#111");
-    expect("fontFamily" in (data[0].style ?? {})).toBe(false);
+describe("targetRotation", () => {
+  it("至少转 4 圈，最后落在中奖扇区中心", () => {
+    expect(targetRotation(0, 0, 8)).toBe(1462.5);
+    expect(targetRotation(0, 7, 8)).toBe(1777.5);
+  });
+
+  it("从任意当前角度出发，归一化后都等于扇区中心", () => {
+    for (const current of [0, 17, 270, 1000]) {
+      for (let winner = 0; winner < 8; winner += 1) {
+        const target = targetRotation(current, winner, 8);
+        expect(target).toBeGreaterThanOrEqual(current + 4 * 360);
+        expect(((target % 360) + 360) % 360).toBeCloseTo(sectorCenter(winner, 8), 5);
+      }
+    }
   });
 });

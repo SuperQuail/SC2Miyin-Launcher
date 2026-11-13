@@ -50,39 +50,25 @@
   color: var(--on-surface-variant);
 }
 
-/*
- * 库的根 div 写死 width: 80vw / max-width: 445px，里面是一块 900x900 的 canvas
- * （WheelCanvas width="900"）—— 445 CSS 像素在 2 倍屏上才用掉 890 物理像素，
- * 等于 1:1，不会发糊。所以这里只把根 div 撑满我们的方框，不再按 DPR 缩尺寸。
- * 选择器依赖库的根 div（RouletteContainer），库升级时回来看一眼。
- */
-.wheel-frame {
+/* 轮盘固定不动，只有圆心指针在转。 */
+.wheel-stage {
   position: relative;
-  width: min(80vw, 445px);
-  aspect-ratio: 1;
   margin: 0 auto 8px;
+  max-width: 100%;
 }
 
-/*
- * 库把中奖扇区落在 43° 方向（它自带的指针就钉在那里）。这里把指针 display:none，
- * 整个转子转 -43°，让中奖扇区居中到 12 点；圆心指针固定在转子外面、永远朝上，
- * 于是「转盘转、指针不转」，中奖扇区最后停在指针正对的方向。
- */
-.wheel-rotor {
-  position: absolute;
-  inset: 0;
-  transform: rotate(-43deg);
+.wheel-disc {
+  width: 100%;
+  height: 100%;
 }
 
-.wheel-rotor > div {
-  width: 100% !important;
-  height: 100% !important;
-  max-width: none !important;
-  max-height: none !important;
+.wheel-disc svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-/* 圆心指针：转子转、指针不转。长度只到半径一半左右，别压住扇区文字。 */
-.wheel-needle {
+.wheel-pointer {
   position: absolute;
   inset: 0;
   display: flex;
@@ -90,14 +76,31 @@
   justify-content: center;
   pointer-events: none;
   z-index: 2;
+  transform-origin: 50% 50%;
 }
 
-.wheel-needle svg,
-.wheel-needle__img {
+.wheel-pointer svg,
+.wheel-pointer__img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.wheel-pointer__arrow {
+  fill: var(--accent);
+  stroke: var(--surface-1);
+  stroke-width: 1.2;
+}
+
+.wheel-pointer__hub {
+  fill: var(--surface-1);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.wheel-pointer__pin {
+  fill: var(--accent);
 }
 
 .wheel-page__pointer {
@@ -116,22 +119,6 @@
 .wheel-page__pointer-error {
   color: var(--danger);
   font-size: 12px;
-}
-
-.wheel-needle__arrow {
-  fill: var(--accent);
-  stroke: var(--surface-1);
-  stroke-width: 1.2;
-}
-
-.wheel-needle__hub {
-  fill: var(--surface-1);
-  stroke: var(--accent);
-  stroke-width: 2;
-}
-
-.wheel-needle__pin {
-  fill: var(--accent);
 }
 
 .wheel-page__actions {

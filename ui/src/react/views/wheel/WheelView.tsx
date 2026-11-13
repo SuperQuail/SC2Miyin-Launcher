@@ -1,28 +1,24 @@
-import { useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Wheel } from "react-custom-roulette";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import { Button } from "../../ui";
-import { SAMPLE_ENTRIES, pickIndex, toWheelData, type WheelEntry } from "./wheelData";
+import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
+import { SAMPLE_ENTRIES, pickIndex, targetRotation, type WheelEntry } from "./wheelData";
 import { readPalette } from "./wheelPalette";
 import "./wheel.css";
 
-/**
- * 转速：库的总时长 = 11350ms × spinDuration。
- * 默认 1.0 要 11 秒多，太长；0.5 约 5.7 秒，还带减速收尾。
- */
-const SPIN_DURATION = 0.5;
-/** 「减少动态效果」时用库允许的最小系数：约 0.11 秒。 */
-const REDUCED_SPIN_DURATION = 0.01;
+/** 指针转一圈的时长；正常 4 秒，减少动态效果时立即到。 */
+const SPIN_MS = 4000;
+/** 转完之后再留一点余量给 CSS transition 收尾。 */
+const REST_MS = 60;
 
 function prefersReducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
- * 技术验证页：验证 react-custom-roulette 的接入。
+ * 技术验证页：轮盘是自绘的静止 SVG，**转的是圆心指针**。
  *
- * 本轮**不读战役库、不启用、不启动游戏** —— 抽奖池是示例数据，
- * 只验证渲染、旋转、结果、主题与 DPI 这些技术点。接真实数据见 docs/design/wheel.md。
+ * 本轮**不读战役库、不启用、不启动游戏** —— 抽奖池是示例数据。
  */
 export function WheelView({
   entries = SAMPLE_ENTRIES,
@@ -38,31 +34,48 @@ export function WheelView({
   /** 自定义圆心指针图片；不传用内置 SVG。页面上的「换指针图片…」也会写这里。 */
   pointerSrc?: string;
 } = {}) {
-  const [prizeNumber, setPrizeNumber] = useState(0);
   const [spinning, setSpinning] = useState(false);
-  const [mustStartSpinning, setMustStartSpinning] = useState(false);
+  const [rotation, setRotation] = useState(0);
   const [result, setResult] = useState<WheelEntry | null>(null);
   const [pointer, setPointer] = useState<string | null>(pointerSrc ?? null);
   const [pointerError, setPointerError] = useState<string | null>(null);
   const pointerInput = useRef<HTMLInputElement>(null);
+  const winner = useRef(0);
+  const stopTimer = useRef<number | null>(null);
 
-  // theme 只是依赖：令牌值在主题切换后才会变。
+  // theme 只是依赖：令牌值在主题切换后才会变；轮盘实例重建时把指针也归位
   const palette = useMemo(() => readPalette(), [theme]);
-  const data = useMemo(() => toWheelData(entries, palette), [entries, palette]);
+  const reducedMotion = prefersReducedMotion();
+  const duration = reducedMotion ? 0 : SPIN_MS;
   const canSpin = entries.length >= 2 && !spinning;
+
+  useEffect(() => {
+    setSpinning(false);
+    setResult(null);
+    setRotation(0);
+  }, [theme]);
+
+  useEffect(() => {
+    return () => {
+      if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);
+    };
+  }, []);
 
   function spin(): void {
     if (!canSpin) return;
-    setPrizeNumber(pickIndex(random(), entries.length));
+    const next = pickIndex(random(), entries.length);
+    winner.current = next;
     setResult(null);
-    setMustStartSpinning(true);
     setSpinning(true);
-  }
+    setRotation((current) => targetRotation(current, next, entries.length));
 
-  function handleStop(): void {
-    setMustStartSpinning(false);
-    setSpinning(false);
-    setResult(entries[prizeNumber] ?? null);
+    if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);
+    stopTimer.current = window.setTimeout(() => {
+      setSpinning(false);
+      setResult(entries[next] ?? null);
+      // 归一化到一圈内，避免角度越滚越大；此时 transition 已关，视觉不变
+      setRotation((current) => ((current % 360) + 360) % 360);
+    }, duration + REST_MS);
   }
 
   /** 选本地图片当指针：读成 data URL，只活在当前页面里（demo 不落盘）。 */
@@ -92,52 +105,37 @@ export function WheelView({
         <header className="wheel-page__head">
           <div>
             <h2 className="wheel-page__title">今天玩什么？</h2>
-            <p className="wheel-page__lede">转一下，从候选里抽一部。</p>
+            <p className="wheel-page__lede">指针转一圈，指到哪部就玩哪部。</p>
           </div>
           <span className="wheel-page__badge">技术验证 · 示例数据</span>
         </header>
 
         <p className="wheel-page__note">
-          本轮只验证转盘的技术栈（react-custom-roulette）：不读战役库，也不会启用或启动游戏。
+          轮盘由 SVG 自绘、保持静止；旋转的是圆心指针。抽奖不依赖任何转盘库。
         </p>
 
         {entries.length < 2 ? (
           <p className="wheel-page__empty">至少要有两个候选才能转。</p>
         ) : (
-          <div className="wheel-frame" role="group" aria-label="抽战役转盘">
-            <div className="wheel-rotor">
-              <Wheel
-                mustStartSpinning={mustStartSpinning}
-                prizeNumber={prizeNumber}
-                data={data}
-                onStopSpinning={handleStop}
-                backgroundColors={palette.background}
-                textColors={[palette.text]}
-                outerBorderColor={palette.border}
-                outerBorderWidth={2}
-                radiusLineColor={palette.border}
-                radiusLineWidth={2}
-                innerRadius={8}
-                innerBorderColor={palette.border}
-                innerBorderWidth={2}
-                fontFamily="sans-serif"
-                fontSize={14}
-                fontWeight={600}
-                textDistance={70}
-                perpendicularText
-                pointerProps={{ style: { display: "none" } }}
-                disableInitialAnimation
-                spinDuration={prefersReducedMotion() ? REDUCED_SPIN_DURATION : SPIN_DURATION}
-              />
-            </div>
-            <div className="wheel-needle" aria-hidden="true">
+          <div className="wheel-stage" style={{ width: WHEEL_SIZE, height: WHEEL_SIZE }}>
+            <WheelDisc entries={entries} palette={palette} />
+            <div
+              className="wheel-pointer"
+              aria-hidden="true"
+              style={{
+                transform: "rotate(" + rotation + "deg)",
+                transition: spinning
+                  ? "transform " + duration + "ms cubic-bezier(0.15, 0.85, 0.15, 1)"
+                  : "none",
+              }}
+            >
               {pointer ? (
-                <img className="wheel-needle__img" src={pointer} alt="" draggable={false} />
+                <img className="wheel-pointer__img" src={pointer} alt="" draggable={false} />
               ) : (
                 <svg viewBox="0 0 100 100" focusable="false">
-                  <path className="wheel-needle__arrow" d="M50 22 L56.5 50 L43.5 50 Z" />
-                  <circle className="wheel-needle__hub" cx="50" cy="50" r="7.5" />
-                  <circle className="wheel-needle__pin" cx="50" cy="50" r="2.8" />
+                  <path className="wheel-pointer__arrow" d="M50 22 L56.5 50 L43.5 50 Z" />
+                  <circle className="wheel-pointer__hub" cx="50" cy="50" r="7.5" />
+                  <circle className="wheel-pointer__pin" cx="50" cy="50" r="2.8" />
                 </svg>
               )}
             </div>
@@ -175,18 +173,18 @@ export function WheelView({
 
         <div className="wheel-page__actions">
           <Button variant="primary" size="lg" loading={spinning} onClick={spin} disabled={!canSpin}>
-            {spinning ? "转动中…" : result ? "再抽一次" : "开始抽"}
+            {spinning ? "转动中…" : result ? "再转一次" : "开始转"}
           </Button>
         </div>
 
         <div className="wheel-result" role="status" aria-live="polite">
           {result ? (
             <>
-              <span className="wheel-result__label">抽到</span>
+              <span className="wheel-result__label">指针指向</span>
               <strong className="wheel-result__name">{result.label}</strong>
             </>
           ) : (
-            <span className="wheel-result__hint">{spinning ? "正在转…" : "还没抽"}</span>
+            <span className="wheel-result__hint">{spinning ? "正在转…" : "还没转"}</span>
           )}
         </div>
 
