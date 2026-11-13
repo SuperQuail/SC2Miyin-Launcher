@@ -42,6 +42,19 @@ export function pickIndex(random: number, count: number): number {
 }
 
 /** 轮上只放短标签；完整名字留给候选列表与结果卡。 */
+/** 从候选里无放回抽一批；用于候选过多时只展示一小批，抽取概率仍按全池均匀。 */
+export function sampleEntries<T>(items: readonly T[], limit: number, random: () => number): T[] {
+  if (items.length <= limit) return [...items];
+  const copy = [...items];
+  for (let index = 0; index < limit; index += 1) {
+    const span = copy.length - index;
+    const offset = Math.min(span - 1, Math.floor(random() * span));
+    const pick = index + offset;
+    [copy[index], copy[pick]] = [copy[pick], copy[index]];
+  }
+  return copy.slice(0, limit);
+}
+
 export function shortLabel(label: string, max = WHEEL_LABEL_MAX): string {
   const chars = Array.from(label.trim());
   return chars.length <= max ? chars.join("") : chars.slice(0, max).join("") + "…";

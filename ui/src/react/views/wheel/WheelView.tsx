@@ -12,7 +12,7 @@ import {
 } from "./campaignDatabase";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
 import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
-import { pickIndex, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
+import { pickIndex, sampleEntries, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
 import { readPalette } from "./wheelPalette";
 import "./wheel.css";
 
@@ -20,6 +20,8 @@ const SPIN_MS = 4000;
 const REST_MS = 60;
 const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
 const POINTER_ANGLE_OFFSET = -180;
+/** 数据库候选太多时，每轮只展示一小批；中奖概率仍按完整候选池均分。 */
+const DATABASE_BATCH = 8;
 
 type OnOff = "on" | "off";
 type WheelScope = "owned" | "database";
@@ -140,10 +142,15 @@ export function WheelView({
     setCampaignCard(null);
   }, [scope]);
 
+  function batchFor(items: WheelItem[]): WheelItem[] {
+    return scope === "database" ? sampleEntries(items, DATABASE_BATCH, random) : items;
+  }
+
   useEffect(() => {
-    setPool(excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible);
+    const next = excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible;
+    setPool(batchFor(next));
     setRotation(0);
-  }, [visible, excludeDrawn]);
+  }, [visible, excludeDrawn, scope]);
 
   function toggleType(type: string, on: boolean): void {
     setOffTypes((current) => {
@@ -203,7 +210,7 @@ export function WheelView({
 
   function spin(): void {
     if (!canSpin) return;
-    const nextPool = available;
+    const nextPool = batchFor(available);
     const next = pickIndex(random(), nextPool.length);
     const winner = nextPool[next];
     if (!winner) return;
@@ -228,7 +235,7 @@ export function WheelView({
   function resetDrawn(): void {
     drawn.current.clear();
     setDrawnVersion((version) => version + 1);
-    setPool(visible);
+    setPool(batchFor(visible));
     setRotation(0);
   }
 

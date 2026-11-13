@@ -252,6 +252,39 @@ describe("WheelView", () => {
     expect(link?.getAttribute("href")).toBe("https://pan.example.com/s/abc");
   });
 
+  it("数据库候选超过 8 个时每轮只展示一批", async () => {
+    const database = Array.from({ length: 12 }, (_, index) => ({
+      id: "db-" + index,
+      title: "数据战役" + index,
+      type: "custom" as const,
+      typeLabel: "自制战役",
+      authors: [],
+      description: "",
+      download_sources: [],
+      author_links: [],
+    }));
+    const host = await renderView({ database, random: () => 0 });
+    const tab = [...host.querySelectorAll<HTMLButtonElement>(".wheel-page__categories button")].find(
+      (item) => item.textContent === "战役数据库",
+    );
+
+    await act(async () => {
+      tab?.click();
+    });
+    await act(async () => {});
+
+    expect(host.querySelectorAll(".wheel-disc text")).toHaveLength(8);
+
+    await act(async () => {
+      spinButton(host).click();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(4100);
+    });
+
+    expect(document.querySelector(".sheet__title")?.textContent).toBe("数据战役0");
+  });
+
   it("少于两个候选时按钮禁用", async () => {
     const host = await renderView({
       slots: [slot("wol", "自由之翼", [variant("a", "甲")])],

@@ -36,7 +36,7 @@ export function WheelDisc({
         ))}
 
         {entries.map((entry, index) => {
-          const label = labelPlacement(index, entries.length, numbered ? 36 : undefined);
+          const label = labelPlacement(index, entries.length, 36);
           return (
             <text
               key={entry.id}
@@ -50,14 +50,8 @@ export function WheelDisc({
               fontWeight={numbered ? 700 : 600}
               fontFamily="sans-serif"
             >
-              {numbered ? (
-                <>
-                  <title>{entry.label}</title>
-                  {index + 1}
-                </>
-              ) : (
-                entry.short ?? shortLabel(entry.label)
-              )}
+              <title>{entry.label}</title>
+              {numbered ? index + 1 : entry.short ?? shortLabel(entry.label)}
             </text>
           );
         })}

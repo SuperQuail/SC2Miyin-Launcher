@@ -1,0 +1,8 @@
+{
+  "title": "永久休伯利安船员",
+  "type": "wol",
+  "authors": ["Gentle_Manz"],
+  "description": "基于 Orcawarrior2 的休伯利安船员 mod 的改版：己方船员数量有限，局内死亡即永久损失，兵种可在局内升级，每关有补充船员；改版后每局资源可带出，科技升级永久生效但价格翻 5 倍。作者 Gentle_Manz，安装方式为弥音启动器。注：当前汉化版本为已完成的框架，作者正在对整体框架进行大改。",
+  "download_sources": ["https://pan.quark.cn/s/b2b99dd5f4a2"],
+  "author_links": []
+}

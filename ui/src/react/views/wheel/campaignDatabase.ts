@@ -10,6 +10,14 @@ const TYPE_LABELS: Record<CampaignDatabaseType, string> = {
   custom: "自制战役",
 };
 
+const TYPE_ORDER: Record<CampaignDatabaseType, number> = {
+  wol: 0,
+  hots: 1,
+  lotv: 2,
+  nova: 3,
+  custom: 4,
+};
+
 /** 数据库里的一个战役；一个 JSON 对应一个。 */
 export interface DatabaseCampaign {
   id: string;
@@ -70,13 +78,17 @@ const modules = import.meta.glob("../../../data/campaign-db/*/*.json", {
 export const DATABASE_CAMPAIGNS: DatabaseCampaign[] = Object.entries(modules)
   .map(([path, raw]) => parseDatabaseCampaign(path, raw))
   .filter((item): item is DatabaseCampaign => item !== null)
-  .sort((a, b) => a.title.localeCompare(b.title, "zh-Hans-CN"));
+  .sort(
+    (a, b) =>
+      TYPE_ORDER[a.type] - TYPE_ORDER[b.type] ||
+      a.title.localeCompare(b.title, "zh-Hans-CN"),
+  );
 
 export function databaseWheelItems(campaigns: readonly DatabaseCampaign[]): DatabaseWheelItem[] {
   return campaigns.map((campaign) => ({
     id: campaign.id,
     label: campaign.title,
-    short: shortLabel(campaign.title),
+    short: shortLabel(campaign.title, 5),
     type: campaign.type,
     typeLabel: campaign.typeLabel,
     campaign,
