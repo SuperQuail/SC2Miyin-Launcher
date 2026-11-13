@@ -14,6 +14,7 @@ describe("parseRoute", () => {
   it("认得出页面与页内参数", () => {
     expect(parseRoute("?view=campaigns&slot=wol", "", false)).toEqual({ view: "campaigns", slot: "wol" });
     expect(parseRoute("?view=install&entry=custom", "", false)).toEqual({ view: "install", entry: "custom" });
+    expect(parseRoute("?view=wheel", "", false)).toEqual({ view: "wheel" });
   });
 
   it("存档页也是能进 URL 的页面", () => {

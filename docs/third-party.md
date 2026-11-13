@@ -19,3 +19,9 @@
    压缩 / 解压 / 测试都用 7-Zip 自己的界面。
 
 7-Zip 以 LGPL 分发，本项目未修改其二进制；源码可从 https://www.7-zip.org/source.html 获取。
+
+## 前端转盘
+
+**没有第三方转盘依赖。** 轮盘是 `WheelDisc.tsx` 用 SVG 自绘的，指针是页面上的 DOM + CSS transform；
+`react-custom-roulette` 与 `lucky-canvas` 都已在试玩后移除。选型过程见
+`docs/design/wheel-library-report.md`。

@@ -72,6 +72,10 @@
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
 }
 
+.room__wheel {
+  justify-content: center;
+}
+
 .room__fields {
   display: grid;
   gap: 14px;

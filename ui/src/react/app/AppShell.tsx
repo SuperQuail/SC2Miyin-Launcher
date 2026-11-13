@@ -19,6 +19,7 @@ import { RoomView } from "../views/room/RoomView";
 import { SavesView } from "../views/saves/SavesView";
 import { SettingsView, type SettingsViewProps } from "../views/settings/SettingsView";
 import { UpdateNotice } from "../views/update/UpdateNotice";
+import { WheelView } from "../views/wheel/WheelView";
 import { reportMountWarnings } from "./boot";
 import { ContextMenu } from "./ContextMenu";
 import { Dialogs } from "./Dialogs";
@@ -231,6 +232,19 @@ export function AppShell() {
                 inventory={app.saves.inventory}
                 busy={app.busy}
                 onScan={() => void app.saves.scanSaves()}
+              />
+            )}
+            {view === "wheel" && (
+              <WheelView
+                theme={app.theme.theme}
+                slots={app.library.slots}
+                loading={app.loading}
+                busy={app.busy}
+                activate={app.library.requestActivation}
+                notify={app.notify}
+                pendingActivation={app.library.pendingActivation}
+                confirmActivation={app.library.confirmActivation}
+                cancelActivation={app.library.cancelActivation}
               />
             )}
             {view === "settings" && <SettingsView {...settingsProps} />}
