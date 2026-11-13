@@ -67,14 +67,14 @@ describe("WheelView", () => {
     });
 
     // 2 个扇区，winner=1 的中心在 270°；4 圈后是 1710°
-    expect(pointer(host).style.transform).toBe("rotate(1710deg)");
+    expect(pointer(host).style.transform).toBe("rotate(1530deg)");
     expect(button.disabled).toBe(true);
 
     await act(async () => {
       vi.advanceTimersByTime(4100);
     });
 
-    expect(pointer(host).style.transform).toBe("rotate(270deg)");
+    expect(pointer(host).style.transform).toBe("rotate(90deg)");
   });
 
   it("转完后显示结果、高亮候选并恢复按钮", async () => {
@@ -122,10 +122,11 @@ describe("WheelView", () => {
     expect(host.querySelector(".wheel-pointer svg")).toBeNull();
   });
 
-  it("默认用内置 SVG 指针", async () => {
+  it("默认用大主教指针图", async () => {
     const host = await renderView({ entries: TWO });
 
-    expect(host.querySelector(".wheel-pointer svg")).not.toBeNull();
+    const img = host.querySelector("img.wheel-pointer__img");
+    expect(img?.getAttribute("src")).toBe("/wheel/dajiaozhu-pointer.png");
   });
 
   it("少于两个候选时按钮禁用", async () => {

@@ -71,36 +71,26 @@
 .wheel-pointer {
   position: absolute;
   inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   pointer-events: none;
   z-index: 2;
   transform-origin: 50% 50%;
 }
 
-.wheel-pointer svg,
+/*
+ * 大主教指针：200x350，转轴在从下往上 80% 处（= 从上往下 20%）。
+ * 图片底部朝外；容器绕轮盘中心转，图片自身用 translate 把「20% 高处的中点」
+ * 钉在轮盘中心，所以转起来就是图片底部在指方向。
+ */
 .wheel-pointer__img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 用户要求：在 25.6% 的基础上放大 1.5 倍（25.6% × 1.5 ≈ 38.4%） */
+  height: 38.4%;
+  width: auto;
+  transform: translate(-50%, -20%);
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
-}
-
-.wheel-pointer__arrow {
-  fill: var(--accent);
-  stroke: var(--surface-1);
-  stroke-width: 1.2;
-}
-
-.wheel-pointer__hub {
-  fill: var(--surface-1);
-  stroke: var(--accent);
-  stroke-width: 2;
-}
-
-.wheel-pointer__pin {
-  fill: var(--accent);
+  user-select: none;
 }
 
 .wheel-page__pointer {

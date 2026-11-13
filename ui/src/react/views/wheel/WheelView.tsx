@@ -8,6 +8,10 @@ import "./wheel.css";
 
 /** 指针转一圈的时长；正常 4 秒，减少动态效果时立即到。 */
 const SPIN_MS = 4000;
+/** 默认指针图：大主教头像；图片底部朝外，转轴在从下往上 80% 处。 */
+const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
+/** 图片默认朝下；目标角度是「朝上方向」，所以整体要额外转 -180°。 */
+const POINTER_ANGLE_OFFSET = -180;
 /** 转完之后再留一点余量给 CSS transition 收尾。 */
 const REST_MS = 60;
 
@@ -31,13 +35,13 @@ export function WheelView({
   theme?: "light" | "dark";
   /** 测试注入用。 */
   random?: () => number;
-  /** 自定义圆心指针图片；不传用内置 SVG。页面上的「换指针图片…」也会写这里。 */
+  /** 自定义圆心指针图片；不传用内置的大主教指针。页面上的「换指针图片…」也会写这里。 */
   pointerSrc?: string;
 } = {}) {
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [result, setResult] = useState<WheelEntry | null>(null);
-  const [pointer, setPointer] = useState<string | null>(pointerSrc ?? null);
+  const [pointer, setPointer] = useState<string>(pointerSrc ?? DEFAULT_POINTER);
   const [pointerError, setPointerError] = useState<string | null>(null);
   const pointerInput = useRef<HTMLInputElement>(null);
   const winner = useRef(0);
@@ -123,21 +127,13 @@ export function WheelView({
               className="wheel-pointer"
               aria-hidden="true"
               style={{
-                transform: "rotate(" + rotation + "deg)",
+                transform: "rotate(" + (rotation + POINTER_ANGLE_OFFSET) + "deg)",
                 transition: spinning
                   ? "transform " + duration + "ms cubic-bezier(0.15, 0.85, 0.15, 1)"
                   : "none",
               }}
             >
-              {pointer ? (
-                <img className="wheel-pointer__img" src={pointer} alt="" draggable={false} />
-              ) : (
-                <svg viewBox="0 0 100 100" focusable="false">
-                  <path className="wheel-pointer__arrow" d="M50 22 L56.5 50 L43.5 50 Z" />
-                  <circle className="wheel-pointer__hub" cx="50" cy="50" r="7.5" />
-                  <circle className="wheel-pointer__pin" cx="50" cy="50" r="2.8" />
-                </svg>
-              )}
+              <img className="wheel-pointer__img" src={pointer} alt="" draggable={false} />
             </div>
           </div>
         )}
@@ -145,16 +141,16 @@ export function WheelView({
         <div className="wheel-page__pointer">
           <Button
             variant="text"
-            title="图片以轮盘中心为转轴、朝上；建议正方形、透明背景"
+            title="图片从下往上 80% 处为转轴，底部朝外；建议透明背景"
             onClick={() => pointerInput.current?.click()}
           >
-            {pointer ? "换一张指针图片…" : "换指针图片…"}
+            {pointer === DEFAULT_POINTER ? "换指针图片…" : "换一张指针图片…"}
           </Button>
-          {pointer && (
+          {pointer !== DEFAULT_POINTER && (
             <Button
               variant="text"
               onClick={() => {
-                setPointer(null);
+                setPointer(DEFAULT_POINTER);
                 setPointerError(null);
               }}
             >
