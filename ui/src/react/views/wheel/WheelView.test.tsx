@@ -54,19 +54,18 @@ const TWO = [
 ];
 
 describe("WheelView", () => {
-  it("轮盘是静止的 SVG；点开始转只转指针，4 圈后指向中奖扇区", async () => {
+  it("轮盘静止；点开始转只转指针，4 圈后指向中奖扇区", async () => {
     const host = await renderView({ entries: TWO, random: () => 0.99 });
     const button = spinButton(host);
 
     expect(host.querySelector(".wheel-disc svg")).not.toBeNull();
-    expect(host.querySelectorAll(".wheel-disc path")).toHaveLength(2);
     expect(host.querySelector(".wheel-disc")?.getAttribute("style") ?? "").not.toContain("transform");
 
     await act(async () => {
       button.click();
     });
 
-    // 2 个扇区，winner=1 的中心在 270°；4 圈后是 1710°
+    // 2 个扇区，winner=1 的中心在 270°；4 圈后是 1710°，再减图片朝向的 180°
     expect(pointer(host).style.transform).toBe("rotate(1530deg)");
     expect(button.disabled).toBe(true);
 
@@ -75,26 +74,20 @@ describe("WheelView", () => {
     });
 
     expect(pointer(host).style.transform).toBe("rotate(90deg)");
-  });
-
-  it("转完后显示结果、高亮候选并恢复按钮", async () => {
-    const host = await renderView({ entries: TWO, random: () => 0.99 });
-    const button = spinButton(host);
-
-    await act(async () => {
-      button.click();
-    });
-    await act(async () => {
-      vi.advanceTimersByTime(4100);
-    });
-
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("乙");
-    expect(host.querySelector(".wheel-candidates__item--on")?.textContent).toBe("乙");
     expect(button.disabled).toBe(false);
-    expect(button.textContent).toContain("再转一次");
   });
 
-  it("减少动态效果时不做长动画，很快出结果", async () => {
+  it("页面上只有标题、轮盘和开始按钮", async () => {
+    const host = await renderView({ entries: TWO });
+
+    expect(host.querySelector("h2")?.textContent).toBe("战役转盘");
+    expect(host.querySelector("img.wheel-pointer__img")?.getAttribute("src")).toBe(
+      "/wheel/dajiaozhu-pointer.png",
+    );
+    expect(host.querySelectorAll("button")).toHaveLength(1);
+  });
+
+  it("减少动态效果时不做长动画，很快恢复按钮", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       writable: true,
@@ -111,22 +104,7 @@ describe("WheelView", () => {
       vi.advanceTimersByTime(70);
     });
 
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("甲");
-  });
-
-  it("可以换成自定义指针图片（传 pointerSrc 就渲染 img）", async () => {
-    const host = await renderView({ entries: TWO, pointerSrc: "data:image/svg+xml,%3Csvg/%3E" });
-
-    const img = host.querySelector("img.wheel-pointer__img");
-    expect(img?.getAttribute("src")).toBe("data:image/svg+xml,%3Csvg/%3E");
-    expect(host.querySelector(".wheel-pointer svg")).toBeNull();
-  });
-
-  it("默认用大主教指针图", async () => {
-    const host = await renderView({ entries: TWO });
-
-    const img = host.querySelector("img.wheel-pointer__img");
-    expect(img?.getAttribute("src")).toBe("/wheel/dajiaozhu-pointer.png");
+    expect(button.disabled).toBe(false);
   });
 
   it("少于两个候选时按钮禁用", async () => {

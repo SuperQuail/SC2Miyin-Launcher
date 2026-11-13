@@ -8,46 +8,10 @@
   box-shadow: var(--shadow-2);
 }
 
-.wheel-page__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
 .wheel-page__title {
-  margin: 0;
+  margin: 0 0 18px;
   font-size: 24px;
-}
-
-.wheel-page__lede {
-  margin: 6px 0 0;
-  color: var(--on-surface-variant);
-  font-size: 14px;
-}
-
-.wheel-page__badge {
-  flex: none;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.wheel-page__note {
-  margin: 12px 0 20px;
-  color: var(--on-surface-variant);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.wheel-page__empty {
-  padding: 40px 0;
   text-align: center;
-  color: var(--on-surface-variant);
 }
 
 /* 轮盘固定不动，只有圆心指针在转。 */
@@ -85,7 +49,6 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  /* 用户要求：在 25.6% 的基础上放大 1.5 倍（25.6% × 1.5 ≈ 38.4%） */
   height: 38.4%;
   width: auto;
   transform: translate(-50%, -20%);
@@ -93,86 +56,8 @@
   user-select: none;
 }
 
-.wheel-page__pointer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0 0 4px;
-}
-
-.wheel-page__pointer-input {
-  display: none;
-}
-
-.wheel-page__pointer-error {
-  color: var(--danger);
-  font-size: 12px;
-}
-
 .wheel-page__actions {
   display: flex;
   justify-content: center;
-  margin: 20px 0 14px;
-}
-
-.wheel-result {
-  min-height: 30px;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 10px;
-}
-
-.wheel-result__label {
-  color: var(--on-surface-variant);
-  font-size: 13px;
-}
-
-.wheel-result__name {
-  font-size: 20px;
-  color: var(--accent);
-}
-
-.wheel-result__hint {
-  color: var(--on-surface-variant);
-  font-size: 13px;
-}
-
-.wheel-candidates {
-  margin-top: 28px;
-  border-top: 1px solid var(--outline);
-  padding-top: 16px;
-}
-
-.wheel-candidates__title {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--on-surface-variant);
-}
-
-.wheel-candidates__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.wheel-candidates__item {
-  padding: 5px 10px;
-  border: 1px solid var(--outline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-1);
-  font-size: 13px;
-}
-
-.wheel-candidates__item--on {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent-pressed);
-  font-weight: 600;
+  margin-top: 20px;
 }
