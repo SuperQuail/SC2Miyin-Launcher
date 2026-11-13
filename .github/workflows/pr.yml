@@ -47,23 +47,11 @@ jobs:
           BASE: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
-          # 流向固定：feat/* -> dev -> main -> release
+          # 单主线：短分支 -> main；不许把 main/release 倒灌回 main
           case "${BASE}" in
-            dev)
-              if [[ "${HEAD}" == "main" || "${HEAD}" == "release" ]]; then
-                echo "::error::不要把 main/release 合回 dev"
-                exit 1
-              fi
-              ;;
             main)
-              if [[ "${HEAD}" != "dev" ]]; then
-                echo "::error::合进 main 只接受来自 dev 的分支（当前是 ${HEAD}）"
-                exit 1
-              fi
-              ;;
-            release)
-              if [[ "${HEAD}" != "main" ]]; then
-                echo "::error::合进 release 只接受来自 main 的分支（当前是 ${HEAD}）"
+              if [[ "${HEAD}" == "main" || "${HEAD}" == "release" ]]; then
+                echo "::error::不要把 main/release 合回 main"
                 exit 1
               fi
               ;;

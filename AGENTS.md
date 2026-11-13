@@ -172,11 +172,14 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 
 | 分支 | 用途 | 谁能合进来 |
 | --- | --- | --- |
-| `dev` | **日常集成**：所有改动先落这里 | `feat/*` `fix/*` `chore/*` 的 PR |
-| `main` | **稳定分支**：随时可发布 | **只接受 `dev` 的 PR** |
-| `release` | **发版分支**：tag 从这里打 | **只接受 `main` 的 PR** |
+| `main` | **唯一长期分支**：日常集成 + 稳定发布 | `feat/*` `fix/*` `chore/*` `docs/*` 的 PR |
+| 短分支 | `feat/*` / `fix/*` / `chore/*` / `docs/*`，合入后删除 | — |
 
-流向固定：`feat/*` → `dev` → `main` → `release` → tag。
+流向固定：`feat/*` → `main` → tag。没有 `dev`，也没有 `release` 长期分支。
+
+**为什么是单主线**：项目当前是单人维护、发版频繁；`dev` 只多一层搬运，
+每次推进还要防 squash 分叉（见下文的旧坑）。短分支 → main 已经能满足
+「改动经过 PR 与 CI」的目的；发版只是 main 上的一个版本号提交 + tag。
 
 > [!IMPORTANT]
 > **除非用户明确说明，不得发布 PR。** 改动先待在分支上（推分支没问题），
@@ -191,14 +194,13 @@ python scripts/prepare-icons.py      # 立绘 -> src-tauri/icons/
 > （2026-10 维护者明确：改完别顺手 push。代理的默认动作是本地提交，不是同步远端。）
 
 > [!IMPORTANT]
-> **不要直接往 `dev` / `main` / `release` 推。** 三个分支都开了分支保护，
-> 只能通过 PR 合入。要临时绕过时用 `enforce_admins`（只有维护者能做，且别常用）。
+> **不要直接往 `main` 推。** `main` 开了分支保护，只能通过 PR 合入。
+> 要临时绕过时用 `enforce_admins`（只有维护者能做，且别常用）。
 
 推 PR 之后 CI 会拦两件事（见 `.github/workflows/pr.yml`）：
 
 1. **PR 标题必须是 Conventional Commits**（规则见 §7.2，主题行 ≤ 80 字符）
-2. **目标分支的流向必须合法** —— 不许跳级（如 `feat/*` → `main`），
-   也不许倒流（如 `main` → `dev`）
+2. **目标分支是 `main`** —— 短分支都可以直接开向 main；不许把 `main` / `release` 倒灌回 main
 
 PR 模板在 `.github/PULL_REQUEST_TEMPLATE.md`，请把**真跑过的**验证命令输出贴进去，
 而不是写「应该没问题」。
@@ -231,35 +233,23 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 2. 写发行说明 `docs/release-notes/v<版本>.md` —— CI 会把它作为 Release 正文，
    **文件名必须与 tag 完全对应**（`v0.1.0a2` 对 `v0.1.0a2.md`）。
 3. 更新 `CHANGELOG.md`。
-4. **按流向推 PR**（三个分支都受保护，推不上去）：
+4. 发版准备开一个短分支 → `main` 的 PR（`main` 受保护，推不上去）：
 
    ```bash
-   # 1) 发版准备分支 -> dev
-   gh pr create --base dev --head chore/release-0.1.0a4 --title "chore(release): 版本升到 0.1.0a4"
-   gh pr merge <编号> --squash --delete-branch
-
-   # 2) 逐级推进（这两步用 --merge，**不要**用 --squash）
-   gh pr create --base main    --head dev  --title "chore(release): 合并 dev 到 main（0.1.0a4）"
-   gh pr merge <编号> --merge
-   gh pr create --base release --head main --title "chore(release): 合并 main 到 release（0.1.0a4）"
-   gh pr merge <编号> --merge
+   gh pr create --base main --head chore/release-0.1.0a4 --title "chore(release): 版本升到 0.1.0a4"
    ```
 
-5. 从 `release` 打 tag 并推送，`.github/workflows/release.yml` 会自动构建
+5. 合并后**从 `main` 打 tag** 并推送，`.github/workflows/release.yml` 会自动构建
    Windows 绿色版并附到 Release。版本号里带字母的（`0.1.0a2` / `0.1.0-alpha.2`）
    会**自动标成预发行**：
 
    ```bash
-   git tag -a v0.1.0a4 origin/release -m "0.1.0a4"
+   git fetch origin
+   git tag -a v0.1.0a4 origin/main -m "0.1.0a4"
    git push origin v0.1.0a4
    ```
 
-⚠️ **推进类 PR 必须用 `--merge`，不能 `--squash`**。踩过的坑：一开始用 squash
-把 `dev` 压成单个提交合进 `main`，两边历史就此分叉，之后每次 `dev` → `main`
-都冲突。真碰上了就用 `git merge origin/main -s ours` 收口一次（内容以 dev 为准，
-但把 main 记为祖先），再走 PR 推上去。
-
-也正因为这样，**不要开「要求线性历史」** —— 它和「长分支互相推进」天生打架。
+不再有 `dev` / `release` 推进 PR；squash 也不会再制造两条长期分支的分叉。
 
 ⚠️ **改完版本号务必确认文件仍是 UTF-8**：PowerShell 的 `Set-Content` 默认按 ANSI 写盘，
 会把中文写成非法字节 —— `cargo` 会直接报 `path was not valid utf-8`。
@@ -402,7 +392,7 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 | --- | --- |
 | 项目名 | 中文「弥音启动器」/ 英文 **MiYin Launcher**（曾用名 HSCL 仅保留在本地目录名） |
 | 技术栈 | **Rust + Tauri 2 + React 18 + TypeScript**（见 §3.1；原本的 Vue 3 已于 2026-10 全部迁完并移除） |
-| 版本管理 | Git，`main` 为稳定分支，提交遵循 Conventional Commits（见 §7） |
+| 版本管理 | Git，**单主线 `main`**：短分支直接 PR 到 main 后删除，tag 从 main 打（见 §7） |
 | 参考实现 | `reference/scnexus`（BSD-3-Clause，gitignored，**只读**，见 §8） |
 | 代理 | 系统代理 `http://127.0.0.1:7897`，已配好 Git 全局代理（见 §9） |
 | 脚手架 | Rust workspace（`crates/miyin-core`）+ Tauri 2 桌面壳 + React 前端（见 §4） |

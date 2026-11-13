@@ -25,9 +25,9 @@ pnpm -C ui build
 
 ## 分支与 PR
 
-`feat/*` `fix/*` `chore/*` `docs/*` → `dev` → `main` → `release` → tag。
+`feat/*` `fix/*` `chore/*` `docs/*` → `main` → tag。
 
-三个长期分支都开了保护，**只能走 PR**。PR 标题必须是 Conventional Commits：
+`main` 是唯一长期分支，开了保护，**只能走 PR**；短分支合并后删除。PR 标题必须是 Conventional Commits：
 
 ```
 feat(core): 从注册表发现星际争霸 II 安装路径
