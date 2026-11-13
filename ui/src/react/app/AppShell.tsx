@@ -234,7 +234,19 @@ export function AppShell() {
                 onScan={() => void app.saves.scanSaves()}
               />
             )}
-            {view === "wheel" && <WheelView theme={app.theme.theme} />}
+            {view === "wheel" && (
+              <WheelView
+                theme={app.theme.theme}
+                slots={app.library.slots}
+                loading={app.loading}
+                busy={app.busy}
+                activate={app.library.requestActivation}
+                notify={app.notify}
+                pendingActivation={app.library.pendingActivation}
+                confirmActivation={app.library.confirmActivation}
+                cancelActivation={app.library.cancelActivation}
+              />
+            )}
             {view === "settings" && <SettingsView {...settingsProps} />}
             {view === "room" && <RoomView onBack={() => app.nav.setView("settings")} />}
           </div>

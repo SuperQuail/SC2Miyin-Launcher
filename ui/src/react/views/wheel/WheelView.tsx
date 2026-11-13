@@ -1,52 +1,134 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "../../ui";
+import type { Preview, SlotView } from "../../../api/types";
+import { Button, Checkbox, Sheet } from "../../ui";
+import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
-import { SAMPLE_ENTRIES, pickIndex, targetRotation, type WheelEntry } from "./wheelData";
+import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
+import { pickIndex, targetRotation } from "./wheelData";
 import { readPalette } from "./wheelPalette";
 import "./wheel.css";
 
-/** 指针转一圈的时长；正常 4 秒，减少动态效果时立即到。 */
 const SPIN_MS = 4000;
-/** 转完之后再留一点余量给 CSS transition 收尾。 */
 const REST_MS = 60;
-/** 默认指针图：大主教头像；图片底部朝外，转轴在从下往上 80% 处。 */
 const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
-/** 图片默认朝下；目标角度是「朝上方向」，所以整体要额外转 -180°。 */
 const POINTER_ANGLE_OFFSET = -180;
 
-/** 转盘页的两个来源；具体内容页暂不区分。 */
-type WheelScope = "owned" | "database";
+type OnOff = "on" | "off";
+
+export interface WheelViewProps {
+  theme?: "light" | "dark";
+  slots: readonly SlotView[];
+  loading?: boolean;
+  busy?: boolean;
+  activate?: (slot: string, variantId: string | null) => Promise<boolean>;
+  notify?: (kind: "info" | "success" | "error", text: string) => void;
+  pendingActivation?: { variantId: string; preview: Preview } | null;
+  confirmActivation?: () => Promise<boolean>;
+  cancelActivation?: () => void;
+  random?: () => number;
+}
 
 function prefersReducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 export function WheelView({
-  entries = SAMPLE_ENTRIES,
   theme = "light",
+  slots,
+  loading = false,
+  busy = false,
+  activate,
+  notify,
+  pendingActivation,
+  confirmActivation,
+  cancelActivation,
   random = Math.random,
-}: {
-  entries?: readonly WheelEntry[];
-  /** 主题变化后要重新读令牌。 */
-  theme?: "light" | "dark";
-  /** 测试注入用。 */
-  random?: () => number;
-} = {}) {
-  const [scope, setScope] = useState<WheelScope>("owned");
+}: WheelViewProps) {
+  const candidates = useMemo(() => buildCandidates(slots), [slots]);
+  const [offTypes, setOffTypes] = useState<Set<string>>(() => new Set());
+  const [offCampaigns, setOffCampaigns] = useState<Set<string>>(() => new Set());
+  const [autoApply, setAutoApply] = useState<OnOff>("on");
+  const [excludeDrawn, setExcludeDrawn] = useState<OnOff>("off");
+  const [prompt, setPrompt] = useState<WheelCandidate | null>(null);
+  const [pool, setPool] = useState<WheelCandidate[]>([]);
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
+  const [drawnVersion, setDrawnVersion] = useState(0);
+  const drawn = useRef<Set<string>>(new Set());
   const stopTimer = useRef<number | null>(null);
 
   const palette = useMemo(() => readPalette(), [theme]);
   const reducedMotion = prefersReducedMotion();
   const duration = reducedMotion ? 0 : SPIN_MS;
-  const canSpin = entries.length >= 2 && !spinning;
+
+  const typeEntries = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const item of candidates) seen.set(item.type, item.typeLabel);
+    return [...seen].map(([type, label]) => ({ type, label }));
+  }, [candidates]);
+
+  const campaignsForTypes = useMemo(
+    () => candidates.filter((item) => !offTypes.has(item.type)),
+    [candidates, offTypes],
+  );
+
+  const visible = useMemo(
+    () => candidates.filter((item) => !offTypes.has(item.type) && !offCampaigns.has(item.id)),
+    [candidates, offTypes, offCampaigns],
+  );
+
+  const available = useMemo(
+    () => (excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible),
+    [visible, excludeDrawn, drawnVersion],
+  );
 
   useEffect(() => {
-    setSpinning(false);
+    setPool(excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible);
     setRotation(0);
-  }, [theme]);
+  }, [visible, excludeDrawn]);
+
+  function toggleType(type: string, on: boolean): void {
+    setOffTypes((current) => {
+      const next = new Set(current);
+      if (on) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
+
+  function toggleCampaign(id: string, on: boolean): void {
+    setOffCampaigns((current) => {
+      const next = new Set(current);
+      if (on) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllTypes(): void {
+    setOffTypes(new Set());
+  }
+
+  function clearTypes(): void {
+    setOffTypes(new Set(typeEntries.map((entry) => entry.type)));
+  }
+
+  function selectAllCampaigns(): void {
+    setOffCampaigns((current) => {
+      const next = new Set(current);
+      for (const item of campaignsForTypes) next.delete(item.id);
+      return next;
+    });
+  }
+
+  function clearCampaigns(): void {
+    setOffCampaigns((current) => {
+      const next = new Set(current);
+      for (const item of campaignsForTypes) next.add(item.id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     return () => {
@@ -54,71 +136,204 @@ export function WheelView({
     };
   }, []);
 
+  const canSpin = available.length >= 2 && !spinning && !loading;
+
+  async function applyChoice(choice: WheelCandidate): Promise<void> {
+    if (!activate || choice.active) return;
+    const ok = await activate(choice.slot, choice.variantId);
+    if (ok) notify?.("success", "已启用「" + choice.short + "」");
+  }
+
   function spin(): void {
     if (!canSpin) return;
-    const next = pickIndex(random(), entries.length);
+    const nextPool = available;
+    const next = pickIndex(random(), nextPool.length);
+    const winner = nextPool[next];
+    if (!winner) return;
+
+    setPool(nextPool);
+    setPrompt(null);
     setSpinning(true);
-    setRotation((current) => targetRotation(current, next, entries.length));
+    setRotation((current) => targetRotation(current, next, nextPool.length));
 
     if (stopTimer.current !== null) window.clearTimeout(stopTimer.current);
     stopTimer.current = window.setTimeout(() => {
       setSpinning(false);
       setRotation((current) => ((current % 360) + 360) % 360);
+      drawn.current.add(winner.id);
+      setDrawnVersion((version) => version + 1);
+      if (autoApply === "on") void applyChoice(winner);
+      else setPrompt(winner);
     }, duration + REST_MS);
+  }
+
+  function resetDrawn(): void {
+    drawn.current.clear();
+    setDrawnVersion((version) => version + 1);
+    setPool(visible);
+    setRotation(0);
+  }
+
+  function confirmPrompt(): void {
+    const choice = prompt;
+    setPrompt(null);
+    if (choice) void applyChoice(choice);
   }
 
   return (
     <div className="wheel-page">
-      <div className="page">
-        <h2 className="wheel-page__title">战役转盘</h2>
-
-        <div className="wheel-subnav" role="tablist" aria-label="战役来源">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === "owned"}
-            className={
-              "wheel-subnav__item" + (scope === "owned" ? " wheel-subnav__item--active" : "")
-            }
-            onClick={() => setScope("owned")}
-          >
-            已有战役
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={scope === "database"}
-            className={
-              "wheel-subnav__item" + (scope === "database" ? " wheel-subnav__item--active" : "")
-            }
-            onClick={() => setScope("database")}
-          >
-            战役数据库
-          </button>
-        </div>
-
-        <div className="wheel-stage" style={{ width: WHEEL_SIZE, height: WHEEL_SIZE }}>
-          <WheelDisc entries={entries} palette={palette} />
-          <div
-            className="wheel-pointer"
-            aria-hidden="true"
-            style={{
-              transform: "rotate(" + (rotation + POINTER_ANGLE_OFFSET) + "deg)",
-              transition: spinning
-                ? "transform " + duration + "ms cubic-bezier(0.15, 0.85, 0.15, 1)"
-                : "none",
-            }}
-          >
-            <img className="wheel-pointer__img" src={DEFAULT_POINTER} alt="" draggable={false} />
-          </div>
-        </div>
-
-        <div className="wheel-page__actions">
-          <Button variant="primary" size="lg" loading={spinning} onClick={spin} disabled={!canSpin}>
-            {spinning ? "抽取中…" : "抽取"}
-          </Button>
-        </div>
+      <div className="wheel-page__categories">
+        <Button variant="primary">已有战役</Button>
+        <Button variant="text" disabled>
+          战役数据库
+        </Button>
       </div>
+
+      <div className="wheel-layout">
+        <aside className="wheel-panel wheel-panel--filters">
+          <div className="wheel-filter">
+            <div className="wheel-filter__head">
+              <span className="wheel-filter__title">战役类型</span>
+              <div className="wheel-filter__actions">
+                <Button
+                  variant="text"
+                  onClick={selectAllTypes}
+                  disabled={spinning || offTypes.size === 0}
+                >
+                  全选
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={clearTypes}
+                  disabled={spinning || offTypes.size === typeEntries.length}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+            {typeEntries.map((entry) => (
+              <Checkbox
+                key={entry.type}
+                name={"wheel-type-" + entry.type}
+                checked={!offTypes.has(entry.type)}
+                onChange={(checked) => toggleType(entry.type, checked)}
+                disabled={spinning}
+              >
+                {entry.label}
+              </Checkbox>
+            ))}
+          </div>
+          <div className="wheel-filter">
+            <div className="wheel-filter__head">
+              <span className="wheel-filter__title">具体战役</span>
+              <div className="wheel-filter__actions">
+                <Button
+                  variant="text"
+                  onClick={selectAllCampaigns}
+                  disabled={spinning || campaignsForTypes.length === 0}
+                >
+                  全选
+                </Button>
+                <Button
+                  variant="text"
+                  onClick={clearCampaigns}
+                  disabled={spinning || campaignsForTypes.length === 0}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+            <div className="wheel-filter__list">
+              {campaignsForTypes.map((item) => (
+                <Checkbox
+                  key={item.id}
+                  name={"wheel-campaign-" + item.id}
+                  checked={!offCampaigns.has(item.id)}
+                  onChange={(checked) => toggleCampaign(item.id, checked)}
+                  disabled={spinning}
+                >
+                  {item.label}
+                </Checkbox>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        <section className="wheel-panel wheel-main">
+          <h2 className="wheel-page__title">战役转盘</h2>
+
+          <div className="wheel-stage" style={{ width: WHEEL_SIZE, height: WHEEL_SIZE }}>
+            <WheelDisc entries={pool} palette={palette} />
+            <div
+              className="wheel-pointer"
+              aria-hidden="true"
+              style={{
+                transform: "rotate(" + (rotation + POINTER_ANGLE_OFFSET) + "deg)",
+                transition: spinning
+                  ? "transform " + duration + "ms cubic-bezier(0.15, 0.85, 0.15, 1)"
+                  : "none",
+              }}
+            >
+              <img className="wheel-pointer__img" src={DEFAULT_POINTER} alt="" draggable={false} />
+            </div>
+          </div>
+
+          <div className="wheel-page__actions">
+            <Button variant="primary" size="lg" loading={spinning} onClick={spin} disabled={!canSpin}>
+              {spinning ? "抽取中…" : "抽取"}
+            </Button>
+          </div>
+        </section>
+
+        <aside className="wheel-panel">
+          <Checkbox
+            name="wheel-auto-apply"
+            checked={autoApply === "on"}
+            onChange={(checked) => setAutoApply(checked ? "on" : "off")}
+            disabled={spinning}
+          >
+            自动应用
+          </Checkbox>
+          <Checkbox
+            name="wheel-exclude-drawn"
+            checked={excludeDrawn === "on"}
+            onChange={(checked) => setExcludeDrawn(checked ? "on" : "off")}
+            disabled={spinning}
+          >
+            剔除已抽取
+          </Checkbox>
+          <Button variant="outline" onClick={resetDrawn} disabled={spinning}>
+            重置抽取状态
+          </Button>
+        </aside>
+      </div>
+
+      {prompt && (
+        <Sheet
+          title={"启用「" + prompt.short + "」？"}
+          onClose={() => setPrompt(null)}
+          actions={
+            <>
+              <Button onClick={() => setPrompt(null)}>取消</Button>
+              <Button variant="primary" onClick={confirmPrompt}>
+                启用
+              </Button>
+            </>
+          }
+        >
+          <span />
+        </Sheet>
+      )}
+
+      {pendingActivation && confirmActivation && cancelActivation && (
+        <ActivationPreviewDialog
+          variantId={pendingActivation.variantId}
+          preview={pendingActivation.preview}
+          busy={busy}
+          onConfirm={() => void confirmActivation()}
+          onCancel={cancelActivation}
+        />
+      )}
     </div>
   );
 }

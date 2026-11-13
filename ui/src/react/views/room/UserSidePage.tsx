@@ -4,7 +4,7 @@ import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
 import { VariantCard } from "../../components/VariantCard";
 import { useAppState } from "../../state/AppState";
-import { Button, Choice, Field, Progress, Sheet } from "../../ui";
+import { Button, Checkbox, Choice, Field, Progress, Sheet } from "../../ui";
 import { WheelDisc } from "../wheel/WheelDisc";
 import type { WheelEntry } from "../wheel/wheelData";
 import { readPalette } from "../wheel/wheelPalette";
@@ -84,6 +84,8 @@ export function UserSidePage() {
   const roomPalette = useMemo(() => readPalette(), [theme.theme]);
   // Choice 演示：安装页那个「覆盖更新 / 重命名后导入」就是它
   const [conflict, setConflict] = useState<"overwrite" | "rename">("overwrite");
+  // Checkbox 演示
+  const [autoApplyDemo, setAutoApplyDemo] = useState(true);
 
   return (
     <>
@@ -169,6 +171,20 @@ export function UserSidePage() {
         <Field label="版本" row hint="属性表那样：标签左、值右">
           <input defaultValue="8.0" />
         </Field>
+      </Card>
+
+      <Card
+        title="控件层 · Checkbox"
+        note="react/ui/Checkbox —— 勾选类设置；键盘焦点、读屏与禁用态都走原生 checkbox。"
+      >
+        <div className="room__col">
+          <Checkbox checked={autoApplyDemo} onChange={setAutoApplyDemo}>
+            自动应用
+          </Checkbox>
+          <Checkbox checked={false} onChange={() => {}} disabled>
+            禁用
+          </Checkbox>
+        </div>
       </Card>
 
       <Card
