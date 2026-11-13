@@ -239,6 +239,7 @@ describe("WheelView", () => {
 
     expect(host.querySelector(".wheel-disc path")).not.toBeNull();
     expect(host.querySelector<HTMLInputElement>('input[name="wheel-auto-apply"]')).toBeNull();
+    expect(host.querySelector(".wheel-database-count")?.textContent).toBe("共 2 部战役");
 
     await act(async () => {
       spinButton(host).click();
@@ -252,7 +253,7 @@ describe("WheelView", () => {
     expect(link?.getAttribute("href")).toBe("https://pan.example.com/s/abc");
   });
 
-  it("数据库候选超过 8 个时每轮只展示一批", async () => {
+  it("数据库候选全量上盘", async () => {
     const database = Array.from({ length: 12 }, (_, index) => ({
       id: "db-" + index,
       title: "数据战役" + index,
@@ -273,7 +274,7 @@ describe("WheelView", () => {
     });
     await act(async () => {});
 
-    expect(host.querySelectorAll(".wheel-disc text")).toHaveLength(8);
+    expect(host.querySelectorAll(".wheel-disc text")).toHaveLength(12);
 
     await act(async () => {
       spinButton(host).click();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pickIndex, sampleEntries, sectorCenter, shortLabel, targetRotation } from "./wheelData";
+import { pickIndex, sectorCenter, shortLabel, targetRotation } from "./wheelData";
 
 describe("pickIndex", () => {
   it("落在 [0, count-1]，注入越界值也不出去", () => {
@@ -13,20 +13,6 @@ describe("pickIndex", () => {
 
   it("没有候选时返回 0，不抛异常", () => {
     expect(pickIndex(0.5, 0)).toBe(0);
-  });
-});
-
-describe("sampleEntries", () => {
-  it("不超过上限时原样返回", () => {
-    const items = [1, 2, 3];
-    expect(sampleEntries(items, 8, () => 0.5)).toEqual([1, 2, 3]);
-  });
-
-  it("超过上限时只取 limit 个且不重复", () => {
-    const items = Array.from({ length: 20 }, (_, index) => index);
-    const batch = sampleEntries(items, 8, () => 0.5);
-    expect(batch).toHaveLength(8);
-    expect(new Set(batch).size).toBe(8);
   });
 });
 

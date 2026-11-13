@@ -12,7 +12,7 @@ import {
 } from "./campaignDatabase";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
 import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
-import { pickIndex, sampleEntries, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
+import { pickIndex, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
 import { readPalette } from "./wheelPalette";
 import "./wheel.css";
 
@@ -20,8 +20,6 @@ const SPIN_MS = 4000;
 const REST_MS = 60;
 const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
 const POINTER_ANGLE_OFFSET = -180;
-/** 数据库候选太多时，每轮只展示一小批；中奖概率仍按完整候选池均分。 */
-const DATABASE_BATCH = 8;
 
 type OnOff = "on" | "off";
 type WheelScope = "owned" | "database";
@@ -142,13 +140,8 @@ export function WheelView({
     setCampaignCard(null);
   }, [scope]);
 
-  function batchFor(items: WheelItem[]): WheelItem[] {
-    return scope === "database" ? sampleEntries(items, DATABASE_BATCH, random) : items;
-  }
-
   useEffect(() => {
-    const next = excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible;
-    setPool(batchFor(next));
+    setPool(excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible);
     setRotation(0);
   }, [visible, excludeDrawn, scope]);
 
@@ -210,7 +203,7 @@ export function WheelView({
 
   function spin(): void {
     if (!canSpin) return;
-    const nextPool = batchFor(available);
+    const nextPool = available;
     const next = pickIndex(random(), nextPool.length);
     const winner = nextPool[next];
     if (!winner) return;
@@ -235,7 +228,7 @@ export function WheelView({
   function resetDrawn(): void {
     drawn.current.clear();
     setDrawnVersion((version) => version + 1);
-    setPool(batchFor(visible));
+    setPool(visible);
     setRotation(0);
   }
 
@@ -261,6 +254,9 @@ export function WheelView({
 
       <div className="wheel-layout">
         <aside className="wheel-panel wheel-panel--filters">
+          {scope === "database" && (
+            <div className="wheel-database-count">共 {databaseItems.length} 部战役</div>
+          )}
           <div className="wheel-filter">
             <div className="wheel-filter__head">
               <span className="wheel-filter__title">战役类型</span>

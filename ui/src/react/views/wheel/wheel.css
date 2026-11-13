@@ -42,6 +42,11 @@
   overflow: auto;
 }
 
+.wheel-database-count {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
 .wheel-filter {
   display: flex;
   flex-direction: column;
