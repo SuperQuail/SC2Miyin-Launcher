@@ -430,3 +430,40 @@ fn patch_metadata_can_be_edited() {
         .is_err()
     );
 }
+#[test]
+fn removing_a_patch_unbinds_it_and_removes_its_directory() {
+    let fixture = fixture();
+
+    let patch_zip = build_zip(
+        fixture.work.path(),
+        "to-remove.zip",
+        &[
+            ("patch.txt", "name=待删补丁\nauthor=某人\n"),
+            ("Mods/Extra.SC2Mod", "补丁的模组"),
+        ],
+    );
+    let patch = patch::import_patch(&fixture.library, &patch_zip).expect("import patch");
+    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
+    let dir = fixture.library.patch_dir(&patch.id);
+    assert!(dir.is_dir(), "导入后补丁目录应当存在");
+
+    patch::remove_patch(&fixture.library, &patch.id).expect("remove patch");
+
+    let index = fixture.library.index();
+    assert!(
+        !index.patches.contains_key(&patch.id),
+        "索引里不该再有这个补丁"
+    );
+    assert!(
+        index
+            .bindings
+            .get("wol")
+            .is_none_or(|bindings| bindings.iter().all(|binding| binding.patch_id != patch.id)),
+        "挂载记录应当清掉"
+    );
+    assert!(!dir.exists(), "补丁目录应当被删掉");
+    assert!(
+        patch::remove_patch(&fixture.library, &patch.id).is_err(),
+        "重复删除要报错"
+    );
+}
