@@ -35,6 +35,7 @@ pub(crate) const OPS: &[&str] = &[
     "update_variant_from_package",
     "delete_variant",
     "import_patch",
+    "delete_patch",
     "mods_import",
     "mods_edit",
     "mods_remove",
@@ -159,6 +160,12 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
                 &path,
                 password.as_deref(),
             ))
+        }
+        "delete_patch" => {
+            let patch_id = text(args, "patchId")?;
+            library::patch::remove_patch(&context.library, &patch_id)
+                .map_err(|error| error.to_string())?;
+            Ok(Value::Null)
         }
         "mods_import" => {
             let path = source(args, "path")?;
@@ -621,6 +628,7 @@ mod tests {
             "update_variant_from_package",
             "delete_variant",
             "import_patch",
+            "delete_patch",
             "mods_import",
             "mods_edit",
             "mods_remove",
