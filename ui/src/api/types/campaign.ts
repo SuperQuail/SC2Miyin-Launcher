@@ -215,6 +215,19 @@ export interface ImportPreview {
 export type ImportMode = "rename" | "overwrite";
 
 /** 库里的一个补丁。 */
+/** 战役资料 JSON（docs/campaign-profile.md）。除 title 外均可省略。 */
+export type CampaignProfileType = "wol" | "hots" | "lotv" | "nova" | "custom";
+
+/** 战役资料；只约定结构，暂未接入运行时。 */
+export interface CampaignProfile {
+  title: string;
+  type?: CampaignProfileType;
+  authors?: string[];
+  description?: string;
+  download_sources?: string[];
+  author_links?: string[];
+}
+
 export interface Patch {
   id: string;
   name: string;

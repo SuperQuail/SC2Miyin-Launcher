@@ -15,6 +15,9 @@ const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
 /** 图片默认朝下；目标角度是「朝上方向」，所以整体要额外转 -180°。 */
 const POINTER_ANGLE_OFFSET = -180;
 
+/** 转盘页的两个来源；具体内容页暂不区分。 */
+type WheelScope = "owned" | "database";
+
 function prefersReducedMotion(): boolean {
   return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -30,6 +33,7 @@ export function WheelView({
   /** 测试注入用。 */
   random?: () => number;
 } = {}) {
+  const [scope, setScope] = useState<WheelScope>("owned");
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const stopTimer = useRef<number | null>(null);
@@ -68,6 +72,31 @@ export function WheelView({
       <div className="page">
         <h2 className="wheel-page__title">战役转盘</h2>
 
+        <div className="wheel-subnav" role="tablist" aria-label="战役来源">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === "owned"}
+            className={
+              "wheel-subnav__item" + (scope === "owned" ? " wheel-subnav__item--active" : "")
+            }
+            onClick={() => setScope("owned")}
+          >
+            已有战役
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === "database"}
+            className={
+              "wheel-subnav__item" + (scope === "database" ? " wheel-subnav__item--active" : "")
+            }
+            onClick={() => setScope("database")}
+          >
+            战役数据库
+          </button>
+        </div>
+
         <div className="wheel-stage" style={{ width: WHEEL_SIZE, height: WHEEL_SIZE }}>
           <WheelDisc entries={entries} palette={palette} />
           <div
@@ -86,7 +115,7 @@ export function WheelView({
 
         <div className="wheel-page__actions">
           <Button variant="primary" size="lg" loading={spinning} onClick={spin} disabled={!canSpin}>
-            {spinning ? "转动中…" : "开始转"}
+            {spinning ? "抽取中…" : "抽取"}
           </Button>
         </div>
       </div>

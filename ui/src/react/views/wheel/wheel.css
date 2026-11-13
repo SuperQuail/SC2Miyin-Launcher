@@ -14,6 +14,30 @@
   text-align: center;
 }
 
+.wheel-subnav {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+
+.wheel-subnav__item {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wheel-subnav__item--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-pressed);
+  font-weight: 600;
+}
+
 /* 轮盘固定不动，只有圆心指针在转。 */
 .wheel-stage {
   position: relative;

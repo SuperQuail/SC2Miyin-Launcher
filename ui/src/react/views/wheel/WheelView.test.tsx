@@ -77,14 +77,31 @@ describe("WheelView", () => {
     expect(button.disabled).toBe(false);
   });
 
-  it("页面上只有标题、轮盘和开始按钮", async () => {
+  it("页面只有标题、来源子菜单、轮盘与抽取按钮", async () => {
     const host = await renderView({ entries: TWO });
 
     expect(host.querySelector("h2")?.textContent).toBe("战役转盘");
     expect(host.querySelector("img.wheel-pointer__img")?.getAttribute("src")).toBe(
       "/wheel/dajiaozhu-pointer.png",
     );
-    expect(host.querySelectorAll("button")).toHaveLength(1);
+    expect(
+      [...host.querySelectorAll(".wheel-subnav button")].map((button) => button.textContent),
+    ).toEqual(["已有战役", "战役数据库"]);
+    expect(host.querySelectorAll("button")).toHaveLength(3);
+    expect(spinButton(host).textContent).toBe("抽取");
+  });
+
+  it("子菜单可在已有战役与战役数据库之间切换", async () => {
+    const host = await renderView({ entries: TWO });
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>(".wheel-subnav button")];
+
+    await act(async () => {
+      tabs[1].click();
+    });
+
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1].classList.contains("wheel-subnav__item--active")).toBe(true);
+    expect(host.querySelector(".wheel-disc svg")).not.toBeNull();
   });
 
   it("减少动态效果时不做长动画，很快恢复按钮", async () => {
