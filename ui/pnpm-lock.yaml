@@ -19,10 +19,10 @@ importers:
         version: 5.23.4
       '@jetbrains/ring-ui-built':
         specifier: ^7.0.127
-        version: 7.0.127(@types/react-dom@18.0.0)(@types/react@18.3.31)(core-js@3.50.0)(react-dom@18.0.0(react@18.0.0))(react@18.0.0)
+        version: 7.0.127(@types/react-dom@18.0.0)(@types/react@18.3.31)(core-js@3.50.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tanstack/react-virtual':
         specifier: ^3.14.20
-        version: 3.14.20(react-dom@18.0.0(react@18.0.0))(react@18.0.0)
+        version: 3.14.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tauri-apps/api':
         specifier: ^2.12.1
         version: 2.12.1
@@ -39,11 +39,14 @@ importers:
         specifier: ^6.4.299
         version: 6.4.299
       react:
-        specifier: ^18.0.0
-        version: 18.0.0
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-custom-roulette:
+        specifier: 1.4.1
+        version: 1.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-dom:
-        specifier: ^18.0.0
-        version: 18.0.0(react@18.0.0)
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
@@ -970,10 +973,16 @@ packages:
     peerDependencies:
       react: ^17.0.0 || ^18.0.0 || ^19.0.0 || ^0.0.0-experimental
 
-  react-dom@18.0.0:
-    resolution: {integrity: sha512-XqX7uzmFo0pUceWFCt7Gff6IyIMzFUn7QMZrbrQfGxtaxXZIcGQzoNpRLE3fQLnS4XzLLPMZX2T9TRcSrasicw==}
+  react-custom-roulette@1.4.1:
+    resolution: {integrity: sha512-v5Mrww/lbysSNcAF0PHU7KzdY+ljtTysu6A5Hx5s0Fi2V7CIj36Q2Df+l/1izl8yzX06nnQzvgbwSLenm8vYDQ==}
     peerDependencies:
-      react: ^18.0.0
+      react: ^18.2.0
+      react-dom: ^18.2.0
+
+  react-dom@18.3.1:
+    resolution: {integrity: sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==}
+    peerDependencies:
+      react: ^18.3.1
 
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
@@ -1001,8 +1010,8 @@ packages:
     peerDependencies:
       react: ^15.3.0 || ^16.0.0 || ^17.0.0 || ^18.0.0
 
-  react@18.0.0:
-    resolution: {integrity: sha512-x+VL6wbT4JRVPm7EGxXhZ8w8LTROaxPXOqhlGyVSrv0sB1jkyFGgXxJ8LVoPRLvPR6/CIZGFmfzqUa2NYeMr2A==}
+  react@18.3.1:
+    resolution: {integrity: sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==}
     engines: {node: '>=0.10.0'}
 
   require-from-string@2.0.2:
@@ -1018,8 +1027,8 @@ packages:
     resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==}
     engines: {node: '>=v12.22.7'}
 
-  scheduler@0.21.0:
-    resolution: {integrity: sha512-1r87x5fz9MXqswA2ERLo0EbOAU74DpIUO090gIasYTqlVoJeMcl+Z1Rg7WHz+qtPujhS/hGIt9kxZOYBV3faRQ==}
+  scheduler@0.23.2:
+    resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
 
   scrollbar-width@3.1.1:
     resolution: {integrity: sha512-Su/GI7QvHWgf2SUvbuSWaX+gM0szvEzsatke6fSM2rM9slznLpLiYC4bzCtueEJQ1iakfQkduBvku9Wgtmx1NQ==}
@@ -1379,7 +1388,7 @@ snapshots:
 
   '@jetbrains/icons@5.23.4': {}
 
-  '@jetbrains/ring-ui-built@7.0.127(@types/react-dom@18.0.0)(@types/react@18.3.31)(core-js@3.50.0)(react-dom@18.0.0(react@18.0.0))(react@18.0.0)':
+  '@jetbrains/ring-ui-built@7.0.127(@types/react-dom@18.0.0)(@types/react@18.3.31)(core-js@3.50.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@jetbrains/icons': 5.23.4
       change-case: 5.4.4
@@ -1394,12 +1403,12 @@ snapshots:
       highlight.js: 11.12.0
       just-debounce-it: 3.2.0
       memoize-one: 6.0.0
-      react: 18.0.0
-      react-compiler-runtime: 1.0.0(react@18.0.0)
-      react-dom: 18.0.0(react@18.0.0)
-      react-movable: 3.4.1(react-dom@18.0.0(react@18.0.0))(react@18.0.0)
-      react-virtualized: 9.22.6(react-dom@18.0.0(react@18.0.0))(react@18.0.0)
-      react-waypoint: 10.3.0(react@18.0.0)
+      react: 18.3.1
+      react-compiler-runtime: 1.0.0(react@18.3.1)
+      react-dom: 18.3.1(react@18.3.1)
+      react-movable: 3.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-virtualized: 9.22.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-waypoint: 10.3.0(react@18.3.1)
       scrollbar-width: 3.1.1
       simply-uuid: 1.0.1
       sniffr: 1.4.0
@@ -1642,11 +1651,11 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.3.3(@types/node@26.6.4)(jiti@2.7.0)(terser@5.51.2)
 
-  '@tanstack/react-virtual@3.14.20(react-dom@18.0.0(react@18.0.0))(react@18.0.0)':
+  '@tanstack/react-virtual@3.14.20(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@tanstack/virtual-core': 3.19.5
-      react: 18.0.0
-      react-dom: 18.0.0(react@18.0.0)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   '@tanstack/virtual-core@3.19.5': {}
 
@@ -2008,15 +2017,20 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  react-compiler-runtime@1.0.0(react@18.0.0):
+  react-compiler-runtime@1.0.0(react@18.3.1):
     dependencies:
-      react: 18.0.0
+      react: 18.3.1
 
-  react-dom@18.0.0(react@18.0.0):
+  react-custom-roulette@1.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
+  react-dom@18.3.1(react@18.3.1):
     dependencies:
       loose-envify: 1.4.0
-      react: 18.0.0
-      scheduler: 0.21.0
+      react: 18.3.1
+      scheduler: 0.23.2
 
   react-is@16.13.1: {}
 
@@ -2024,31 +2038,31 @@ snapshots:
 
   react-lifecycles-compat@3.0.4: {}
 
-  react-movable@3.4.1(react-dom@18.0.0(react@18.0.0))(react@18.0.0):
+  react-movable@3.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      react: 18.0.0
-      react-dom: 18.0.0(react@18.0.0)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
-  react-virtualized@9.22.6(react-dom@18.0.0(react@18.0.0))(react@18.0.0):
+  react-virtualized@9.22.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       '@babel/runtime': 7.29.10
       clsx: 1.2.1
       dom-helpers: 5.2.1
       loose-envify: 1.4.0
       prop-types: 15.8.1
-      react: 18.0.0
-      react-dom: 18.0.0(react@18.0.0)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
       react-lifecycles-compat: 3.0.4
 
-  react-waypoint@10.3.0(react@18.0.0):
+  react-waypoint@10.3.0(react@18.3.1):
     dependencies:
       '@babel/runtime': 7.29.10
       consolidated-events: 2.0.2
       prop-types: 15.8.1
-      react: 18.0.0
+      react: 18.3.1
       react-is: 17.0.1
 
-  react@18.0.0:
+  react@18.3.1:
     dependencies:
       loose-envify: 1.4.0
 
@@ -2079,7 +2093,7 @@ snapshots:
     dependencies:
       xmlchars: 2.2.0
 
-  scheduler@0.21.0:
+  scheduler@0.23.2:
     dependencies:
       loose-envify: 1.4.0
 

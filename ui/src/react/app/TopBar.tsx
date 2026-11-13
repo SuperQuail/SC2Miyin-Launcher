@@ -7,6 +7,8 @@ import type { ViewId } from "../lib/router";
 
 const TABS: { id: ViewId; label: string }[] = [
   { id: "campaigns", label: "战役" },
+  // 转盘：抽一部来玩。现在是技术验证页，只有示例数据（见 views/wheel）。
+  { id: "wheel", label: "转盘" },
   // 自制战役是**另一个顶层选项**，不是「战役」里的一个分组 ——
   // 两类的玩法根本不同（一个由游戏驱动，一个得用编辑器打开）
   { id: "custom", label: "自制战役" },

@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Wheel } from "react-custom-roulette";
 
 import type { SlotView, Variant } from "../../../api/types";
 import { SlotCard } from "../../components/SlotCard";
@@ -52,6 +53,9 @@ function fakeSlot(over: Partial<SlotView> = {}): SlotView {
     ...over,
   };
 }
+
+/** 房间里只摆静态轮盘，不转：验外观用。 */
+const ROOM_WHEEL = [{ option: "重制" }, { option: "复刻" }, { option: "肉鸽" }, { option: "原版" }];
 
 function Card({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
@@ -253,6 +257,15 @@ export function UserSidePage() {
             onDrop={() => setDismissed("")}
             onMenu={() => setDismissed("")}
           />
+        </div>
+      </Card>
+
+      <Card
+        title="第三方组件 · Wheel"
+        note="react-custom-roulette —— 大转盘页用的库。这里只静态渲染，不转；完整交互在顶栏「转盘」。"
+      >
+        <div className="room__row room__wheel">
+          <Wheel mustStartSpinning={false} prizeNumber={0} data={ROOM_WHEEL} disableInitialAnimation />
         </div>
       </Card>
 

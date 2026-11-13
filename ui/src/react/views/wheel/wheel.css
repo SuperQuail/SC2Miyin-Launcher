@@ -1,0 +1,201 @@
+.wheel-page .page {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 24px 28px 32px;
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  box-shadow: var(--shadow-2);
+}
+
+.wheel-page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.wheel-page__title {
+  margin: 0;
+  font-size: 24px;
+}
+
+.wheel-page__lede {
+  margin: 6px 0 0;
+  color: var(--on-surface-variant);
+  font-size: 14px;
+}
+
+.wheel-page__badge {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wheel-page__note {
+  margin: 12px 0 20px;
+  color: var(--on-surface-variant);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.wheel-page__empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--on-surface-variant);
+}
+
+/*
+ * 库的根 div 写死 width: 80vw / max-width: 445px，里面是一块 900x900 的 canvas
+ * （WheelCanvas width="900"）—— 445 CSS 像素在 2 倍屏上才用掉 890 物理像素，
+ * 等于 1:1，不会发糊。所以这里只把根 div 撑满我们的方框，不再按 DPR 缩尺寸。
+ * 选择器依赖库的根 div（RouletteContainer），库升级时回来看一眼。
+ */
+.wheel-frame {
+  position: relative;
+  width: min(80vw, 445px);
+  aspect-ratio: 1;
+  margin: 0 auto 8px;
+}
+
+/*
+ * 库把中奖扇区落在 43° 方向（它自带的指针就钉在那里）。这里把指针 display:none，
+ * 整个转子转 -43°，让中奖扇区居中到 12 点；圆心指针固定在转子外面、永远朝上，
+ * 于是「转盘转、指针不转」，中奖扇区最后停在指针正对的方向。
+ */
+.wheel-rotor {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-43deg);
+}
+
+.wheel-rotor > div {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+/* 圆心指针：转子转、指针不转。长度只到半径一半左右，别压住扇区文字。 */
+.wheel-needle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.wheel-needle svg,
+.wheel-needle__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+}
+
+.wheel-page__pointer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+
+.wheel-page__pointer-input {
+  display: none;
+}
+
+.wheel-page__pointer-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.wheel-needle__arrow {
+  fill: var(--accent);
+  stroke: var(--surface-1);
+  stroke-width: 1.2;
+}
+
+.wheel-needle__hub {
+  fill: var(--surface-1);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.wheel-needle__pin {
+  fill: var(--accent);
+}
+
+.wheel-page__actions {
+  display: flex;
+  justify-content: center;
+  margin: 20px 0 14px;
+}
+
+.wheel-result {
+  min-height: 30px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+
+.wheel-result__label {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+}
+
+.wheel-result__name {
+  font-size: 20px;
+  color: var(--accent);
+}
+
+.wheel-result__hint {
+  color: var(--on-surface-variant);
+  font-size: 13px;
+}
+
+.wheel-candidates {
+  margin-top: 28px;
+  border-top: 1px solid var(--outline);
+  padding-top: 16px;
+}
+
+.wheel-candidates__title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+
+.wheel-candidates__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wheel-candidates__item {
+  padding: 5px 10px;
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  font-size: 13px;
+}
+
+.wheel-candidates__item--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-pressed);
+  font-weight: 600;
+}

@@ -11,6 +11,7 @@ import {
 describe("调试开关", () => {
   it("?view= 认得页签里的那几页，其余回战役页", () => {
     expect(viewFromSearch("?view=settings")).toBe("settings");
+    expect(viewFromSearch("?view=wheel")).toBe("wheel");
     expect(viewFromSearch("?view=custom")).toBe("custom");
     // room 不在页签里，只能从设置页的开发者模式进
     expect(viewFromSearch("?view=room")).toBe("campaigns");
