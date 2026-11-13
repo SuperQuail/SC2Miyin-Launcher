@@ -90,6 +90,38 @@
   text-align: right;
 }
 
+.campaign-card {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.campaign-card dt {
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.campaign-card dd {
+  margin: 0;
+  color: var(--on-surface);
+  font-size: 13px;
+}
+
+.campaign-card__description {
+  white-space: pre-wrap;
+}
+
+.campaign-card__link,
+.campaign-card__url {
+  display: block;
+  word-break: break-all;
+}
+
+.campaign-card__link {
+  color: var(--accent);
+}
+
 .wheel-main {
   align-items: center;
 }

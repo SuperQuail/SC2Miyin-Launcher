@@ -3,6 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Preview, SlotView } from "../../../api/types";
 import { Button, Checkbox, Disclosure, Sheet } from "../../ui";
 import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
+import { CampaignCard } from "./CampaignCard";
+import {
+  DATABASE_CAMPAIGNS,
+  databaseWheelItems,
+  type DatabaseCampaign,
+  type DatabaseWheelItem,
+} from "./campaignDatabase";
 import { WHEEL_SIZE, WheelDisc } from "./WheelDisc";
 import { buildCandidates, type WheelCandidate } from "./wheelCandidates";
 import { pickIndex, targetRotation, WHEEL_TEXT_LIMIT } from "./wheelData";
@@ -15,10 +22,14 @@ const DEFAULT_POINTER = "/wheel/dajiaozhu-pointer.png";
 const POINTER_ANGLE_OFFSET = -180;
 
 type OnOff = "on" | "off";
+type WheelScope = "owned" | "database";
+type WheelItem = WheelCandidate | DatabaseWheelItem;
 
 export interface WheelViewProps {
   theme?: "light" | "dark";
   slots: readonly SlotView[];
+  /** 测试注入用；不传就读构建时打包进来的数据区。 */
+  database?: readonly DatabaseCampaign[];
   loading?: boolean;
   busy?: boolean;
   activate?: (slot: string, variantId: string | null) => Promise<boolean>;
@@ -36,6 +47,7 @@ function prefersReducedMotion(): boolean {
 export function WheelView({
   theme = "light",
   slots,
+  database,
   loading = false,
   busy = false,
   activate,
@@ -45,17 +57,28 @@ export function WheelView({
   cancelActivation,
   random = Math.random,
 }: WheelViewProps) {
-  const candidates = useMemo(() => buildCandidates(slots), [slots]);
+  const ownedCandidates = useMemo(() => buildCandidates(slots), [slots]);
+  const databaseItems = useMemo(
+    () => databaseWheelItems(database ?? DATABASE_CAMPAIGNS),
+    [database],
+  );
+  const [scope, setScope] = useState<WheelScope>("owned");
+  const candidates = useMemo<WheelItem[]>(
+    () => (scope === "owned" ? ownedCandidates : databaseItems),
+    [scope, ownedCandidates, databaseItems],
+  );
   const [offTypes, setOffTypes] = useState<Set<string>>(() => new Set());
   const [offCampaigns, setOffCampaigns] = useState<Set<string>>(() => new Set());
   const [autoApply, setAutoApply] = useState<OnOff>("on");
   const [excludeDrawn, setExcludeDrawn] = useState<OnOff>("off");
-  const [prompt, setPrompt] = useState<WheelCandidate | null>(null);
-  const [pool, setPool] = useState<WheelCandidate[]>([]);
+  const [prompt, setPrompt] = useState<WheelItem | null>(null);
+  const [campaignCard, setCampaignCard] = useState<DatabaseCampaign | null>(null);
+  const [pool, setPool] = useState<WheelItem[]>([]);
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [drawnVersion, setDrawnVersion] = useState(0);
   const drawn = useRef<Set<string>>(new Set());
+  const vanillaInit = useRef(false);
   const stopTimer = useRef<number | null>(null);
   const numbered = pool.length > WHEEL_TEXT_LIMIT;
   const poolIndex = useMemo(
@@ -98,6 +121,24 @@ export function WheelView({
     () => (excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible),
     [visible, excludeDrawn, drawnVersion],
   );
+
+  // 原版默认剔除；只初始化一次，之后用户手动勾回不会被覆盖。
+  useEffect(() => {
+    if (vanillaInit.current || ownedCandidates.length === 0) return;
+    vanillaInit.current = true;
+    setOffCampaigns((current) => {
+      const next = new Set(current);
+      for (const item of ownedCandidates) {
+        if (item.variantId === null) next.add(item.id);
+      }
+      return next;
+    });
+  }, [ownedCandidates]);
+
+  useEffect(() => {
+    setPrompt(null);
+    setCampaignCard(null);
+  }, [scope]);
 
   useEffect(() => {
     setPool(excludeDrawn === "on" ? visible.filter((item) => !drawn.current.has(item.id)) : visible);
@@ -154,8 +195,8 @@ export function WheelView({
 
   const canSpin = available.length >= 2 && !spinning && !loading;
 
-  async function applyChoice(choice: WheelCandidate): Promise<void> {
-    if (!activate || choice.active) return;
+  async function applyChoice(choice: WheelItem): Promise<void> {
+    if (!("slot" in choice) || !activate || choice.active) return;
     const ok = await activate(choice.slot, choice.variantId);
     if (ok) notify?.("success", "已启用「" + choice.short + "」");
   }
@@ -178,7 +219,8 @@ export function WheelView({
       setRotation((current) => ((current % 360) + 360) % 360);
       drawn.current.add(winner.id);
       setDrawnVersion((version) => version + 1);
-      if (autoApply === "on") void applyChoice(winner);
+      if ("campaign" in winner) setCampaignCard(winner.campaign);
+      else if (autoApply === "on") void applyChoice(winner);
       else setPrompt(winner);
     }, duration + REST_MS);
   }
@@ -199,8 +241,13 @@ export function WheelView({
   return (
     <div className="wheel-page">
       <div className="wheel-page__categories">
-        <Button variant="primary">已有战役</Button>
-        <Button variant="text" disabled>
+        <Button variant={scope === "owned" ? "primary" : "text"} onClick={() => setScope("owned")}>
+          已有战役
+        </Button>
+        <Button
+          variant={scope === "database" ? "primary" : "text"}
+          onClick={() => setScope("database")}
+        >
           战役数据库
         </Button>
       </div>
@@ -309,14 +356,16 @@ export function WheelView({
         </section>
 
         <aside className="wheel-panel">
-          <Checkbox
-            name="wheel-auto-apply"
-            checked={autoApply === "on"}
-            onChange={(checked) => setAutoApply(checked ? "on" : "off")}
-            disabled={spinning}
-          >
-            自动应用
-          </Checkbox>
+          {scope === "owned" && (
+            <Checkbox
+              name="wheel-auto-apply"
+              checked={autoApply === "on"}
+              onChange={(checked) => setAutoApply(checked ? "on" : "off")}
+              disabled={spinning}
+            >
+              自动应用
+            </Checkbox>
+          )}
           <Checkbox
             name="wheel-exclude-drawn"
             checked={excludeDrawn === "on"}
@@ -330,6 +379,10 @@ export function WheelView({
           </Button>
         </aside>
       </div>
+
+      {campaignCard && (
+        <CampaignCard campaign={campaignCard} onClose={() => setCampaignCard(null)} />
+      )}
 
       {prompt && (
         <Sheet

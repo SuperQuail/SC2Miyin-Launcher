@@ -186,6 +186,69 @@ describe("WheelView", () => {
     expect(spinButton(host).disabled).toBe(false);
   });
 
+  it("默认剔除原版战役", async () => {
+    const withVanilla = {
+      ...slot("wol", "自由之翼", [variant("a", "甲"), variant("b", "乙")]),
+      vanilla_enabled: true,
+    };
+    const host = await renderView({ slots: [withVanilla] });
+    await act(async () => {});
+
+    const vanilla = host.querySelector<HTMLInputElement>(
+      'input[name="wheel-campaign-wol:__vanilla__"]',
+    );
+    expect(vanilla?.checked).toBe(false);
+    expect(host.querySelectorAll(".wheel-disc path")).toHaveLength(2);
+  });
+
+  it("数据库抽到后显示资料卡，下载源为可点击链接", async () => {
+    const database = [
+      {
+        id: "db-a",
+        title: "数据战役甲",
+        type: "custom" as const,
+        typeLabel: "自制战役",
+        authors: ["作者甲"],
+        description: "描述甲",
+        download_sources: ["https://pan.example.com/s/abc"],
+        author_links: ["https://example.com/author"],
+      },
+      {
+        id: "db-b",
+        title: "数据战役乙",
+        type: "custom" as const,
+        typeLabel: "自制战役",
+        authors: [],
+        description: "",
+        download_sources: [],
+        author_links: [],
+      },
+    ];
+    const host = await renderView({ database, random: () => 0 });
+    const tab = [...host.querySelectorAll<HTMLButtonElement>(".wheel-page__categories button")].find(
+      (item) => item.textContent === "战役数据库",
+    );
+
+    await act(async () => {
+      tab?.click();
+    });
+    await act(async () => {});
+
+    expect(host.querySelector(".wheel-disc path")).not.toBeNull();
+    expect(host.querySelector<HTMLInputElement>('input[name="wheel-auto-apply"]')).toBeNull();
+
+    await act(async () => {
+      spinButton(host).click();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(4100);
+    });
+
+    expect(document.querySelector(".sheet__title")?.textContent).toBe("数据战役甲");
+    const link = document.querySelector<HTMLAnchorElement>(".campaign-card__link");
+    expect(link?.getAttribute("href")).toBe("https://pan.example.com/s/abc");
+  });
+
   it("少于两个候选时按钮禁用", async () => {
     const host = await renderView({
       slots: [slot("wol", "自由之翼", [variant("a", "甲")])],
