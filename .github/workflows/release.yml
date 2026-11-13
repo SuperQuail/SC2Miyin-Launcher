@@ -1,6 +1,6 @@
 name: Release
 
-# 打 tag 触发：git tag v0.1.0-alpha.1 && git push origin v0.1.0-alpha.1
+# 从 main 打 tag 触发：git tag -a v0.1.0-alpha.1 origin/main -m "..." && git push origin v0.1.0-alpha.1
 # 也可以手动跑（workflow_dispatch），用来补发或试跑
 on:
   push:
