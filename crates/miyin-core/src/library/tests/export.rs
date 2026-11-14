@@ -283,7 +283,7 @@ fn scnexus_preview_lists_losses_instead_of_dropping_content() {
         &[("Mods/Extra.SC2Mod", "补丁内容")],
     );
     let patch = patch::import_patch(&fixture.library, &patch_zip).expect("patch");
-    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
+    patch::bind(&fixture.library, "wol", &variant.id, &patch.id).expect("bind");
 
     let variant = fixture
         .library

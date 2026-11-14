@@ -72,6 +72,11 @@ ui/src/
 - 弹窗、菜单只有一份实现（`react/ui/Sheet`、`react/app/ContextMenu`）。
 - 颜色只从令牌拿；页面里不写 CSS。
 
+## 文案：默认不写解释
+
+**没有开发者明确允许，界面里不写解释性文案。** 说明段落、操作提示、功能解释、空状态说教、设计说明都不写；只保留名称、状态、数据、动作和必要的错误信息。
+流程不自明时先改结构、标签或控件，不要用一段话补。
+
 ### 布局：别给滚动内容容器留 transform / filter / contain
 
 **每个有 `transform`、`filter`、`backdrop-filter`、`perspective`、`contain: paint` 的祖先

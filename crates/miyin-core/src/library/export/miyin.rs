@@ -197,12 +197,12 @@ pub(super) fn write<W: Write + Seek>(
     write_text(
         zip,
         &format!("{MIYIN_DIR}/bindings.json"),
-        &bindings_json(library, slot_slug),
+        &bindings_json(library, slot_slug, &variant.id),
     )?;
     files += 1;
 
     // 补丁原件：两种模式都带上，导入方可以继续单独开关
-    for (_, patch) in compose::bindings_of(library, slot_slug) {
+    for (_, patch) in compose::bindings_of(library, slot_slug, &variant.id) {
         let root = library.patch_dir(&patch.id);
         if !root.is_dir() {
             continue;
@@ -355,8 +355,8 @@ fn campaign_value(slot_slug: &str, target_sub: Option<&str>) -> Option<&'static 
 }
 
 /// 补丁挂载关系。
-fn bindings_json(library: &Library, slot_slug: &str) -> String {
-    let list: Vec<serde_json::Value> = compose::bindings_of(library, slot_slug)
+fn bindings_json(library: &Library, slot_slug: &str, variant_id: &str) -> String {
+    let list: Vec<serde_json::Value> = compose::bindings_of(library, slot_slug, variant_id)
         .into_iter()
         .map(|(binding, patch)| {
             serde_json::json!({

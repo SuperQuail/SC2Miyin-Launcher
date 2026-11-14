@@ -197,14 +197,15 @@ export interface LauncherApi {
   ): Promise<Variant>;
 
   listPatches(): Promise<Patch[]>;
-  listBindings(slot: string): Promise<BoundPatch[]>;
-  listAvailablePatches(slot: string): Promise<BoundPatch[]>;
+  listBindings(slot: string, variant: string): Promise<BoundPatch[]>;
+  listAvailablePatches(slot: string, variant: string): Promise<BoundPatch[]>;
   importPatch(path: string, password?: string | null): Promise<Patch>;
   autoBindPatches(): Promise<string[]>;
-  bindPatch(slot: string, patchId: string): Promise<void>;
-  unbindPatch(slot: string, patchId: string): Promise<void>;
+  bindPatch(slot: string, variant: string, patchId: string): Promise<void>;
+  unbindPatch(slot: string, variant: string, patchId: string): Promise<void>;
   configurePatch(
     slot: string,
+    variant: string,
     patchId: string,
     enabled: boolean | null,
     priority: number | null,

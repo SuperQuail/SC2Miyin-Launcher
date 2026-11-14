@@ -171,6 +171,15 @@
 .campaigns-menu .pitem--off {
   opacity: 0.55;
 }
+.campaigns-menu .pitem__check {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .campaigns-menu .pitem__toggle {
   display: flex;
   align-items: center;
@@ -190,6 +199,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  margin-left: auto;
   color: var(--on-surface-variant);
 }
 .campaigns-menu .pitem__input {
@@ -200,6 +210,12 @@
   background: var(--surface-1);
   font-size: 12.5px;
 }
+.campaigns-menu .patches__empty {
+  margin: 8px 0 0;
+  color: var(--on-surface-variant);
+  font-size: 12.5px;
+}
+
 .campaigns-menu .pavail {
   display: flex;
   flex-direction: column;
@@ -230,12 +246,79 @@
 .campaigns-menu .actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 10px 14px;
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--surface-1) 90%, transparent);
   border: 1px solid color-mix(in srgb, var(--outline) 45%, transparent);
   box-shadow: var(--shadow-2);
+}
+
+/* 改版页：卡片常驻，工具栏固定在最下方，不随内容滚动。 */
+.campaigns-menu.slot-menu {
+  padding-bottom: 96px;
+}
+
+.campaigns-menu.slot-menu .actions {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 40;
+  width: min(1720px, calc(100vw - 52px));
+  overflow-x: auto;
+  scrollbar-width: none;
+  transform: translateX(-50%);
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--outline) 55%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(24px) saturate(1.2);
+}
+
+.campaigns-menu.slot-menu .actions::-webkit-scrollbar {
+  display: none;
+}
+
+.campaigns-menu.slot-menu .actions__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.campaigns-menu.slot-menu .actions__label strong {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+
+.campaigns-menu.slot-menu .actions__version {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--on-surface-variant);
+  font-size: 9.5px;
+}
+
+.campaigns-menu.slot-menu .actions .btn {
+  flex: none;
+  height: 32px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+
+.campaigns-menu.slot-menu .actions__edit {
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.campaigns-menu.slot-menu .actions__edit:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 .campaigns-menu .actions__label {
   font-size: 13px;

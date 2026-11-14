@@ -1,6 +1,6 @@
 //! 战役库的数据模型：版本、补丁、槽位、索引与给界面看的行。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,9 @@ use crate::campaign::package::Payload;
 use super::slot::CampaignSlot;
 
 /// 索引文件的格式版本，便于以后迁移。
-const INDEX_VERSION: u32 = 1;
+///
+/// v2：补丁挂载从「槽位」改成「改版」。
+pub(crate) const INDEX_VERSION: u32 = 2;
 
 /// 库内的一个战役版本，即「某个玩家做的某一版」。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -278,7 +280,14 @@ fn default_priority() -> i64 {
     crate::library::patch::DEFAULT_PRIORITY
 }
 
-/// 某个战役挂的一个补丁。
+/// 补丁绑定到某个改版时用的键（`槽位/改版目录名`）。
+///
+/// 改版目录名是 sanitize 过的，不含路径分隔符，所以可以安全地当键用。
+pub fn binding_key(slot: &str, variant: &str) -> String {
+    format!("{slot}/{variant}")
+}
+
+/// 某个改版挂的一个补丁。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Binding {
     /// 挂的是哪个补丁。
@@ -298,9 +307,65 @@ pub struct LibraryIndex {
     /// 库里的补丁。
     #[serde(default)]
     pub patches: BTreeMap<String, Patch>,
-    /// 战役槽位 -> 挂在它身上的补丁。
+    /// 改版键（[binding_key]）-> 挂在它身上的补丁。
     #[serde(default)]
     pub bindings: BTreeMap<String, Vec<Binding>>,
+}
+
+/// v1 -> v2：把旧的槽位级绑定展开到每个改版；原来没有归属的补丁落到全部现有改版。
+///
+/// 这是数据迁移，只做一次；版本已经是 2 就直接返回。
+pub(crate) fn migrate_index(index: &mut LibraryIndex) {
+    if index.version >= INDEX_VERSION {
+        return;
+    }
+
+    let old = std::mem::take(&mut index.bindings);
+    let mut next: BTreeMap<String, Vec<Binding>> = BTreeMap::new();
+    let mut owned: BTreeSet<String> = BTreeSet::new();
+
+    for (slot, bindings) in old {
+        let Some(campaign) = index.slots.get(&slot) else {
+            continue;
+        };
+        if campaign.variants.is_empty() {
+            continue;
+        }
+        for variant in &campaign.variants {
+            next.insert(binding_key(&slot, &variant.id), bindings.clone());
+        }
+        for binding in bindings {
+            owned.insert(binding.patch_id);
+        }
+    }
+
+    // 旧的「无归属」补丁：归到全部现有改版。
+    let all_variants: Vec<String> = index
+        .slots
+        .iter()
+        .flat_map(|(slot, campaign)| {
+            campaign
+                .variants
+                .iter()
+                .map(move |variant| binding_key(slot, &variant.id))
+        })
+        .collect();
+
+    for patch in index.patches.values() {
+        if owned.contains(&patch.id) {
+            continue;
+        }
+        for key in &all_variants {
+            next.entry(key.clone()).or_default().push(Binding {
+                patch_id: patch.id.clone(),
+                priority: patch.priority,
+                enabled: true,
+            });
+        }
+    }
+
+    index.bindings = next;
+    index.version = INDEX_VERSION;
 }
 
 impl Default for LibraryIndex {

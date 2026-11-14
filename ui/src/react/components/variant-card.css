@@ -6,10 +6,11 @@
   flex-direction: column;
   overflow: hidden;
   cursor: pointer;
-  background: var(--surface-1);
+  background: color-mix(in srgb, var(--surface-1) 56%, transparent);
   border: 2px solid transparent;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
+  backdrop-filter: blur(20px) saturate(1.15);
   transition: transform var(--duration) var(--ease), box-shadow var(--duration) var(--ease),
     border-color var(--duration) var(--ease);
 }

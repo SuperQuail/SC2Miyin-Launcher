@@ -121,15 +121,19 @@ const desktop: LauncherApi = {
     invoke<Variant>("update_variant", { slot, variantId, changes }),
 
   listPatches: () => invoke<Patch[]>("list_patches"),
-  listBindings: (slot) => invoke<BoundPatch[]>("list_bindings", { slot }),
-  listAvailablePatches: (slot) => invoke<BoundPatch[]>("list_available_patches", { slot }),
+  listBindings: (slot, variant) =>
+    invoke<BoundPatch[]>("list_bindings", { slot, variant }),
+  listAvailablePatches: (slot, variant) =>
+    invoke<BoundPatch[]>("list_available_patches", { slot, variant }),
   importPatch: (path, password) =>
     invoke<Patch>("import_patch", { path, password: password ?? null }),
   autoBindPatches: () => invoke<string[]>("auto_bind_patches"),
-  bindPatch: (slot, patchId) => invoke<void>("bind_patch", { slot, patchId }),
-  unbindPatch: (slot, patchId) => invoke<void>("unbind_patch", { slot, patchId }),
-  configurePatch: (slot, patchId, enabled, priority) =>
-    invoke<unknown>("configure_patch", { slot, patchId, enabled, priority }),
+  bindPatch: (slot, variant, patchId) =>
+    invoke<void>("bind_patch", { slot, variant, patchId }),
+  unbindPatch: (slot, variant, patchId) =>
+    invoke<void>("unbind_patch", { slot, variant, patchId }),
+  configurePatch: (slot, variant, patchId, enabled, priority) =>
+    invoke<unknown>("configure_patch", { slot, variant, patchId, enabled, priority }),
   deletePatch: (patchId) => invoke<void>("delete_patch", { patchId }),
   updatePatch: (patchId, changes) => invoke<Patch>("update_patch", { patchId, changes }),
   exportPatch: (patchId, destination) =>

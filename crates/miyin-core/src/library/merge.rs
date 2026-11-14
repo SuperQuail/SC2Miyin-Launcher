@@ -165,6 +165,11 @@ pub fn apply(
                 .or_default()
                 .variants
                 .push(record);
+            super::patch::attach_all_patches_to_variant(
+                &mut index,
+                &addition.slot,
+                &addition.variant,
+            );
         }
         report.added += 1;
         // 每搬完一条就落一次索引 —— 中途失败也不会留下「磁盘上有、界面上看不见」的版本
@@ -221,13 +226,14 @@ pub fn apply(
             let renamed_to = version_dir(target, &conflict.slot, &new_id);
             crate::platform::move_path(&from, &renamed_to)?;
             if let Some(mut record) = record {
-                record.id = new_id;
+                record.id = new_id.clone();
                 index
                     .slots
                     .entry(conflict.slot.clone())
                     .or_default()
                     .variants
                     .push(record);
+                super::patch::attach_all_patches_to_variant(&mut index, &conflict.slot, &new_id);
             }
             report.renamed += 1;
             library.save_index(&index)?;

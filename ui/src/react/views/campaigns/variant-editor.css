@@ -1,0 +1,512 @@
+/* 改版独立编辑页：整页玻璃面板，页面内切改版、启用、开始游戏。 */
+
+.ve-page {
+  width: 100%;
+  max-width: 1360px;
+  margin: 0 auto;
+}
+
+.ve-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--header-height) - 64px);
+  min-height: 620px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(70, 105, 180, 0.08), transparent 46%),
+    color-mix(in srgb, var(--surface-1) 66%, transparent);
+  backdrop-filter: blur(28px) saturate(1.25);
+  box-shadow: var(--shadow-2);
+  animation: ve-in 0.32s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.ve-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex: none;
+  min-height: 78px;
+  padding: 11px 15px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent);
+}
+
+.ve-back {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--on-surface-variant);
+  font-size: 16px;
+}
+
+.ve-back:hover {
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  color: var(--on-surface);
+}
+
+.ve-cover {
+  width: 52px;
+  height: 44px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #101a2e;
+}
+
+.ve-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ve-headtext {
+  min-width: 0;
+  flex: 1;
+}
+
+.ve-campaign {
+  margin: 0 0 1px;
+  color: var(--on-surface-variant);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.ve-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ve-select {
+  position: relative;
+  display: inline-block;
+  min-width: 0;
+}
+
+.ve-select__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-2) 52%, transparent);
+  color: var(--on-surface);
+  text-align: left;
+}
+
+.ve-select__button:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.ve-select__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ve-chevron {
+  flex: none;
+  color: var(--on-surface-variant);
+  font-size: 12px;
+}
+
+.ve-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 330px;
+  max-width: min(330px, 80vw);
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--outline) 55%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  box-shadow: var(--shadow-3);
+  animation: ve-pop 0.16s cubic-bezier(0.2, 0.8, 0.3, 1);
+  transform-origin: top left;
+}
+
+.ve-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.ve-menu__item span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.ve-menu__item:hover {
+  background: color-mix(in srgb, var(--surface-2) 75%, transparent);
+}
+
+.ve-menu__item.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ve-check {
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.ve-status {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  color: var(--on-surface-variant);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.ve-status.is-on {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ve-meta {
+  margin: 2px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--on-surface-variant);
+  font-size: 10px;
+}
+
+.ve-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+
+.ve-shell .btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.ve-shell .btn-primary {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 78%, transparent);
+}
+
+.ve-shell .btn-primary:not(:disabled):hover {
+  background: var(--accent-hover);
+}
+
+.ve-shell .btn-outline {
+  border-color: color-mix(in srgb, var(--outline) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 45%, transparent);
+}
+
+.ve-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 0 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 42%, transparent);
+}
+
+.ve-tab {
+  padding: 11px 10px 9px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--on-surface-variant);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.ve-tab:hover {
+  color: var(--on-surface);
+}
+
+.ve-tab.is-on {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.ve-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ve-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.ve-panel--patches {
+  height: 100%;
+  min-height: 0;
+}
+
+.ve-panelhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 36%, transparent);
+}
+
+.ve-panelhead h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ve-panelhead > span {
+  color: var(--on-surface-variant);
+  font-size: 10px;
+}
+
+.ve-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ve-list__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 26%, transparent);
+  font-size: 11.5px;
+}
+
+.ve-list__row:hover {
+  background: color-mix(in srgb, var(--surface-2) 42%, transparent);
+}
+
+.ve-list__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ve-list__meta {
+  color: var(--on-surface-variant);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.ve-list__meta:nth-last-child(1) {
+  margin-left: auto;
+}
+
+.ve-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  color: var(--on-surface-variant);
+  font-size: 9px;
+}
+
+.ve-badge.is-on {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.ve-state {
+  margin: 0;
+  padding: 40px 18px;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  text-align: center;
+}
+
+.ve-info {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 7px 12px;
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 11px;
+}
+
+.ve-info dt {
+  color: var(--on-surface-variant);
+}
+
+.ve-info dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ve-path {
+  font-weight: 500;
+}
+
+.ve-foot {
+  padding: 0 18px 16px;
+}
+
+/* 补丁面板接管：整页里不再是一张带边框的小卡 */
+
+.ve-page .patches {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.ve-page .patches__head {
+  padding: 14px 18px 10px;
+}
+
+.ve-page .patches__title {
+  color: var(--on-surface);
+  font-size: 13px;
+}
+
+.ve-page .patches__count {
+  background: color-mix(in srgb, var(--surface-2) 65%, transparent);
+  color: var(--on-surface-variant);
+}
+
+.ve-page .plist {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  margin: 0;
+  overflow-y: auto;
+}
+
+.ve-page .pitem {
+  min-height: 58px;
+  padding: 10px 18px;
+  border-radius: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--outline) 26%, transparent);
+  background: transparent;
+  font-size: 12.5px;
+}
+
+.ve-page .pitem:hover {
+  background: color-mix(in srgb, var(--surface-2) 42%, transparent);
+}
+
+.ve-page .pitem__check {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.ve-page .pitem__name {
+  font-weight: 600;
+}
+
+.ve-page .pitem__priority {
+  margin-left: auto;
+}
+
+.ve-page .pitem__input {
+  border-color: color-mix(in srgb, var(--outline) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 45%, transparent);
+}
+
+.ve-page .pitem .btn-text {
+  font-size: 10px;
+}
+
+.ve-page .patches__empty {
+  margin: 0;
+  padding: 18px;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+}
+
+@keyframes ve-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ve-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ve-shell .ve-select__button,
+.ve-shell .ve-tab,
+.ve-shell .ve-menu__item,
+.ve-shell .ve-list__row,
+.ve-shell .btn,
+.ve-page .pitem {
+  transition:
+    background-color 0.18s cubic-bezier(0.2, 0, 0, 1),
+    border-color 0.18s cubic-bezier(0.2, 0, 0, 1),
+    color 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ve-shell,
+  .ve-menu {
+    animation: none;
+  }
+  .ve-shell .ve-select__button,
+  .ve-shell .ve-tab,
+  .ve-shell .ve-menu__item,
+  .ve-shell .ve-list__row,
+  .ve-shell .btn,
+  .ve-page .pitem {
+    transition: none;
+  }
+}

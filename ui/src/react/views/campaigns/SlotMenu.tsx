@@ -8,15 +8,12 @@ import { copyText } from "../../lib/clipboard";
 import { CustomCampaignPanel } from "./CustomCampaignPanel";
 import { DocViewer } from "../../components/DocViewer";
 import { ActivationPreviewDialog } from "./ActivationPreviewDialog";
-import { SortableCard } from "./SortableCard";
-import { useVariantOrder } from "./useVariantOrder";
 import { ScnexusCard } from "../../components/ScnexusCard";
 import { VariantCard } from "../../components/VariantCard";
 import { VANILLA, variantPath, type CampaignMenuItem, type CampaignsHost } from "./host";
 import { ConvertScnexusSheet } from "./slot-menu/ConvertScnexusSheet";
 import { DeleteVariantSheet } from "./slot-menu/DeleteVariantSheet";
 import { ExportSheet } from "./slot-menu/ExportSheet";
-import { PatchPanel } from "./slot-menu/PatchPanel";
 import { UpdateVariantDialog } from "./slot-menu/UpdateVariantDialog";
 import { VariantEditSheet } from "./slot-menu/VariantEditSheet";
 import "./slot-menu.css";
@@ -34,10 +31,13 @@ export function SlotMenu({
   slot,
   host,
   onBack,
+  onEditVariant,
 }: {
   slot: SlotView;
   host: CampaignsHost;
   onBack: () => void;
+  /** 打开某个改版的独立编辑页。 */
+  onEditVariant: (variantId: string) => void;
 }) {
   const isCustom = slot.slug === "custom";
 
@@ -64,6 +64,7 @@ export function SlotMenu({
   const [exportTarget, setExportTarget] = useState<Variant | null>(null);
 
   const inspectedVariant = slot.variants.find((item) => item.id === inspecting) ?? null;
+  const selectedVariant = slot.variants.find((item) => item.id === selected) ?? null;
   const dirty = selected !== slot.active;
 
   // 星际枢纽没装 / 旧后端没有这条命令时静默失败 —— 这只是个额外入口，不该弹红字
@@ -84,7 +85,6 @@ export function SlotMenu({
    *  转换后的落点由后端的 campaign 字段决定，所以只按资料片匹配 —— CCM 条目也一样。*/
   const external = hubCampaigns.filter((item) => item.campaign.toLowerCase() === slot.slug);
   /** 版本卡片的顺序：**按槽位分开存**，「原版战役」那张固定卡不进去（它拖不动）。 */
-  const order = useVariantOrder(slot.slug, slot.variants);
 
   /** 选中一个版本；自制战役顺便把地图面板切过去。 */
   function pickVariant(id: string): void {
@@ -196,7 +196,7 @@ export function SlotMenu({
   const art = slot.slug === "custom" ? null : slotArt(slot.slug);
 
   return (
-    <div className="campaigns-menu">
+    <div className="campaigns-menu slot-menu">
       <div className="menu">
         <button className="back" type="button" onClick={onBack}>
           ← 返回战役列表
@@ -208,11 +208,6 @@ export function SlotMenu({
           <div className="banner__scrim" />
           <div className="banner__body">
             <h2 className="banner__title">{slot.display_name}</h2>
-            <p className="banner__sub">
-              {isCustom
-                ? "挑一部战役，直接启动游戏来玩"
-                : "选择要游玩的版本 —— 原版战役，或导入的玩家版本"}
-            </p>
           </div>
           <button className="btn btn-primary banner__play" type="button" onClick={() => host.launch()}>
             开始游戏
@@ -227,20 +222,10 @@ export function SlotMenu({
               {slot.variants.length + (isCustom ? 0 : 1)}
             </span>
           </h3>
-          <span className="section-head__hint">导入新版本请回到战役列表页</span>
         </div>
 
-        {/* 版本卡片：原版永远排第一（固定卡，不可拖）；玩家版本可拖动排序。
-            整块 grid 也是落点：卡片之间的缝里松手同样算数（卡片自己处理过的不重复处理）。 */}
-        <div
-          className="grid"
-          onDragOver={(event) => {
-            if (event.target === event.currentTarget) order.dragOver(event, event.currentTarget);
-          }}
-          onDrop={(event) => {
-            if (event.target === event.currentTarget) order.dropAt(event, event.currentTarget);
-          }}
-        >
+        {/* 版本卡片：原版永远排第一（固定卡，不可拖）；玩家版本可拖动排序。 */}
+        <div className="grid">
           {!isCustom && (
             <VariantCard
               slot={slot}
@@ -253,27 +238,18 @@ export function SlotMenu({
               onMenu={(event) => showVariantMenu(event, null)}
             />
           )}
-          {order.items.map((item) => (
-            <SortableCard
+          {slot.variants.map((item) => (
+            <VariantCard
               key={item.id}
-              id={item.id}
-              dragging={order.dragging}
-              dropMark={order.dropMark}
-              onDragState={order.setDragging}
-              onDragOver={order.dragOver}
-              onDrop={order.dropAt}
-            >
-              <VariantCard
-                slot={slot}
-                variant={item}
-                active={slot.active === item.id}
-                selected={selected === item.id}
-                onPick={() => pickVariant(item.id)}
-                onActivate={() => void host.activate(slot.slug, item.id)}
-                onDrop={() => setConfirming(item)}
-                onMenu={(event) => showVariantMenu(event, item)}
-              />
-            </SortableCard>
+              slot={slot}
+              variant={item}
+              active={slot.active === item.id}
+              selected={selected === item.id}
+              onPick={() => pickVariant(item.id)}
+              onActivate={() => void host.activate(slot.slug, item.id)}
+              onDrop={() => setConfirming(item)}
+              onMenu={(event) => showVariantMenu(event, item)}
+            />
           ))}
         </div>
 
@@ -285,7 +261,6 @@ export function SlotMenu({
                 来自星际枢纽
                 <span className="section-head__count">{external.length}</span>
               </h3>
-              <span className="section-head__hint">检测到由星际枢纽托管的战役，可转为启动器托管</span>
             </div>
             <div className="grid">
               {external.map((item) => (
@@ -309,32 +284,25 @@ export function SlotMenu({
           />
         )}
 
-        {isCustom && !inspectedVariant && (
-          <p className="hint">点上面任意一部战役，这里会出现它的地图列表与模组挂载。</p>
-        )}
-
-        {slot.variants.length === 0 && (
-          <p className="hint">
-            还没有导入任何玩家版本。回到战役列表页点「导入战役包」，启动器会自动判断它属于哪部战役。
-          </p>
-        )}
-
         {slot.notice && <p className="hint">{slot.notice}</p>}
 
-        {/* 补丁：这个战役上叠了哪些覆盖层 */}
-        <PatchPanel
-          slot={slot.slug}
-          notify={host.notify}
-          exporting={exporting}
-          onExporting={setExporting}
-        />
-
-        {/* 底部操作条 */}
+        {/* 固定底部操作条：所有按钮都作用于当前选中的改版 */}
         <footer className="actions">
           <span className="actions__label">
-            当前选择：<strong>{selected === null ? "原版战役" : selected}</strong>
+            当前选择：
+            <strong>{selectedVariant?.name ?? (selected === null ? "原版战役" : selected)}</strong>
+            {selectedVariant?.version && <span className="actions__version">{selectedVariant.version}</span>}
           </span>
           <span className="actions__spacer" />
+          {selected !== null && (
+            <button
+              className="btn actions__edit"
+              type="button"
+              onClick={() => onEditVariant(selected)}
+            >
+              编辑版本
+            </button>
+          )}
           {selected !== null && (
             <button
               className="btn btn-outline"
@@ -351,7 +319,6 @@ export function SlotMenu({
             className="btn btn-outline"
             type="button"
             disabled={updateBusy || exporting || host.busy}
-            title="用压缩包把这一版换掉（删旧的、装新的；包里没有元数据也能用）"
             onClick={() => setUpdateNonce((value) => value + 1)}
           >
             更新这一版…
@@ -360,7 +327,6 @@ export function SlotMenu({
             className="btn btn-outline"
             type="button"
             disabled={selected === null}
-            title="选择弥音包或星际枢纽兼容包，再选保存位置"
             onClick={() => {
               const target = slot.variants.find((item) => item.id === selected);
               if (target) setExportTarget(target);
@@ -371,10 +337,13 @@ export function SlotMenu({
           <button
             className="btn btn-outline"
             type="button"
-            disabled={host.busy || !dirty}
-            onClick={() => void applyAndPlay()}
+            disabled={host.busy || exporting || updateBusy}
+            onClick={() => {
+              if (dirty) void applyAndPlay();
+              else host.launch();
+            }}
           >
-            启用并开始游戏
+            {dirty ? "启用并开始游戏" : "开始游戏"}
           </button>
           <button
             className="btn btn-primary"
