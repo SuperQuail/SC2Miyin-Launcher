@@ -25,7 +25,7 @@ use serde::Serialize;
 
 use crate::campaign::metadata::CampaignType;
 use crate::campaign::package::{Payload, PayloadTarget, known_campaign_prefix};
-use crate::library::{Binding, Library, Patch, Variant};
+use crate::library::{Binding, Library, Patch, Variant, binding_key};
 
 /// 一层内容的出处。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -306,9 +306,10 @@ pub fn compose(
 
     // 第 1..N 层：这个战役上启用的补丁，按优先级从低到高
     let index = library.index();
+    let key = binding_key(slot_slug, &variant.id);
     let mut bindings: Vec<Binding> = index
         .bindings
-        .get(slot_slug)
+        .get(&key)
         .map(|list| {
             list.iter()
                 .filter(|binding| binding.enabled)
@@ -350,12 +351,13 @@ pub fn compose(
     }
 }
 
-/// 某个战役当前挂着的补丁（含未启用的），按优先级排好。
-pub fn bindings_of(library: &Library, slot_slug: &str) -> Vec<(Binding, Patch)> {
+/// 某个改版当前挂着的补丁（含未启用的），按优先级排好。
+pub fn bindings_of(library: &Library, slot_slug: &str, variant_id: &str) -> Vec<(Binding, Patch)> {
     let index = library.index();
+    let key = binding_key(slot_slug, variant_id);
     let mut list: Vec<(Binding, Patch)> = index
         .bindings
-        .get(slot_slug)
+        .get(&key)
         .map(|bindings| {
             bindings
                 .iter()

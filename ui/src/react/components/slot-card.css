@@ -6,10 +6,11 @@
   padding: 0;
   overflow: hidden;
   text-align: left;
-  background: var(--surface-1);
+  background: color-mix(in srgb, var(--surface-1) 58%, transparent);
   border: 1px solid color-mix(in srgb, var(--outline) 40%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-2);
+  backdrop-filter: blur(18px) saturate(1.15);
   transition: transform var(--duration) var(--ease), box-shadow var(--duration) var(--ease),
     border-color var(--duration) var(--ease);
 }

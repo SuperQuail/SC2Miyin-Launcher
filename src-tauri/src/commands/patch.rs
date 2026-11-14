@@ -28,13 +28,26 @@ pub(crate) struct BoundPatch {
     matched: bool,
 }
 
-/// 列出某个战役挂着的补丁。
+/// 列出某个改版挂着的补丁。
 #[tauri::command(async)]
-pub(crate) fn list_bindings(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
-    library::compose::bindings_of(&state.library, &slot)
+pub(crate) fn list_bindings(
+    slot: String,
+    variant: String,
+    state: State<'_, AppState>,
+) -> Vec<BoundPatch> {
+    let index = state.library.index();
+    let variant_record = index
+        .slots
+        .get(&slot)
+        .and_then(|campaign| campaign.variants.iter().find(|item| item.id == variant))
+        .cloned();
+
+    library::compose::bindings_of(&state.library, &slot, &variant)
         .into_iter()
         .map(|(binding, patch)| BoundPatch {
-            matched: library::patch::matches_slot(&state.library, &slot, &patch),
+            matched: variant_record
+                .as_ref()
+                .is_some_and(|record| library::patch::matches_variant(record, &patch)),
             patch,
             priority: binding.priority,
             enabled: binding.enabled,
@@ -42,22 +55,32 @@ pub(crate) fn list_bindings(slot: String, state: State<'_, AppState>) -> Vec<Bou
         .collect()
 }
 
-/// 库里还没挂到某个战役上的补丁（供界面挑选手动挂载）。
+/// 库里还没挂到某个改版上的补丁（保留给后端调用；新 UI 不再使用）。
 #[tauri::command(async)]
-pub(crate) fn list_available_patches(slot: String, state: State<'_, AppState>) -> Vec<BoundPatch> {
-    let bound: Vec<String> = library::compose::bindings_of(&state.library, &slot)
+pub(crate) fn list_available_patches(
+    slot: String,
+    variant: String,
+    state: State<'_, AppState>,
+) -> Vec<BoundPatch> {
+    let index = state.library.index();
+    let bound: Vec<String> = library::compose::bindings_of(&state.library, &slot, &variant)
         .into_iter()
         .map(|(binding, _)| binding.patch_id)
         .collect();
+    let variant_record = index
+        .slots
+        .get(&slot)
+        .and_then(|campaign| campaign.variants.iter().find(|item| item.id == variant))
+        .cloned();
 
-    state
-        .library
-        .index()
+    index
         .patches
         .into_values()
         .filter(|patch| !bound.contains(&patch.id))
         .map(|patch| BoundPatch {
-            matched: library::patch::matches_slot(&state.library, &slot, &patch),
+            matched: variant_record
+                .as_ref()
+                .is_some_and(|record| library::patch::matches_variant(record, &patch)),
             priority: patch.priority,
             enabled: false,
             patch,
@@ -87,7 +110,7 @@ pub(crate) fn auto_bind_patches(state: State<'_, AppState>) -> Result<Vec<String
         .map(|bound| {
             bound
                 .into_iter()
-                .map(|(slot, name)| format!("{slot}::{name}"))
+                .map(|(slot, variant, name)| format!("{slot}::{variant}::{name}"))
                 .collect()
         })
         .map_err(|error| error.to_string())
@@ -97,33 +120,43 @@ pub(crate) fn auto_bind_patches(state: State<'_, AppState>) -> Result<Vec<String
 #[tauri::command(async)]
 pub(crate) fn bind_patch(
     slot: String,
+    variant: String,
     patch_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    library::patch::bind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
+    library::patch::bind(&state.library, &slot, &variant, &patch_id).map_err(|e| e.to_string())
 }
 
 /// 解绑（补丁本身还在库里）。
 #[tauri::command(async)]
 pub(crate) fn unbind_patch(
     slot: String,
+    variant: String,
     patch_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    library::patch::unbind(&state.library, &slot, &patch_id).map_err(|e| e.to_string())
+    library::patch::unbind(&state.library, &slot, &variant, &patch_id).map_err(|e| e.to_string())
 }
 
 /// 改挂载设置：启用状态 / 优先级。**改完需要重新启用一次战役才会生效。**
 #[tauri::command(async)]
 pub(crate) fn configure_patch(
     slot: String,
+    variant: String,
     patch_id: String,
     enabled: Option<bool>,
     priority: Option<i64>,
     state: State<'_, AppState>,
 ) -> Result<Binding, String> {
-    library::patch::configure_binding(&state.library, &slot, &patch_id, enabled, priority)
-        .map_err(|error| error.to_string())
+    library::patch::configure_binding(
+        &state.library,
+        &slot,
+        &variant,
+        &patch_id,
+        enabled,
+        priority,
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// 改一个已导入补丁的元数据。

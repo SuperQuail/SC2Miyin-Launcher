@@ -12,7 +12,7 @@ use crate::sc2::Installation;
 use walkdir::WalkDir;
 
 use super::install::{Manifest, Owner};
-use super::{ImportMode, Library, Variant, now_seconds, require_slot, unique_suffix};
+use super::{ImportMode, Library, Variant, binding_key, now_seconds, require_slot, unique_suffix};
 
 /// 导入时补依赖：**作者没声明任何模组**时，默认把包里带的模组全算依赖。
 ///
@@ -217,11 +217,16 @@ pub fn import_named_with_password(
     };
 
     // 最新的排在最前面；覆盖更新时先摘掉旧记录
-    let slot = index.slots.entry(slot_slug.to_string()).or_default();
-    if let Some(replaced) = &overwrite_target {
-        slot.variants.retain(|variant| variant.id != replaced.id);
+    {
+        let slot = index.slots.entry(slot_slug.to_string()).or_default();
+        if let Some(replaced) = &overwrite_target {
+            slot.variants.retain(|variant| variant.id != replaced.id);
+        }
+        slot.variants.insert(0, variant.clone());
     }
-    slot.variants.insert(0, variant.clone());
+
+    // 补丁是全局库：新改版默认拿到全部现有补丁，逐个启用 / 调优先级。
+    super::patch::attach_all_patches_to_variant(&mut index, slot_slug, &variant.id);
     library.save_index(&index)?;
 
     Ok(variant)
@@ -268,6 +273,7 @@ pub fn remove_variant(
     if let Some(slot) = index.slots.get_mut(slot_slug) {
         slot.variants.retain(|variant| variant.id != variant_id);
     }
+    index.bindings.remove(&binding_key(slot_slug, variant_id));
     library.save_index(&index)?;
 
     Ok(())

@@ -10,69 +10,110 @@ use serde::Deserialize;
 use crate::campaign::metadata::PackageKind;
 use crate::campaign::package;
 use crate::error::{Error, Result};
-use crate::library::{Binding, Library, LibraryIndex, Patch, now_seconds, unique_suffix};
+use crate::library::{
+    Binding, Library, LibraryIndex, Patch, Variant, binding_key, now_seconds, unique_suffix,
+};
 use crate::safety;
 
 /// 补丁的默认优先级；数值大的后覆盖。
 pub const DEFAULT_PRIORITY: i64 = 100;
 
-/// 判断一个补丁能不能自动挂到某个战役上。
+/// 判断一个补丁能不能自动挂到某个改版上。
 ///
 /// - `requires` 为空 = 通用补丁，**只能手动指定**，自动匹配时一律不选
-/// - `requires` 非空 = 完全补丁，逐项与战役的注册 ID / 名称比对
-pub fn matches_slot(library: &Library, slot_slug: &str, patch: &Patch) -> bool {
-    matches_index(&library.index(), slot_slug, patch)
-}
-
-/// 同 matches_slot，但直接用手里的索引 —— auto_bind 已经读出来了，
-/// 别再为每个 (槽位, 补丁) 组合重读一遍 library.json。
-fn matches_index(index: &LibraryIndex, slot_slug: &str, patch: &Patch) -> bool {
+/// - `requires` 非空 = 完整补丁，逐项与改版的注册 ID / 名称比对
+pub fn matches_variant(variant: &Variant, patch: &Patch) -> bool {
     if patch.requires.is_empty() {
         return false;
     }
 
-    let Some(slot) = index.slots.get(slot_slug) else {
-        return false;
-    };
-
     patch.requires.iter().any(|requirement| {
         let wanted = requirement.trim();
-        slot.variants.iter().any(|variant| {
-            variant
-                .registration_id
-                .as_deref()
-                .is_some_and(|id| id.eq_ignore_ascii_case(wanted))
-                || variant.name.eq_ignore_ascii_case(wanted)
-        })
+        variant
+            .registration_id
+            .as_deref()
+            .is_some_and(|id| id.eq_ignore_ascii_case(wanted))
+            || variant.name.eq_ignore_ascii_case(wanted)
     })
 }
 
-/// 自动挂载：把库里所有**声明了依赖且匹配得上**的补丁挂到对应战役上。
-///
-/// 已经挂过的不动；`requires` 为空的通用补丁不参与（它们只能手动指定）。
-/// 返回新挂上的 `(战役, 补丁名)`。
-pub fn auto_bind(library: &Library) -> Result<Vec<(String, String)>> {
-    let mut index = library.index();
-    let patches: Vec<Patch> = index.patches.values().cloned().collect();
-    let slots: Vec<String> = index
+/// 当前库里所有改版的键（`槽位/改版目录名`）。
+fn all_variant_keys(index: &LibraryIndex) -> Vec<String> {
+    index
         .slots
         .iter()
-        .filter(|(_, slot)| {
-            slot.variants
+        .flat_map(|(slot, campaign)| {
+            campaign
+                .variants
                 .iter()
-                .any(|v| v.registration_id.is_some() || !v.name.is_empty())
+                .map(move |variant| binding_key(slot, &variant.id))
         })
-        .map(|(slug, _)| slug.clone())
+        .collect()
+}
+
+/// 把一个补丁挂到库里所有现有改版上（导入新补丁时用）。
+fn attach_patch_to_every_variant(index: &mut LibraryIndex, patch: &Patch) {
+    for key in all_variant_keys(index) {
+        let bindings = index.bindings.entry(key).or_default();
+        if bindings.iter().any(|binding| binding.patch_id == patch.id) {
+            continue;
+        }
+        bindings.push(Binding {
+            patch_id: patch.id.clone(),
+            priority: patch.priority,
+            enabled: true,
+        });
+    }
+}
+
+/// 把一个新改版挂上库里所有现有补丁（导入新改版 / 合并改版时用）。
+pub(crate) fn attach_all_patches_to_variant(
+    index: &mut LibraryIndex,
+    slot_slug: &str,
+    variant_id: &str,
+) {
+    let patches: Vec<Patch> = index.patches.values().cloned().collect();
+    let key = binding_key(slot_slug, variant_id);
+    let bindings = index.bindings.entry(key).or_default();
+    for patch in patches {
+        if bindings.iter().any(|binding| binding.patch_id == patch.id) {
+            continue;
+        }
+        bindings.push(Binding {
+            patch_id: patch.id.clone(),
+            priority: patch.priority,
+            enabled: true,
+        });
+    }
+}
+
+/// 自动挂载：把库里所有**声明了依赖且匹配得上**的补丁挂到对应改版上。
+///
+/// 已经挂过的不动；`requires` 为空的通用补丁不参与（它们只能手动指定）。
+/// 返回新挂上的 `(战役, 改版, 补丁名)`。
+pub fn auto_bind(library: &Library) -> Result<Vec<(String, String, String)>> {
+    let mut index = library.index();
+    let patches: Vec<Patch> = index.patches.values().cloned().collect();
+    let variants: Vec<(String, Variant)> = index
+        .slots
+        .iter()
+        .flat_map(|(slot, campaign)| {
+            campaign
+                .variants
+                .iter()
+                .map(move |variant| (slot.clone(), variant.clone()))
+        })
         .collect();
 
     let mut bound = Vec::new();
 
-    for slot_slug in slots {
+    for (slot_slug, variant) in variants {
+        let key = binding_key(&slot_slug, &variant.id);
         for patch in &patches {
-            if !matches_index(&index, &slot_slug, patch) {
+            if !matches_variant(&variant, patch) {
                 continue;
             }
-            let bindings = index.bindings.entry(slot_slug.clone()).or_default();
+            let bindings = index.bindings.entry(key.clone()).or_default();
             if bindings.iter().any(|binding| binding.patch_id == patch.id) {
                 continue;
             }
@@ -81,7 +122,7 @@ pub fn auto_bind(library: &Library) -> Result<Vec<(String, String)>> {
                 priority: patch.priority,
                 enabled: true,
             });
-            bound.push((slot_slug.clone(), patch.name.clone()));
+            bound.push((slot_slug.clone(), variant.id.clone(), patch.name.clone()));
         }
     }
 
@@ -173,23 +214,33 @@ pub fn import_patch_with_password(
     };
 
     index.patches.insert(id, patch.clone());
+    attach_patch_to_every_variant(&mut index, &patch);
     library.save_index(&index)?;
 
     Ok(patch)
 }
 
-/// 把补丁挂到某个战役上。
-pub fn bind(library: &Library, slot_slug: &str, patch_id: &str) -> Result<()> {
+/// 把补丁挂到某个改版上。
+pub fn bind(library: &Library, slot_slug: &str, variant_id: &str, patch_id: &str) -> Result<()> {
     crate::library::require_slot(slot_slug)?;
 
     let mut index = library.index();
+    let exists = index
+        .slots
+        .get(slot_slug)
+        .is_some_and(|slot| slot.variants.iter().any(|variant| variant.id == variant_id));
+    if !exists {
+        return Err(Error::CampaignNotFound(format!("{slot_slug}/{variant_id}")));
+    }
+
     let patch = index
         .patches
         .get(patch_id)
         .cloned()
         .ok_or_else(|| Error::CampaignNotFound(patch_id.to_string()))?;
 
-    let bindings = index.bindings.entry(slot_slug.to_string()).or_default();
+    let key = binding_key(slot_slug, variant_id);
+    let bindings = index.bindings.entry(key).or_default();
     if bindings.iter().any(|binding| binding.patch_id == patch_id) {
         return Ok(());
     }
@@ -203,9 +254,10 @@ pub fn bind(library: &Library, slot_slug: &str, patch_id: &str) -> Result<()> {
 }
 
 /// 解绑（不影响补丁本身，补丁还在库里）。
-pub fn unbind(library: &Library, slot_slug: &str, patch_id: &str) -> Result<()> {
+pub fn unbind(library: &Library, slot_slug: &str, variant_id: &str, patch_id: &str) -> Result<()> {
     let mut index = library.index();
-    if let Some(bindings) = index.bindings.get_mut(slot_slug) {
+    let key = binding_key(slot_slug, variant_id);
+    if let Some(bindings) = index.bindings.get_mut(&key) {
         bindings.retain(|binding| binding.patch_id != patch_id);
     }
     library.save_index(&index)
@@ -215,15 +267,17 @@ pub fn unbind(library: &Library, slot_slug: &str, patch_id: &str) -> Result<()> 
 pub fn configure_binding(
     library: &Library,
     slot_slug: &str,
+    variant_id: &str,
     patch_id: &str,
     enabled: Option<bool>,
     priority: Option<i64>,
 ) -> Result<Binding> {
     let mut index = library.index();
+    let key = binding_key(slot_slug, variant_id);
     let bindings = index
         .bindings
-        .get_mut(slot_slug)
-        .ok_or_else(|| Error::CampaignNotFound(format!("{slot_slug}/{patch_id}")))?;
+        .get_mut(&key)
+        .ok_or_else(|| Error::CampaignNotFound(format!("{slot_slug}/{variant_id}/{patch_id}")))?;
 
     let binding = bindings
         .iter_mut()

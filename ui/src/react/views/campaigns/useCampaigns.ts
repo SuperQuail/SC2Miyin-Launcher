@@ -32,10 +32,26 @@ export function useCampaigns(host: CampaignsHost) {
   const opened =
     route.slot && officialSlots(host.slots).some((slot) => slot.slug === route.slot) ? route.slot : null;
 
+  /** 当前打开的是某个改版的编辑页；没有就是战役菜单页。 */
+  const openedVariant =
+    opened && route.variant
+      ? (host.slots
+          .find((slot) => slot.slug === opened)
+          ?.variants.some((variant) => variant.id === route.variant) ?? false)
+        ? route.variant
+        : null
+      : null;
+
   /** 进某个战役是**页面级**跳转（push，能 back）；返回列表是页内收尾（replace，不攒历史）。 */
   const setOpened = useCallback((slug: string | null) => {
-    if (slug) navigate({ slot: slug });
-    else setParams({ slot: "" });
+    if (slug) navigate({ slot: slug, variant: "" });
+    else setParams({ slot: "", variant: "" });
+  }, []);
+
+  /** 进 / 出某个改版的编辑页；同样是页面级跳转。 */
+  const setVariant = useCallback((variantId: string | null) => {
+    if (variantId) navigate({ variant: variantId });
+    else setParams({ variant: "" });
   }, []);
 
   useEffect(() => {
@@ -53,7 +69,7 @@ export function useCampaigns(host: CampaignsHost) {
     }
   }, []);
 
-  return { opened, setOpened, importMode, setImportMode, busy, guard };
+  return { opened, openedVariant, setOpened, setVariant, importMode, setImportMode, busy, guard };
 }
 
 /** 列表里那些「原版战役」（自制战役有自己的页签）。 */

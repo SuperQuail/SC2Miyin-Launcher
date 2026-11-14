@@ -2,7 +2,10 @@
 
 use super::fixture::*;
 use crate::campaign::package;
-use crate::library::{ImportMode, activate, compose, import, patch};
+use crate::library::{
+    Binding, CampaignSlot, ImportMode, LibraryIndex, Patch, Variant, activate, binding_key,
+    compose, import, patch,
+};
 
 #[test]
 fn patch_overlays_the_campaign_and_can_be_toggled() {
@@ -38,12 +41,12 @@ fn patch_overlays_the_campaign_and_can_be_toggled() {
     assert!(patch.requires.is_empty(), "没有声明依赖 -> 只能手动指定",);
 
     // 通用补丁**不参与**自动挂载
-    assert!(!patch::matches_slot(&fixture.library, "wol", &patch));
+    assert!(!patch::matches_variant(&variant, &patch));
     let auto = patch::auto_bind(&fixture.library).expect("auto bind");
     assert!(auto.is_empty(), "没有依赖的补丁不该被自动挂上");
 
-    // 手动挂上并启用
-    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
+    // 新补丁默认已经挂到全部现有改版；这里的 bind 是幂等的
+    patch::bind(&fixture.library, "wol", &variant.id, &patch.id).expect("bind");
     let composition = {
         // 先看合成清单：补丁的模组应当出现在里面
         let index = fixture.library.index();
@@ -77,8 +80,15 @@ fn patch_overlays_the_campaign_and_can_be_toggled() {
     );
 
     // 关掉补丁 -> 它的文件撤下，战役本体不受影响
-    patch::configure_binding(&fixture.library, "wol", &patch.id, Some(false), None)
-        .expect("disable patch");
+    patch::configure_binding(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        &patch.id,
+        Some(false),
+        None,
+    )
+    .expect("disable patch");
     activate(
         &fixture.library,
         &fixture.installation,
@@ -90,8 +100,15 @@ fn patch_overlays_the_campaign_and_can_be_toggled() {
     assert!(map_file.is_file(), "战役本体不该受影响");
 
     // 再打开 -> 又回来
-    patch::configure_binding(&fixture.library, "wol", &patch.id, Some(true), None)
-        .expect("enable patch");
+    patch::configure_binding(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        &patch.id,
+        Some(true),
+        None,
+    )
+    .expect("enable patch");
     activate(
         &fixture.library,
         &fixture.installation,
@@ -136,11 +153,26 @@ fn patch_priority_decides_who_wins() {
     let low = patch::import_patch(&fixture.library, &low).expect("low");
     let high = patch::import_patch(&fixture.library, &high).expect("high");
 
-    patch::bind(&fixture.library, "wol", &low.id).expect("bind low");
-    patch::bind(&fixture.library, "wol", &high.id).expect("bind high");
-    patch::configure_binding(&fixture.library, "wol", &low.id, None, Some(100)).expect("prio low");
-    patch::configure_binding(&fixture.library, "wol", &high.id, None, Some(900))
-        .expect("prio high");
+    patch::bind(&fixture.library, "wol", &variant.id, &low.id).expect("bind low");
+    patch::bind(&fixture.library, "wol", &variant.id, &high.id).expect("bind high");
+    patch::configure_binding(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        &low.id,
+        None,
+        Some(100),
+    )
+    .expect("prio low");
+    patch::configure_binding(
+        &fixture.library,
+        "wol",
+        &variant.id,
+        &high.id,
+        None,
+        Some(900),
+    )
+    .expect("prio high");
 
     activate(
         &fixture.library,
@@ -184,7 +216,7 @@ fn exported_package_is_ccm_readable_and_round_trips() {
         &[("Mods/Extra.SC2Mod", "补丁内容")],
     );
     let patch = patch::import_patch(&fixture.library, &patch_zip).expect("patch");
-    patch::bind(&fixture.library, "lotv", &patch.id).expect("bind");
+    patch::bind(&fixture.library, "lotv", &variant.id, &patch.id).expect("bind");
 
     let destination = fixture.work.path().join("导出.zip");
     let report = crate::library::export::export(
@@ -272,7 +304,7 @@ fn exporting_with_merged_patches_puts_them_on_top() {
         &[("Mods/Only.SC2Mod", "补丁")],
     );
     let patch = patch::import_patch(&fixture.library, &patch_zip).expect("patch");
-    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
+    patch::bind(&fixture.library, "wol", &variant.id, &patch.id).expect("bind");
 
     // 附加模式：顶层只有本体
     let plain = fixture.work.path().join("plain.zip");
@@ -443,7 +475,6 @@ fn removing_a_patch_unbinds_it_and_removes_its_directory() {
         ],
     );
     let patch = patch::import_patch(&fixture.library, &patch_zip).expect("import patch");
-    patch::bind(&fixture.library, "wol", &patch.id).expect("bind");
     let dir = fixture.library.patch_dir(&patch.id);
     assert!(dir.is_dir(), "导入后补丁目录应当存在");
 
@@ -457,8 +488,9 @@ fn removing_a_patch_unbinds_it_and_removes_its_directory() {
     assert!(
         index
             .bindings
-            .get("wol")
-            .is_none_or(|bindings| bindings.iter().all(|binding| binding.patch_id != patch.id)),
+            .values()
+            .flatten()
+            .all(|binding| binding.patch_id != patch.id),
         "挂载记录应当清掉"
     );
     assert!(!dir.exists(), "补丁目录应当被删掉");
@@ -466,4 +498,91 @@ fn removing_a_patch_unbinds_it_and_removes_its_directory() {
         patch::remove_patch(&fixture.library, &patch.id).is_err(),
         "重复删除要报错"
     );
+}
+
+#[test]
+fn v1_slot_bindings_migrate_to_each_variant_and_unowned_patches_reach_all() {
+    let fixture = fixture();
+
+    let mut index = LibraryIndex {
+        version: 1,
+        ..LibraryIndex::default()
+    };
+
+    let slot = CampaignSlot {
+        variants: vec![
+            Variant {
+                id: "v1".to_string(),
+                name: "V1".to_string(),
+                ..Variant::default()
+            },
+            Variant {
+                id: "v2".to_string(),
+                name: "V2".to_string(),
+                ..Variant::default()
+            },
+        ],
+        ..CampaignSlot::default()
+    };
+    index.slots.insert("wol".to_string(), slot);
+
+    index.patches.insert(
+        "bound".to_string(),
+        Patch {
+            id: "bound".to_string(),
+            name: "Bound".to_string(),
+            priority: 300,
+            ..Patch::default()
+        },
+    );
+    index.patches.insert(
+        "free".to_string(),
+        Patch {
+            id: "free".to_string(),
+            name: "Free".to_string(),
+            priority: 100,
+            ..Patch::default()
+        },
+    );
+    index.bindings.insert(
+        "wol".to_string(),
+        vec![Binding {
+            patch_id: "bound".to_string(),
+            priority: 400,
+            enabled: false,
+        }],
+    );
+
+    std::fs::create_dir_all(fixture.library.root()).expect("library root");
+    std::fs::write(
+        fixture.library.index_path(),
+        serde_json::to_string(&index).expect("serialize v1"),
+    )
+    .expect("write v1");
+
+    let loaded = fixture.library.index();
+    assert_eq!(loaded.version, 2, "索引应当升到 v2");
+    assert!(
+        fixture
+            .library
+            .index_path()
+            .with_extension("json.v1.bak")
+            .is_file(),
+        "迁移前应当留一份旧索引"
+    );
+
+    for variant_id in ["v1", "v2"] {
+        let key = binding_key("wol", variant_id);
+        let list = loaded.bindings.get(&key).expect("migrated binding key");
+        let bound = list
+            .iter()
+            .find(|binding| binding.patch_id == "bound")
+            .expect("old slot binding kept");
+        assert_eq!(bound.priority, 400);
+        assert!(!bound.enabled, "旧的启用状态要原样带过来");
+        assert!(
+            list.iter().any(|binding| binding.patch_id == "free"),
+            "无归属补丁应当落到全部改版"
+        );
+    }
 }

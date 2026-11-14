@@ -18,16 +18,8 @@ const TABS: { id: ViewId; label: string }[] = [
   { id: "settings", label: "设置" },
 ];
 
-/** 主题三档各自的图标：跟随系统 = 显示器，日间 = 太阳，夜间 = 月亮。 */
-function ThemeIcon({ mode, theme }: { mode: string; theme: string }) {
-  if (mode === "system") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <rect x="2" y="3" width="12" height="8" rx="1.2" />
-        <path d="M5.5 13.5h5" />
-      </svg>
-    );
-  }
+/** 主题两档的图标：日间 = 太阳，夜间 = 月亮。 */
+function ThemeIcon({ theme }: { theme: string }) {
   if (theme === "dark") {
     return (
       <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -120,12 +112,7 @@ export function TopBar({ preview }: { preview: boolean }) {
     })();
   }
 
-  const themeTitle =
-    app.theme.mode === "system"
-      ? "跟随系统（切换为日间）"
-      : app.theme.mode === "light"
-        ? "日间（切换为夜间）"
-        : "夜间（切换为跟随系统）";
+  const themeTitle = app.theme.mode === "light" ? "日间（切换为夜间）" : "夜间（切换为日间）";
 
   return (
     <header className="topbar" data-tauri-drag-region onMouseDown={startWindowDrag}>
@@ -173,7 +160,7 @@ export function TopBar({ preview }: { preview: boolean }) {
           </button>
         )}
         <button className="themectl" type="button" title={themeTitle} onClick={app.theme.cycleTheme}>
-          <ThemeIcon mode={app.theme.mode} theme={app.theme.theme} />
+          <ThemeIcon theme={app.theme.theme} />
         </button>
         {app.update.updateAvailable && (
           <button

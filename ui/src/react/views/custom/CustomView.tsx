@@ -8,10 +8,8 @@ import { Button, Sheet } from "../../ui";
 import { setParams, useRoute } from "../../lib/router";
 import { ActivationPreviewDialog } from "../campaigns/ActivationPreviewDialog";
 import { CustomCampaignPanel } from "../campaigns/CustomCampaignPanel";
-import { SortableCard } from "../campaigns/SortableCard";
 import { ExportSheet } from "../campaigns/slot-menu/ExportSheet";
 import { VariantEditSheet } from "../campaigns/slot-menu/VariantEditSheet";
-import { useVariantOrder } from "../campaigns/useVariantOrder";
 import { variantPath } from "../campaigns/host";
 import type { CustomHost } from "./host";
 import "./custom.css";
@@ -58,7 +56,6 @@ export function CustomView(host: CustomHost) {
   const variants = useMemo(() => customSlot?.variants ?? [], [customSlot]);
   const openedVariant = variants.find((item) => item.id === opened) ?? null;
   /** 自制战役的版本卡片顺序（和各个官方战役各记各的）。 */
-  const order = useVariantOrder("custom", variants);
 
   /** 启用 / 停用某部自制战役。 */
   async function toggleActive(variant: Variant): Promise<void> {
@@ -197,37 +194,19 @@ export function CustomView(host: CustomHost) {
 
 
         {customSlot && variants.length > 0 ? (
-          // 卡片可以拖动排序；整块 grid 也是落点（缝隙里松手同样算数）
-          <div
-            className="grid"
-            onDragOver={(event) => {
-              if (event.target === event.currentTarget) order.dragOver(event, event.currentTarget);
-            }}
-            onDrop={(event) => {
-              if (event.target === event.currentTarget) order.dropAt(event, event.currentTarget);
-            }}
-          >
-            {order.items.map((item) => (
-              <SortableCard
+          <div className="grid">
+            {variants.map((item) => (
+              <VariantCard
                 key={item.id}
-                id={item.id}
-                dragging={order.dragging}
-                dropMark={order.dropMark}
-                onDragState={order.setDragging}
-                onDragOver={order.dragOver}
-                onDrop={order.dropAt}
-              >
-                <VariantCard
-                  slot={customSlot}
-                  variant={item}
-                  active={customSlot.active === item.id}
-                  selected={opened === item.id}
-                  onPick={() => setOpened(item.id)}
-                  onActivate={() => void host.activate(customSlot.slug, item.id)}
-                  onDrop={() => setConfirming(item)}
-                  onMenu={(event) => showVariantMenu(event, item)}
-                />
-              </SortableCard>
+                slot={customSlot}
+                variant={item}
+                active={customSlot.active === item.id}
+                selected={opened === item.id}
+                onPick={() => setOpened(item.id)}
+                onActivate={() => void host.activate(customSlot.slug, item.id)}
+                onDrop={() => setConfirming(item)}
+                onMenu={(event) => showVariantMenu(event, item)}
+              />
             ))}
           </div>
         ) : (

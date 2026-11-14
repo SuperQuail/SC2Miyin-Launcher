@@ -1,12 +1,24 @@
-// 演示后端：补丁库、补丁绑定与合成预演。
-import type { BoundPatch, LauncherApi } from "../types";
+// 演示后端：补丁库、按改版的绑定与合成预演。
+import type { BoundPatch, LauncherApi, Patch } from "../types";
 
-import { delay, nextDemoCounter } from "./fixtures";
+import { delay, demoslots, nextDemoCounter } from "./fixtures";
 
-/** 演示用的补丁：多一个 bound_to 记录它挂在谁身上。 */
-type DemoPatch = BoundPatch & { bound_to: string | null };
+interface DemoBinding {
+  enabled: boolean;
+  priority: number;
+}
 
-/** 演示补丁库。 */
+type DemoPatch = Patch & { bindings: Record<string, DemoBinding> };
+
+function keyOf(slot: string, variant: string): string {
+  return slot + "/" + variant;
+}
+
+function firstVariant(slot: string): string {
+  return demoslots.find((item) => item.slug === slot)?.variants[0]?.id ?? "";
+}
+
+/** 演示补丁：每一条都记录自己在每个改版上的开关与优先级。 */
 const demopatches: DemoPatch[] = [
   {
     id: "幼儿园补丁",
@@ -21,9 +33,9 @@ const demopatches: DemoPatch[] = [
     imported_at: 1790000000,
     size_bytes: 146_800,
     mod_count: 1,
-    enabled: true,
-    matched: false,
-    bound_to: "hots",
+    bindings: {
+      [keyOf("hots", firstVariant("hots"))]: { enabled: true, priority: 100 },
+    },
   },
   {
     id: "优化覆盖补丁",
@@ -38,20 +50,56 @@ const demopatches: DemoPatch[] = [
     imported_at: 1790000100,
     size_bytes: 534_000,
     mod_count: 1,
-    enabled: false,
-    matched: false,
-    bound_to: null,
+    bindings: {
+      [keyOf("wol", firstVariant("wol"))]: { enabled: false, priority: 200 },
+    },
   },
 ];
 
+function bound(patch: DemoPatch, slot: string, variant: string): BoundPatch {
+  const binding = patch.bindings[keyOf(slot, variant)];
+  return {
+    id: patch.id,
+    name: patch.name,
+    author: patch.author,
+    version: patch.version,
+    description: patch.description,
+    registration_id: patch.registration_id,
+    priority: binding?.priority ?? patch.priority,
+    requires: patch.requires,
+    payloads: patch.payloads,
+    imported_at: patch.imported_at,
+    size_bytes: patch.size_bytes,
+    mod_count: patch.mod_count,
+    enabled: binding?.enabled ?? false,
+    matched: false,
+  };
+}
+
 export const patchesDemo = {
-  listPatches: () => delay(demopatches.slice()),
-  listBindings: (slot) => delay(demopatches.filter((item) => item.bound_to === slot)),
-  listAvailablePatches: (slot) => delay(demopatches.filter((item) => item.bound_to !== slot)),
+  listPatches: () =>
+    delay(
+      demopatches.map(({ bindings: _bindings, ...patch }) => patch),
+    ),
+  listBindings: (slot, variant) =>
+    delay(
+      demopatches
+        .filter((patch) => keyOf(slot, variant) in patch.bindings)
+        .map((patch) => bound(patch, slot, variant)),
+    ),
+  listAvailablePatches: (slot, variant) =>
+    delay(
+      demopatches
+        .filter((patch) => !(keyOf(slot, variant) in patch.bindings))
+        .map((patch) => bound(patch, slot, variant)),
+    ),
   importPatch: () =>
     delay(
       (() => {
         const id = nextDemoCounter();
+        const allVariants = demoslots.flatMap((slot) =>
+          slot.variants.map((variant) => keyOf(slot.slug, variant.id)),
+        );
         const created: DemoPatch = {
           id: "补丁-" + id,
           name: "导入的补丁 v" + id,
@@ -65,38 +113,45 @@ export const patchesDemo = {
           imported_at: 1790000200,
           size_bytes: 200_000,
           mod_count: 1,
-          enabled: false,
-          matched: false,
-          bound_to: null,
+          bindings: Object.fromEntries(
+            allVariants.map((key) => [key, { enabled: false, priority: 100 }]),
+          ),
         };
         demopatches.push(created);
         return created;
       })(),
     ),
   autoBindPatches: () => delay([] as string[]),
-  bindPatch: (slot, patchId) =>
+  bindPatch: (slot, variant, patchId) =>
     delay(
       ((found) => {
         if (found) {
-          found.bound_to = slot;
-          found.enabled = true;
+          found.bindings[keyOf(slot, variant)] = {
+            enabled: true,
+            priority: found.priority,
+          };
         }
       })(demopatches.find((item) => item.id === patchId)),
     ),
-  unbindPatch: (_slot, patchId) =>
+  unbindPatch: (slot, variant, patchId) =>
     delay(
       ((found) => {
-        if (found) found.bound_to = null;
+        if (found) delete found.bindings[keyOf(slot, variant)];
       })(demopatches.find((item) => item.id === patchId)),
     ),
-  configurePatch: (_slot, patchId, enabled, priority) =>
+  configurePatch: (slot, variant, patchId, enabled, priority) =>
     delay(
       ((found) => {
-        if (found) {
-          if (enabled !== null) found.enabled = enabled;
-          if (priority !== null) found.priority = priority;
-        }
-        return found;
+        if (!found) return found;
+        const key = keyOf(slot, variant);
+        const binding = found.bindings[key] ?? {
+          enabled: true,
+          priority: found.priority,
+        };
+        if (enabled !== null) binding.enabled = enabled;
+        if (priority !== null) binding.priority = priority;
+        found.bindings[key] = binding;
+        return bound(found, slot, variant);
       })(demopatches.find((item) => item.id === patchId)),
     ),
   updatePatch: (patchId, changes) =>

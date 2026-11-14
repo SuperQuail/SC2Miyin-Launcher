@@ -7,24 +7,12 @@ import { api } from "../../../../api/bridge";
 import type { BoundPatch } from "../../../../api/types";
 import { PatchPanel } from "./PatchPanel";
 
-/**
- * 补丁删除入口：bug 是「导入的补丁没有删除按钮，删不掉」。
- * 这里钉住：每个补丁行都有删除按钮，确认后走 deletePatch。
- */
 vi.mock("../../../../api/bridge", () => ({
   api: {
     listBindings: vi.fn(),
-    listAvailablePatches: vi.fn(),
     deletePatch: vi.fn(),
     updatePatch: vi.fn(),
     configurePatch: vi.fn(),
-    unbindPatch: vi.fn(),
-    bindPatch: vi.fn(),
-    autoBindPatches: vi.fn(),
-    importPatch: vi.fn(),
-    pickPackage: vi.fn(),
-    pickExportPath: vi.fn(),
-    exportPatch: vi.fn(),
   },
 }));
 
@@ -51,10 +39,9 @@ const mounted: Array<() => Promise<void>> = [];
 
 beforeEach(() => {
   vi.mocked(api.listBindings).mockReset();
-  vi.mocked(api.listAvailablePatches).mockReset();
   vi.mocked(api.deletePatch).mockReset();
+  vi.mocked(api.configurePatch).mockReset();
   vi.mocked(api.listBindings).mockResolvedValue([boundPatch]);
-  vi.mocked(api.listAvailablePatches).mockResolvedValue([]);
 });
 
 afterEach(async () => {
@@ -68,16 +55,8 @@ async function mount(): Promise<{ notify: ReturnType<typeof vi.fn> }> {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(
-      createElement(PatchPanel, {
-        slot: "wol",
-        notify,
-        exporting: false,
-        onExporting: () => undefined,
-      }),
-    );
+    root.render(createElement(PatchPanel, { slot: "wol", variant: "v1", notify }));
   });
-  // 等 listBindings / listAvailablePatches 两个 promise 落定
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -90,8 +69,21 @@ async function mount(): Promise<{ notify: ReturnType<typeof vi.fn> }> {
   return { notify };
 }
 
-describe("补丁面板 · 删除", () => {
-  it("每个补丁都有删除按钮，确认后调用 deletePatch", async () => {
+describe("补丁面板", () => {
+  it("复选框在最左侧，切换时按改版写回", async () => {
+    await mount();
+    const checkbox = document.querySelector<HTMLInputElement>(".pitem__check");
+    expect(checkbox, "补丁行没有复选框").toBeTruthy();
+    expect(checkbox?.closest(".pitem")?.firstElementChild).toBe(checkbox);
+
+    await act(async () => {
+      checkbox?.click();
+      await Promise.resolve();
+    });
+    expect(vi.mocked(api.configurePatch)).toHaveBeenCalledWith("wol", "v1", "p1", false, null);
+  });
+
+  it("删除按钮确认后调用 deletePatch", async () => {
     const { notify } = await mount();
 
     const remove = [...document.querySelectorAll<HTMLButtonElement>("button")].find(

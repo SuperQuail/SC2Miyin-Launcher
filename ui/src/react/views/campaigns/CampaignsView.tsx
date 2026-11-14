@@ -4,6 +4,7 @@ import { MIYIN } from "../../../api/art";
 import { api } from "../../../api/bridge";
 import { errorText } from "../../../api/errors";
 import { SlotMenu } from "./SlotMenu";
+import { VariantEditorView } from "./VariantEditorView";
 import { SlotCard } from "../../components/SlotCard";
 import { findSlot, officialSlots, useCampaigns } from "./useCampaigns";
 import { regionLabel, type CampaignsHost } from "./host";
@@ -18,6 +19,7 @@ import "./campaigns.css";
 export function CampaignsView(host: CampaignsHost) {
   const view = useCampaigns(host);
   const openSlot = findSlot(host.slots, view.opened);
+  const openVariant = openSlot?.variants.find((variant) => variant.id === view.openedVariant) ?? null;
 
   /** 页面空白处的右键菜单。 */
   function showPageMenu(event: ReactMouseEvent): void {
@@ -67,11 +69,32 @@ export function CampaignsView(host: CampaignsHost) {
     (slot.enabled_variants?.length ?? (slot.active !== null ? 1 : 0)) > 0;
   const activeCount = host.slots.filter(installedCount).length;
 
+  // 点开某个改版 -> 它自己的独立编辑页
+  if (openSlot && openVariant) {
+    return (
+      <div className="campaigns-page" onContextMenu={(event) => event.target === event.currentTarget && showPageMenu(event)}>
+        <VariantEditorView
+          slot={openSlot}
+          variantId={openVariant.id}
+          host={host}
+          onBack={() => view.setVariant(null)}
+          onSwitch={view.setVariant}
+        />
+      </div>
+    );
+  }
+
   // 点进某个战役就是它自己的菜单页（不是弹窗）
   if (openSlot) {
     return (
       <div className="campaigns-page" onContextMenu={(event) => event.target === event.currentTarget && showPageMenu(event)}>
-        <SlotMenu key={openSlot.slug} slot={openSlot} host={host} onBack={() => view.setOpened(null)} />
+        <SlotMenu
+          key={openSlot.slug}
+          slot={openSlot}
+          host={host}
+          onBack={() => view.setOpened(null)}
+          onEditVariant={view.setVariant}
+        />
       </div>
     );
   }

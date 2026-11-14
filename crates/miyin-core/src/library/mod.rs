@@ -67,7 +67,7 @@ pub use mod_keys::{
 };
 pub use model::{
     Binding, DocInfo, LibraryIndex, LibraryMod, MainMapChoice, MapEntry, ModEntry, ModOrigin,
-    Patch, Variant,
+    Patch, Variant, binding_key,
 };
 pub use slot::{CampaignSlot, SlotView};
 pub use store::{
@@ -145,8 +145,20 @@ impl Library {
         let Ok(text) = std::fs::read_to_string(&path) else {
             return LibraryIndex::default();
         };
-        match serde_json::from_str(&text) {
-            Ok(index) => index,
+        match serde_json::from_str::<LibraryIndex>(&text) {
+            Ok(mut index) => {
+                let version = index.version;
+                model::migrate_index(&mut index);
+                if index.version != version {
+                    // 迁移前留一份旧索引，出问题还能人工对照。
+                    let backup = path.with_extension("json.v1.bak");
+                    if !backup.exists() {
+                        let _ = std::fs::copy(&path, &backup);
+                    }
+                    let _ = self.save_index(&index);
+                }
+                index
+            }
             Err(_) => {
                 let _ = std::fs::rename(&path, path.with_extension("json.corrupt"));
                 LibraryIndex::default()
