@@ -9,6 +9,7 @@ import { SlotCard } from "../../components/SlotCard";
 import { findSlot, officialSlots, useCampaigns } from "./useCampaigns";
 import { regionLabel, type CampaignsHost } from "./host";
 import "./campaigns.css";
+import "./support.css";
 
 /**
  * 战役列表页（React 版，从 `views/CampaignsView.vue` 整块迁过来）。
@@ -131,21 +132,19 @@ export function CampaignsView(host: CampaignsHost) {
                   {host.installation.root}
                 </p>
 
-                <div className="mt-3">
-                  <button
-                    className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--gold)] transition-opacity hover:opacity-80"
-                    type="button"
-                    title="在 GitHub 上给 NeoBot 点 Star"
-                    onClick={() => {
-                      void api.openUrl("https://github.com/SuperQuail/NeoBot/").catch((error) => {
-                        host.notify("error", errorText(error));
-                      });
-                    }}
-                  >
-                    <ThumbUpIcon />
-                    点 Star 支持作者
-                  </button>
-                </div>
+                <button
+                  className="support-author"
+                  type="button"
+                  title="在 GitHub 上给 NeoBot 点 Star"
+                  onClick={() => {
+                    void api.openUrl("https://github.com/SuperQuail/NeoBot/").catch((error) => {
+                      host.notify("error", errorText(error));
+                    });
+                  }}
+                >
+                  <ThumbUpIcon />
+                  点 Star 支持作者
+                </button>
 
                 <div className="hero__actions">
                   <button className="btn btn-primary btn-lg" type="button" onClick={host.launch}>

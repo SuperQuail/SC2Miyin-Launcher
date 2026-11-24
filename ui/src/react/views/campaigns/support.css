@@ -1,0 +1,16 @@
+/* 战役页「点 Star 支持作者」入口：金色文字链接。
+   全局 button 是 color: inherit，会盖掉 Tailwind 的颜色工具类，所以这里用非分层的类。 */
+.support-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0;
+  color: var(--gold);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: opacity var(--duration) var(--ease);
+}
+.support-author:hover {
+  opacity: 0.8;
+}
