@@ -161,7 +161,7 @@ fn find_payload(root: &Path) -> Result<(PathBuf, Vec<PathBuf>)> {
     }
 
     let executable = executable.ok_or_else(|| {
-        Error::PackageRejected("更新包里没有找到 exe，可能下错了文件".to_string())
+        Error::PackageRejected("更新包中未找到可执行文件，可能下载了错误的包".to_string())
     })?;
 
     Ok((executable, extras))

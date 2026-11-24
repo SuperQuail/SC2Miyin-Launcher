@@ -6,6 +6,37 @@ use std::path::Path;
 
 use crate::{CRASH_LOG, PANIC_QUIET};
 
+/// 交互式处置：文件无法删除时弹原生对话框，询问用户「继续」还是「取消」。
+///
+/// 一次操作只问一次：选「继续」后，后续同样被占用的文件一并跳过，
+/// 并在操作结果的提示里逐条列出。
+pub(crate) struct AskOnBusy;
+
+impl miyin_core::library::BusyDecision for AskOnBusy {
+    fn on_busy(&mut self, path: &Path, reason: &str) -> bool {
+        confirm_continue_after_delete(path, reason)
+    }
+}
+
+/// 询问用户：是跳过无法删除的文件并继续，还是取消本次操作。
+fn confirm_continue_after_delete(path: &Path, reason: &str) -> bool {
+    matches!(
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("文件被占用")
+            .set_description(format!(
+                "无法删除或替换文件「{}」。\n原因：{}\n\n选择「是」：跳过该文件，继续处理其余文件。\
+                 跳过的文件仍保留在安装记录中；关闭占用该文件的程序后，可再次执行本操作。\n\
+                 选择「否」：取消本次操作。",
+                path.display(),
+                reason
+            ))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show(),
+        rfd::MessageDialogResult::Yes
+    )
+}
+
 /// 当前进程的完整性级别（Windows RID）：0x1000 = Low、0x2000 = Medium、0x3000 = High。
 ///
 /// 解压在**低完整性目录**里的 exe 会被 Windows 以低完整性启动；低完整性进程写不了
@@ -147,7 +178,7 @@ pub(crate) fn notify_already_running() {
     rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Info)
         .set_title("弥音启动器")
-        .set_description("启动器已经在运行了。\n\n如果没看到它的窗口，去任务栏里找一下。")
+        .set_description("启动器已在运行。\n\n若未看到其窗口，请在任务栏中查找。")
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
 }
@@ -220,18 +251,18 @@ pub(crate) fn reveal_in_file_manager(target: &Path) -> Result<(), String> {
     unsafe {
         let pidl = ILCreateFromPathW(PCWSTR(buffer.as_ptr()));
         if pidl.is_null() {
-            return Err(format!("无法定位这个文件：{}", target.display()));
+            return Err(format!("无法定位文件：{}", target.display()));
         }
         let outcome = SHOpenFolderAndSelectItems(pidl, None, 0);
         windows::Win32::System::Com::CoTaskMemFree(Some(pidl as *const _));
-        outcome.map_err(|error| format!("无法在资源管理器里选中它：{error}"))
+        outcome.map_err(|error| format!("无法在资源管理器中选中该文件：{error}"))
     }
 }
 
 /// 其它平台暂不支持。
 #[cfg(not(windows))]
 pub(crate) fn reveal_in_file_manager(_target: &Path) -> Result<(), String> {
-    Err("当前平台暂不支持打开资源管理器".to_string())
+    Err("当前平台不支持打开资源管理器".to_string())
 }
 
 /// 让 webview 不像浏览器：关掉 WebView2 自带的**浏览器加速键**（Ctrl+F/P/U/R、F5、缩放…）。
@@ -350,10 +381,10 @@ pub(crate) fn install_crash_hook() {
         }
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title("弥音启动器出错了")
+            .set_title("弥音启动器发生错误")
             .set_description(format!(
-                "启动器遇到了一个没处理的问题。原因已经写进程序目录的 {CRASH_LOG}，\n\
-                 反馈时可以把它一起发给我们。\n\n{text}"
+                "启动器遇到未处理的错误。详细信息已写入程序目录的 {CRASH_LOG}；\n\
+                 反馈问题时请附上该文件。\n\n{text}"
             ))
             .set_buttons(rfd::MessageButtons::Ok)
             .show();

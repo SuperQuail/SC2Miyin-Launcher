@@ -21,8 +21,6 @@ use miyin_core::sc2::{DiscoverySource, Installation};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::ensure_game_not_running;
-
 /// 白名单。**只有这里列出的 op 会被执行**，加 op 时把单测一起补上。
 ///
 /// 这是设计文档 §3 的完整清单：全部是写游戏目录或库根的操作。
@@ -58,19 +56,26 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
 
     match op {
         "activate" => {
-            ensure_game_not_running()?;
             let slot = text(args, "slot")?;
             let variant = optional_text(args, "variantId");
-            value(library::activate(
+            let warnings = library::activation::activate_with(
                 &context.library,
                 &context.installation,
                 &slot,
                 variant.as_deref(),
-            ))
+                &mut crate::platform::AskOnBusy,
+            )
+            .map_err(crate::decision_error)?;
+            Ok(serde_json::json!(warnings))
         }
         "deactivate_all" => {
-            ensure_game_not_running()?;
-            value(library::deactivate(&context.library, &context.installation))
+            let warnings = library::activation::deactivate_with(
+                &context.library,
+                &context.installation,
+                &mut crate::platform::AskOnBusy,
+            )
+            .map_err(crate::decision_error)?;
+            Ok(serde_json::json!(warnings))
         }
         "import_package" => {
             let path = source(args, "path")?;
@@ -81,7 +86,7 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
             let slot = optional_text(args, "slot")
                 .filter(|slot| !slot.trim().is_empty())
                 .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
-                .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
+                .ok_or_else(|| "无法从包内识别所属战役，请手动指定".to_string())?;
             value(library::import_named_with_password(
                 &context.library,
                 &path,
@@ -105,7 +110,6 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
             ))
         }
         "update_variant_from_package" => {
-            ensure_game_not_running()?;
             let slot = text(args, "slot")?;
             let path = source(args, "path")?;
             let password = optional_text(args, "password");
@@ -122,13 +126,14 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
                 .map(|variant| variant.id),
             };
             let replaced = match target {
-                Some(id) => library::replace_variant_with_password(
+                Some(id) => library::replace_variant_with(
                     &context.library,
                     &context.installation,
                     &slot,
                     &id,
                     &path,
                     password.as_deref(),
+                    &mut crate::platform::AskOnBusy,
                 ),
                 None => library::import_with_password(
                     &context.library,
@@ -140,17 +145,23 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
                 .map(|variant| Replaced {
                     variant,
                     added_mods: Vec::new(),
+                    warnings: Vec::new(),
                 }),
             };
             value(replaced)
         }
         "delete_variant" => {
-            ensure_game_not_running()?;
             let slot = text(args, "slot")?;
             let variant_id = text(args, "variantId")?;
-            library::remove_variant(&context.library, &context.installation, &slot, &variant_id)
-                .map_err(|error| error.to_string())?;
-            Ok(Value::Null)
+            let warnings = library::remove_variant_with(
+                &context.library,
+                &context.installation,
+                &slot,
+                &variant_id,
+                &mut crate::platform::AskOnBusy,
+            )
+            .map_err(crate::decision_error)?;
+            Ok(serde_json::json!(warnings))
         }
         "import_patch" => {
             let path = source(args, "path")?;
@@ -226,27 +237,41 @@ pub(crate) fn run(op: &str, args: &Value) -> Result<Value, String> {
         "mods_remove" => {
             let id = text(args, "id")?;
             mods::remove(context.library.root(), &id).map_err(|error| error.to_string())?;
-            Ok(Value::Null)
+            let report = mods::sync_with(
+                context.library.root(),
+                &context.installation,
+                &mut crate::platform::AskOnBusy,
+            )
+            .map_err(crate::decision_error)?;
+            Ok(serde_json::json!(report.warnings))
         }
         "mods_set_enabled" => {
-            ensure_game_not_running()?;
             let id = text(args, "id")?;
             let enabled = flag(args, "enabled")?;
             // 先落状态再同步 —— sync 读的就是这份记录
-            let record = mods::set_enabled(context.library.root(), &id, enabled)
+            mods::set_enabled(context.library.root(), &id, enabled)
                 .map_err(|error| error.to_string())?;
-            mods::sync(context.library.root(), &context.installation)
-                .map_err(|error| error.to_string())?;
-            value(Ok::<_, miyin_core::Error>(record))
+            let report = mods::sync_with(
+                context.library.root(),
+                &context.installation,
+                &mut crate::platform::AskOnBusy,
+            )
+            .map_err(crate::decision_error)?;
+            Ok(serde_json::json!(report.warnings))
         }
         "mods_sync" => {
-            ensure_game_not_running()?;
             // 两条挂载路径都要跑：跟着战役包来的模组归 activation，独立模组归 mods。
             // 启动流程里也是这么成对调的（见 AppState::bootstrap）。
-            let warnings = library::activation::sync_mods(&context.library, &context.installation)
-                .map_err(|error| error.to_string())?;
-            let report = mods::sync(context.library.root(), &context.installation)
-                .map_err(|error| error.to_string())?;
+            let mut decision = crate::platform::AskOnBusy;
+            let warnings = library::activation::sync_mods_with(
+                &context.library,
+                &context.installation,
+                &mut decision,
+            )
+            .map_err(crate::decision_error)?;
+            let report =
+                mods::sync_with(context.library.root(), &context.installation, &mut decision)
+                    .map_err(crate::decision_error)?;
             Ok(serde_json::json!({ "warnings": warnings, "report": report }))
         }
         "merge_apply" => {
@@ -379,7 +404,7 @@ fn source(args: &Value, key: &str) -> Result<PathBuf, String> {
     let resolved = miyin_core::safety::resolve(&raw)
         .map_err(|error| format!("{key} 路径不合法（{}）：{error}", raw.display()))?;
     if !resolved.exists() {
-        return Err(format!("找不到 {key}：{}", resolved.display()));
+        return Err(format!("未找到 {key}：{}", resolved.display()));
     }
     if let Some(root) = system_locations()
         .into_iter()
@@ -585,7 +610,7 @@ mod tests {
             "path",
         )
         .expect_err("不存在的包必须被拒");
-        assert!(error.contains("找不到"), "{error}");
+        assert!(error.contains("未找到"), "{error}");
 
         let error =
             source(&serde_json::json!({ "path": "包.zip" }), "path").expect_err("相对路径必须被拒");

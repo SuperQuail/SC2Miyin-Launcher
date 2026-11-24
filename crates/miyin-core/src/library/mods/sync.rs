@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use crate::error::{Error, Result};
+use crate::library::install::{AbortOnBusy, BusyDecision};
 use crate::safety;
 
 use super::import::single_child_file;
@@ -36,6 +37,15 @@ pub fn placed_name(record: &StandaloneMod) -> String {
 ///
 /// 只动**我们自己记过账**的东西：用户手动放的模组一个都不碰。
 pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<SyncReport> {
+    sync_with(data, installation, &mut AbortOnBusy)
+}
+
+/// 同 [`sync`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn sync_with(
+    data: &Path,
+    installation: &crate::sc2::Installation,
+    decision: &mut dyn BusyDecision,
+) -> Result<SyncReport> {
     // 用迁移版：老格式的 mods-active.json 也要认
     let mut manifest = crate::library::install::Manifest::load_migrating(data, installation);
     let all = list(data);
@@ -90,14 +100,14 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
         }
     }
 
+    let mut warnings: Vec<String> = Vec::new();
     for owner in stale {
-        manifest.remove(data, installation, &owner)?;
+        warnings.extend(manifest.remove_with(data, installation, &owner, decision)?);
     }
 
     // ---- 2) 装启用中的 ----
     let mods_root = mods_root(data);
     let mut placed: Vec<String> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
 
     // 落点撞车要说话：两个模组铺到同一个名字，后铺的会盖掉先铺的。
     // "重复的 mod"最常见的形态就是这个 —— 同一个模组导了两份、或者两个包带了同名模组。
@@ -127,7 +137,7 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
         match record.kind {
             ModKind::File => {
                 let inner = single_child_file(&source).ok_or_else(|| {
-                    Error::PackageRejected(format!("模组 {} 的内容不是一个文件", record.name))
+                    Error::PackageRejected(format!("模组 {} 的内容不是单个文件", record.name))
                 })?;
                 plan.push(inner, target);
             }
@@ -140,7 +150,7 @@ pub fn sync(data: &Path, installation: &crate::sc2::Installation) -> Result<Sync
             continue;
         }
 
-        warnings.extend(manifest.apply(data, installation, &plan)?);
+        warnings.extend(manifest.apply_scoped_with(data, installation, &plan, "", decision)?);
         placed.push(name);
     }
 

@@ -15,7 +15,7 @@ pub(crate) fn dev_scan(
     state: State<'_, AppState>,
 ) -> Result<miyin_core::dev::DevScan, String> {
     let guard = state.installation.lock().map_err(lock_error)?;
-    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    let installation = guard.as_ref().ok_or("尚未检测到星际争霸 II 安装目录")?;
     miyin_core::dev::scan(installation, &extra).map_err(|error| error.to_string())
 }
 
@@ -23,7 +23,7 @@ pub(crate) fn dev_scan(
 #[tauri::command(async)]
 pub(crate) fn dev_pick_directory() -> Option<String> {
     rfd::FileDialog::new()
-        .set_title("选一个目录加进这个包")
+        .set_title("选择要加入包的目录")
         .pick_folder()
         .map(|path| path.to_string_lossy().into_owned())
 }
@@ -34,7 +34,7 @@ pub(crate) fn list_installed_campaigns(
     state: State<'_, AppState>,
 ) -> Result<Vec<miyin_core::campaign::collect::InstalledCampaign>, String> {
     let guard = state.installation.lock().map_err(lock_error)?;
-    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    let installation = guard.as_ref().ok_or("尚未检测到星际争霸 II 安装目录")?;
     miyin_core::campaign::collect::installed_campaigns(installation)
         .map_err(|error| error.to_string())
 }
@@ -153,7 +153,7 @@ pub(crate) fn dev_diff(
     let find = |id: u32| history.iter().find(|item| item.id == id).cloned();
     match (find(from), find(to)) {
         (Some(old), Some(new)) => Ok(miyin_core::dev::history::diff(&old, &new)),
-        _ => Err("找不到这两个版本".to_string()),
+        _ => Err("未找到这两个版本".to_string()),
     }
 }
 

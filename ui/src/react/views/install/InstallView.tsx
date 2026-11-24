@@ -571,7 +571,7 @@ function SingleCard({
 
             <Field label="所属战役" row>
               <span className="install__value">
-                {slotName ?? "无法自动识别，请在上方手动选择"}
+                {slotName ?? "无法自动识别，请手动选择所属战役"}
                 {tier && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
               </span>
             </Field>
@@ -684,7 +684,7 @@ function BatchRow({
               {inspection?.map_count ?? 0} 张地图 · {inspection?.mod_count ?? 0} 个模组
             </span>
             <span className="install__row-meta">
-              所属战役：{slotName ?? "无法自动识别，请在右侧选择战役"}
+              所属战役：{slotName ?? "无法自动识别，请手动选择所属战役"}
               {tierLabel && <span className="install__tag">{tier === "exact" ? "确定" : "推断"}</span>}
             </span>
             {inspection?.identification && (

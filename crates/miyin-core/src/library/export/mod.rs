@@ -255,9 +255,7 @@ fn plan(
 
     let composition = compose::compose(library, slot_slug, &full, sub.as_deref());
     if composition.files.is_empty() {
-        return Err(Error::PackageRejected(
-            "这个版本里没有可导出的内容".to_string(),
-        ));
+        return Err(Error::PackageRejected("此版本没有可导出的内容".to_string()));
     }
 
     // 附加模式：顶层只放战役本体；合成模式：顶层就是合成结果
@@ -269,7 +267,7 @@ fn plan(
 
     if top.is_empty() {
         return Err(Error::PackageRejected(
-            "这个版本本体里没有内容，只有补丁".to_string(),
+            "此版本本身没有内容，仅包含补丁".to_string(),
         ));
     }
 

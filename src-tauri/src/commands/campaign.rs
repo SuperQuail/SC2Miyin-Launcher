@@ -13,14 +13,9 @@ use miyin_core::library::{
 use tauri::State;
 
 use crate::{
-    AppState, ensure_game_not_running, installed_target, lock_error, require_installation,
+    AppState, decision_error, installed_target, lock_error, platform::AskOnBusy,
+    require_installation,
 };
-
-/// 游戏是不是正跑着。启用 / 停用前先问它。
-#[tauri::command(async)]
-pub(crate) fn sc2_running() -> Option<String> {
-    miyin_core::platform::game_running()
-}
 
 /// 启用前先看：这次会往游戏目录里放什么、覆盖什么、删什么。**不写盘。**
 ///
@@ -33,7 +28,7 @@ pub(crate) fn preview_activation(
     state: State<'_, AppState>,
 ) -> Result<library::Preview, String> {
     let guard = state.installation.lock().map_err(lock_error)?;
-    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    let installation = guard.as_ref().ok_or("尚未检测到星际争霸 II 安装目录")?;
     library::preview(&state.library, installation, &slot, &variant_id)
         .map_err(|error| error.to_string())
 }
@@ -186,7 +181,7 @@ pub(crate) fn import_package(
     let chosen = slot
         .filter(|value| !value.trim().is_empty())
         .or_else(|| library::slot_for(&inspection.campaign_type).map(str::to_string))
-        .ok_or_else(|| "无法从包内识别它属于哪个战役，请手动指定".to_string())?;
+        .ok_or_else(|| "无法从包内识别所属战役，请手动指定".to_string())?;
 
     library::import_named_with_password(
         &state.library,
@@ -206,12 +201,17 @@ pub(crate) fn activate_variant(
     variant_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    ensure_game_not_running()?;
     let installation = require_installation(&state)?;
     // 存档组由 core 的 activate 统一跟着切（所有会 activate 的路径都走它），
     // 命令层不要再切一次 —— 否则每次启用都多切一轮、多一份「还原前」备份。
-    library::activate(&state.library, &installation, &slot, variant_id.as_deref())
-        .map_err(|error| error.to_string())
+    library::activation::activate_with(
+        &state.library,
+        &installation,
+        &slot,
+        variant_id.as_deref(),
+        &mut AskOnBusy,
+    )
+    .map_err(decision_error)
 }
 
 /// 停用**全部**战役：撤掉启动器写进游戏目录的所有战役文件，索引与存档组回原版。
@@ -220,9 +220,9 @@ pub(crate) fn activate_variant(
 /// 而不是逐个槽位点停用（历史上多装 / 半装的也能一并清掉）。不删战役库里的内容。
 #[tauri::command(async)]
 pub(crate) fn deactivate_all_campaigns(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    ensure_game_not_running()?;
     let installation = require_installation(&state)?;
-    library::deactivate(&state.library, &installation).map_err(|error| error.to_string())
+    library::activation::deactivate_with(&state.library, &installation, &mut AskOnBusy)
+        .map_err(decision_error)
 }
 
 /// 列出某个版本里的地图（自制战役主要用这个）。
@@ -286,7 +286,7 @@ pub(crate) fn main_map_choice(
     let variant = state
         .library
         .variant(&slot, &variant_id)
-        .ok_or_else(|| format!("库里找不到版本 {variant_id}"))?;
+        .ok_or_else(|| format!("战役库中未找到版本 {variant_id}"))?;
     let maps = state.library.variant_maps(&slot, &variant_id);
 
     Ok(library::resolve_main_map(
@@ -327,7 +327,7 @@ pub(crate) fn open_map_in_editor(
     let editor = installation
         .editor
         .clone()
-        .ok_or_else(|| "没找到游戏编辑器 —— 到「设置」里重新指定游戏目录试试".to_string())?;
+        .ok_or_else(|| "未找到游戏编辑器。请到「设置」中重新选择游戏目录。".to_string())?;
 
     // **打开游戏目录里那一份**，不是库里那一份。
     //
@@ -343,20 +343,26 @@ pub(crate) fn open_map_in_editor(
     // **地图已经在游戏目录里在位，就不要再激活。** 点「用编辑器打开」只是为了看一张图，
     // 顺手把整个战役重装一遍（撤下当前版本、铺这一版）不是用户点的那个动作。
     let first = installed_target(&state, &installation, &library_path);
-    let (path, switched, stale) = match first {
-        Ok(Some(path)) => (path, false, None),
+    let (path, switched, stale, warnings) = match first {
+        Ok(Some(path)) => (path, false, None, Vec::new()),
         // 不在位（或清单和磁盘对不上）才装这一次。它会切换当前启用的版本，话得跟用户说清楚。
         first => {
-            ensure_game_not_running()?;
-            library::activate(&state.library, &installation, &slot, Some(&variant_id))
-                .map_err(|error| error.to_string())?;
+            let warnings = library::activation::activate_with(
+                &state.library,
+                &installation,
+                &slot,
+                Some(&variant_id),
+                &mut AskOnBusy,
+            )
+            .map_err(decision_error)?;
             match installed_target(&state, &installation, &library_path) {
-                Ok(Some(path)) => (path, true, None),
+                Ok(Some(path)) => (path, true, None, warnings),
                 // 装完还是反查不到：退回库里那份（它在游戏目录外，多半打不开），并且说出来
                 again => (
                     library_path,
                     true,
                     Some(again.err().or(first.err()).unwrap_or_else(missing_record)),
+                    warnings,
                 ),
             }
         }
@@ -367,17 +373,23 @@ pub(crate) fn open_map_in_editor(
         .spawn()
         .map_err(|error| format!("启动编辑器失败：{error}"))?;
 
+    let mut guidance = match stale {
+        // 账实对不上：库里那份在游戏目录之外，得说清楚为什么可能打不开
+        Some(reason) => format!(
+            "{reason}。已改用战役库中的副本打开。该副本位于游戏目录之外，可能无法打开；请到战役页重新启用此版本以修复。"
+        ),
+        None if switched => "编辑器已打开此地图。按 Ctrl+F9（菜单「测试文档」）开始游戏。注意：该地图此前不在游戏目录中，因此已安装其所属版本；当前启用的战役已随之变更。".to_string(),
+        None => "编辑器已打开此地图。按 Ctrl+F9（菜单「测试文档」）开始游戏。".to_string(),
+    };
+    for line in warnings {
+        guidance.push(' ');
+        guidance.push_str(&line);
+    }
+
     Ok(EditorLaunch {
         editor: editor.display().to_string(),
         map,
-        guidance: match stale {
-            // 账实对不上：库里那份在游戏目录之外，得说清楚为什么可能打不开
-            Some(reason) => format!(
-                "{reason}。已改用库里那份打开 —— 它在游戏目录外，可能打不开；到战役页重新启用一次这个版本可以修好。"
-            ),
-            None if switched => "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。注意：它刚才不在游戏目录里，所以已经把它所在的版本装了进去 —— 当前启用的战役跟着换了。".to_string(),
-            None => "编辑器已打开这张地图，按 Ctrl+F9（菜单「测试文档」）就能进入游戏。".to_string(),
-        },
+        guidance,
     })
 }
 
@@ -489,7 +501,7 @@ fn find_variant(
                 .find(|item| item.id == variant_id)
                 .cloned()
         })
-        .ok_or_else(|| "找不到这个版本".to_string())
+        .ok_or_else(|| "未找到此版本".to_string())
 }
 
 /// 解析前端传来的导出格式；不认识就报错，别默默当弥音包。
@@ -497,7 +509,7 @@ fn parse_export_format(raw: Option<&str>) -> Result<library::export::ExportForma
     match raw {
         None | Some("") => Ok(library::export::ExportFormat::Miyin),
         Some(value) => library::export::ExportFormat::parse(value)
-            .ok_or_else(|| format!("不认识的导出格式：{value}")),
+            .ok_or_else(|| format!("未知的导出格式：{value}")),
     }
 }
 
@@ -517,11 +529,16 @@ pub(crate) fn delete_variant(
     slot: String,
     variant_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    ensure_game_not_running()?;
+) -> Result<Vec<String>, String> {
     let installation = require_installation(&state)?;
-    library::remove_variant(&state.library, &installation, &slot, &variant_id)
-        .map_err(|error| error.to_string())
+    library::remove_variant_with(
+        &state.library,
+        &installation,
+        &slot,
+        &variant_id,
+        &mut AskOnBusy,
+    )
+    .map_err(decision_error)
 }
 
 /// 启动暴雪战网（星际争霸要从战网登录后进入，直接拉游戏只会停在未登录状态）。
@@ -595,7 +612,7 @@ pub(crate) fn launch_game_with_map(
     map: String,
     state: State<'_, AppState>,
 ) -> Result<GameLaunch, String> {
-    let (installation, path, stale) = prepared_map(&state, &slot, &variant_id, &map)?;
+    let (installation, path, stale, warnings) = prepared_map(&state, &slot, &variant_id, &map)?;
 
     // 工作目录必须是游戏根 —— 切换器靠它找 .build.info 与 Versions/
     std::process::Command::new(installation.preferred_launcher())
@@ -604,16 +621,19 @@ pub(crate) fn launch_game_with_map(
         .spawn()
         .map_err(|error| format!("启动游戏失败：{error}"))?;
 
-    Ok(GameLaunch {
-        map,
-        guidance: match stale {
-            // 账实对不上：库里那份在游戏目录之外，星际争霸多半加载不了
-            Some(reason) => format!(
-                "{reason}。已改用库里那份启动 —— 它在游戏目录外，星际争霸多半加载不了；到战役页重新启用一次这个版本可以修好。"
-            ),
-            None => "已经交给星际争霸，正在加载这张地图。".to_string(),
-        },
-    })
+    let mut guidance = match stale {
+        // 账实对不上：库里那份在游戏目录之外，星际争霸多半加载不了
+        Some(reason) => format!(
+            "{reason}。已改用战役库中的副本启动。该副本位于游戏目录之外，星际争霸 II 可能无法加载；请到战役页重新启用此版本以修复。"
+        ),
+        None => "已交给星际争霸 II，正在加载地图。".to_string(),
+    };
+    for line in warnings {
+        guidance.push(' ');
+        guidance.push_str(&line);
+    }
+
+    Ok(GameLaunch { map, guidance })
 }
 
 #[tauri::command(async)]
@@ -624,7 +644,6 @@ pub(crate) fn update_variant_from_package(
     password: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<miyin_core::library::Replaced, String> {
-    ensure_game_not_running()?;
     let installation = require_installation(&state)?;
 
     // 换哪一个**已安装的包**：
@@ -644,13 +663,14 @@ pub(crate) fn update_variant_from_package(
     };
 
     match target {
-        Some(id) => library::replace_variant_with_password(
+        Some(id) => library::replace_variant_with(
             &state.library,
             &installation,
             &slot,
             &id,
             Path::new(&path),
             password.as_deref(),
+            &mut AskOnBusy,
         ),
         None => library::import_with_password(
             &state.library,
@@ -662,9 +682,10 @@ pub(crate) fn update_variant_from_package(
         .map(|variant| miyin_core::library::Replaced {
             variant,
             added_mods: Vec::new(),
+            warnings: Vec::new(),
         }),
     }
-    .map_err(|error| error.to_string())
+    .map_err(decision_error)
 }
 
 fn prepared_map(
@@ -672,12 +693,25 @@ fn prepared_map(
     slot: &str,
     variant_id: &str,
     map: &str,
-) -> Result<(miyin_core::sc2::Installation, PathBuf, Option<String>), String> {
-    ensure_game_not_running()?;
+) -> Result<
+    (
+        miyin_core::sc2::Installation,
+        PathBuf,
+        Option<String>,
+        Vec<String>,
+    ),
+    String,
+> {
     let installation = require_installation(state)?;
 
-    library::activate(&state.library, &installation, slot, Some(variant_id))
-        .map_err(|error| error.to_string())?;
+    let warnings = library::activation::activate_with(
+        &state.library,
+        &installation,
+        slot,
+        Some(variant_id),
+        &mut AskOnBusy,
+    )
+    .map_err(decision_error)?;
 
     let library_path = state
         .library
@@ -693,12 +727,12 @@ fn prepared_map(
         ),
     };
 
-    Ok((installation, path, stale))
+    Ok((installation, path, stale, warnings))
 }
 
 /// 清单里压根没有这条记录时的说法（`target_of` 返回 `Ok(None)`，而这里刚装过）。
 fn missing_record() -> String {
-    "清单里没有这张图的安装记录".to_string()
+    "安装清单中没有此地图的记录".to_string()
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

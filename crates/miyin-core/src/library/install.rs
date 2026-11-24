@@ -16,6 +16,10 @@
 //!
 //! 白名单校验、备份还原、记账、回滚加起来只有这一份实现。
 
+mod decision;
+mod fsops;
+mod uninstall;
+
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +27,10 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 use crate::safety;
 use crate::sc2::Installation;
+pub use decision::{AbortOnBusy, BusyDecision, SkipOnBusy};
+use decision::{as_busy, busy_reason, is_busy, skipped};
+use fsops::{copy_entry, path_bytes, resolve, source_key};
+use uninstall::{remove_installed, restore_backup};
 
 /// 清单文件的格式版本。
 const MANIFEST_VERSION: u32 = 1;
@@ -479,13 +487,16 @@ impl Manifest {
     ///
     /// 返回冲突提示（目标被别的 owner 占着）—— 不阻断，但要让用户知道
     /// 谁盖了谁。以前是静默覆盖，出了问题根本查不出来。
+    ///
+    /// 删不掉的文件一律停下（[`AbortOnBusy`]）；要询问用户请走
+    /// [`apply_scoped_with`](Self::apply_scoped_with)。
     pub fn apply(
         &mut self,
         data: &Path,
         installation: &Installation,
         plan: &Plan,
     ) -> Result<Vec<String>> {
-        self.apply_scoped(data, installation, plan, "")
+        self.apply_scoped_with(data, installation, plan, "", &mut AbortOnBusy)
     }
 
     /// 和 [`apply`](Self::apply) 一样，但**只动 `scope` 前缀内的目标**。
@@ -499,10 +510,21 @@ impl Manifest {
         plan: &Plan,
         scope: &str,
     ) -> Result<Vec<String>> {
-        // 1) 这个 owner 在 scope 内之前装的先全撤掉 —— 保证「计划就是当前状态」
-        self.remove_scoped(data, installation, &plan.owner, scope)?;
+        self.apply_scoped_with(data, installation, plan, scope, &mut AbortOnBusy)
+    }
 
-        let mut warnings = Vec::new();
+    /// 同 [`apply_scoped`](Self::apply_scoped)，但把「删不掉的文件怎么办」交给 `decision`。
+    pub fn apply_scoped_with(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        plan: &Plan,
+        scope: &str,
+        decision: &mut dyn BusyDecision,
+    ) -> Result<Vec<String>> {
+        // 1) 这个 owner 在 scope 内之前装的先全撤掉 —— 保证「计划就是当前状态」
+        let mut warnings =
+            self.remove_scoped_with(data, installation, &plan.owner, scope, decision)?;
 
         for item in &plan.items {
             let target = resolve(installation, &item.target)?;
@@ -511,17 +533,21 @@ impl Manifest {
             if let Some(other) = self.owner_of(&item.target).cloned()
                 && other != plan.owner
             {
+                // 让不出来（文件被占用）时保留对方的记录，这一项本次不写
+                if !self.release_with(data, installation, &other, &item.target, decision)? {
+                    warnings.push(skipped("写入", &item.target));
+                    continue;
+                }
                 warnings.push(format!(
-                    "{} 也要用 {}，现在由{}占着 —— 已改由{}接管",
+                    "{} 也需要 {}，当前由 {} 占用，现已改由 {} 接管",
                     plan.owner.label(),
                     item.target,
                     other.label(),
                     plan.owner.label()
                 ));
-                self.release(data, installation, &other, &item.target)?;
             }
 
-            // 3) 目标已存在（多半是官方文件，或用户自己放的）：先挪进备份区
+            // 3) 目标已存在（多半是原版文件，或用户自己放的）：先挪进备份区
             let backup = if target.exists() {
                 let relative = format!("{}/{}", plan.owner.key(), item.target);
                 let backup = safety::ensure_within(
@@ -535,8 +561,17 @@ impl Manifest {
                     let _ = std::fs::remove_dir_all(&backup);
                     let _ = std::fs::remove_file(&backup);
                 }
-                crate::platform::move_path(&target, &backup)?;
-                Some(relative)
+                match crate::platform::move_path(&target, &backup) {
+                    Ok(()) => Some(relative),
+                    Err(error) if is_busy(&error) => {
+                        if decision.on_busy(&target, &busy_reason(&error)) {
+                            warnings.push(skipped("写入", &item.target));
+                            continue;
+                        }
+                        return Err(as_busy(error, &target));
+                    }
+                    Err(error) => return Err(error),
+                }
             } else {
                 None
             };
@@ -568,20 +603,24 @@ impl Manifest {
     ///
     /// 与 remove 的区别：只动这一条，其余仍然归原 owner —— 目标撞车时
     /// 把别人的整套文件都撤掉，会留下「库里写着启用中、游戏目录已经空了」。
-    fn release(
+    ///
+    /// `Ok(true)` = 已经让出；`Ok(false)` = 文件被占用且 `decision` 选择跳过
+    /// （记录保留、文件未动）；`Err` = 停下。
+    fn release_with(
         &mut self,
         data: &Path,
         installation: &Installation,
         owner: &Owner,
         target: &str,
-    ) -> Result<()> {
+        decision: &mut dyn BusyDecision,
+    ) -> Result<bool> {
         let Some(entry) = self
             .files
             .iter()
             .find(|item| &item.owner == owner && item.target == target)
             .cloned()
         else {
-            return Ok(());
+            return Ok(true);
         };
 
         // 先销账再动磁盘，理由同 remove
@@ -589,32 +628,75 @@ impl Manifest {
             .retain(|item| !(&item.owner == owner && item.target == target));
         self.save(data)?;
 
-        let path = resolve(installation, target)?;
-        // 删不掉就报出来：以前 `let _ = ` 吞掉失败，清单说让出了、文件还在（调用方会往上抛）
-        remove_installed(&path)?;
-        restore_backup(data, &path, entry.backup.as_deref())
+        let path = match resolve(installation, target) {
+            Ok(path) => path,
+            Err(error) => {
+                self.files.push(entry);
+                self.save(data)?;
+                return Err(error);
+            }
+        };
+        let done = remove_installed(&path)
+            .and_then(|()| restore_backup(data, &path, entry.backup.as_deref()));
+        match done {
+            Ok(()) => Ok(true),
+            Err(error @ Error::FileBusy { .. }) => {
+                // 文件仍在盘上：记录放回去。选「继续」时本次不写这个位置；
+                // 选「取消」时把错误原样交回去（命令层据此说明是用户取消的）。
+                self.files.push(entry);
+                self.save(data)?;
+                if decision.on_busy(&path, &busy_reason(&error)) {
+                    Ok(false)
+                } else {
+                    Err(error)
+                }
+            }
+            Err(error) => {
+                // 没让成：这条账放回去，否则盘上那份会变成没人认领的孤儿
+                self.files.push(entry);
+                self.save(data)?;
+                Err(error)
+            }
+        }
     }
 
     /// **撤掉某个 owner 装的东西**：删掉我们放的，还原被挪走的官方文件。
     ///
     /// 只动清单里记过的文件 —— 绝不递归删官方目录。
+    ///
+    /// 删不掉的文件一律停下（[`AbortOnBusy`]）；要询问用户请走
+    /// [`remove_with`](Self::remove_with)。
     pub fn remove(
         &mut self,
         data: &Path,
         installation: &Installation,
         owner: &Owner,
-    ) -> Result<()> {
-        self.remove_scoped(data, installation, owner, "")
+    ) -> Result<Vec<String>> {
+        self.remove_with(data, installation, owner, &mut AbortOnBusy)
+    }
+
+    /// 同 [`remove`](Self::remove)，但把「删不掉的文件怎么办」交给 `decision`。
+    ///
+    /// 返回的提示包含「因被占用而跳过」的文件。
+    pub fn remove_with(
+        &mut self,
+        data: &Path,
+        installation: &Installation,
+        owner: &Owner,
+        decision: &mut dyn BusyDecision,
+    ) -> Result<Vec<String>> {
+        self.remove_scoped_with(data, installation, owner, "", decision)
     }
 
     /// 撤掉某个 owner 在 `scope` 前缀内的东西；scope 之外原样留着。
-    fn remove_scoped(
+    fn remove_scoped_with(
         &mut self,
         data: &Path,
         installation: &Installation,
         owner: &Owner,
         scope: &str,
-    ) -> Result<()> {
+        decision: &mut dyn BusyDecision,
+    ) -> Result<Vec<String>> {
         let leaving: Vec<Installed> = self
             .files
             .iter()
@@ -622,28 +704,55 @@ impl Manifest {
             .cloned()
             .collect();
         if leaving.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
-        // **先销账再动磁盘**：中途失败时账面是「已经撤下」，最坏剩几个文件；
-        // 反过来（先动磁盘后销账）失败一次，重试就会把刚还原的官方文件删掉
+        // **先销账再动磁盘**：失败时把没做完的那几条放回清单（见下），账面在成功前
+        // 不会比磁盘空；反过来（先动磁盘后销账）失败一次，重试会把刚还原的官方文件删掉
         self.files
             .retain(|item| !(&item.owner == owner && item.target.starts_with(scope)));
         self.save(data)?;
 
-        for item in &leaving {
-            let target = resolve(installation, &item.target)?;
+        let mut warnings = Vec::new();
+        for (position, item) in leaving.iter().enumerate() {
+            let target = match resolve(installation, &item.target) {
+                Ok(target) => target,
+                Err(error) => {
+                    self.files.extend(leaving[position..].iter().cloned());
+                    self.save(data)?;
+                    return Err(error);
+                }
+            };
+            let done = remove_installed(&target)
+                .and_then(|()| restore_backup(data, &target, item.backup.as_deref()));
 
-            // 我们放的：删掉（目录整删，免得留下空壳）。**删不掉要报出来** ——
-            // 游戏跑着时 Windows 拒绝删除，以前 `let _ =` 吞掉，用户看到的是
-            // 「清单说撤了、文件还在」，账实就此永久分叉（R5）
-            remove_installed(&target)?;
-
-            // 原本有官方文件被挪走的：原样还原
-            restore_backup(data, &target, item.backup.as_deref())?;
+            match done {
+                Ok(()) => {}
+                Err(error @ Error::FileBusy { .. }) => {
+                    if decision.on_busy(&target, &busy_reason(&error)) {
+                        // 文件仍在盘上，记录也留着 —— 下次重试还能认领它
+                        warnings.push(skipped("删除", &item.target));
+                        self.files.push(item.clone());
+                    } else {
+                        // 没做完的这几条还在盘上：把账放回去；已收掉的不放回，
+                        // 否则下一次重试会删掉刚还原好的官方文件。
+                        self.files.extend(leaving[position..].iter().cloned());
+                        self.save(data)?;
+                        return Err(error);
+                    }
+                }
+                Err(error) => {
+                    self.files.extend(leaving[position..].iter().cloned());
+                    self.save(data)?;
+                    return Err(error);
+                }
+            }
+        }
+        if !warnings.is_empty() {
+            self.save(data)?;
         }
 
-        // 备份区里这个 owner 的目录空了就收掉（scope 外还有记录时不能收）
+        // 备份区里这个 owner 的目录空了就收掉（scope 外 / 被跳过的记录还在时不能收）
         if self.of(owner).is_empty() {
             let dir = Self::backup_root(data).join(owner.key());
             if dir.is_dir() {
@@ -651,148 +760,6 @@ impl Manifest {
             }
         }
 
-        Ok(())
+        Ok(warnings)
     }
-}
-
-/// 清单里记的「来源」：**优先相对库根**（统一 `/` 分隔），库外的源退回绝对路径。
-///
-/// 库根会跟着数据迁移 / 游戏目录搬家而变（`AGENTS.md` §14.1）：记绝对路径的话，
-/// 搬一次家 [`Manifest::target_of`] 就再也反查不出装到哪了 —— 打开地图只能退回
-/// 库里那份，而那份在游戏目录外，打不开（R3）。库外的源（老调用方）保留绝对路径。
-fn source_key(data: &Path, source: &Path) -> String {
-    match source.strip_prefix(data) {
-        Ok(rest) if !rest.as_os_str().is_empty() => rest.to_string_lossy().replace('\\', "/"),
-        _ => source.to_string_lossy().to_string(),
-    }
-}
-
-/// 删掉一份我们放的东西（文件或目录）；**删不掉就把路径报出来**。
-///
-/// 「目标不在了」不算失败（并发撤销 / 上一轮已经删过）；只要它还在盘上，
-/// 就是真的没删掉 —— 这时候静默返回会让清单与磁盘永久分叉（R5）。
-fn remove_installed(path: &Path) -> Result<()> {
-    let removed = if path.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else if path.is_file() {
-        std::fs::remove_file(path)
-    } else {
-        return Ok(());
-    };
-
-    match removed {
-        Ok(()) => Ok(()),
-        Err(_) if !path.exists() => Ok(()),
-        Err(error) => Err(Error::Io(std::io::Error::other(format!(
-            "删不掉 {}（{error}）；游戏正在运行的话请先关掉游戏",
-            path.display()
-        )))),
-    }
-}
-
-/// 把被挪走的官方文件还原回原位。
-///
-/// relative 是从清单里读出来的 —— **清单文件是可以被手改的**，所以这里
-/// 和白名单路径一样要过 safety::ensure_within，否则一条
-/// "backup": "../../../Windows/x" 就能把任意文件搬进游戏目录。
-fn restore_backup(data: &Path, target: &Path, relative: Option<&str>) -> Result<()> {
-    let Some(relative) = relative else {
-        return Ok(());
-    };
-
-    let root = Manifest::backup_root(data);
-    let backup = safety::ensure_within(&root, &root.join(relative))?;
-    if !backup.exists() {
-        return Ok(());
-    }
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    crate::platform::move_path(&backup, target)?;
-    Ok(())
-}
-
-/// 把相对路径解析成游戏目录下的绝对路径，并过白名单校验。
-fn resolve(installation: &Installation, relative: &str) -> Result<PathBuf> {
-    let path = installation
-        .root
-        .join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
-    allowed_target(installation, &path)
-}
-
-/// 校验目标落在**星际争霸安装目录之内**。
-///
-/// 早先只放行 `Maps` / `Mods` / `Interfaces` 三个根，代价是复刻战役整包装不进去：
-/// 地图要落在 `Maps/Starcraft Mass Recall/…`（启动器地图按这个相对 `Maps/` 的
-/// 路径联动关卡），却被自己的闸门拒绝，用户看到的是「拒绝往 … 写东西」。
-///
-/// 现在放开成**目录内任意位置**：想覆盖 `SC2Data/`、想换 `Versions/` 里的东西
-/// 都随作者 —— 自由度归作者，**出目录一律拒绝**。
-///
-/// 安全感不来自收窄路径，而来自**动之前先备份**：`apply` 会把要覆盖的原件挪进
-/// `data/backup/` 并记账，`remove` 原样还原；`preview` 先把要动的东西列出来。
-/// 见 `docs/developer-workflow.md` §2。
-///
-/// 这是写盘的最后一道闸门 —— 不依赖上游校验过没有。
-fn allowed_target(installation: &Installation, path: &Path) -> Result<PathBuf> {
-    safety::ensure_within(&installation.root, path).map_err(|_| {
-        Error::PackageRejected(format!(
-            "拒绝往 {} 写东西 —— 只能写星际争霸安装目录里面的文件",
-            path.display()
-        ))
-    })
-}
-
-/// 一个文件或一棵目录树有多大；不存在就是 0。
-fn path_bytes(path: &Path) -> u64 {
-    let Ok(meta) = std::fs::symlink_metadata(path) else {
-        return 0;
-    };
-    if meta.is_file() {
-        return meta.len();
-    }
-    if !meta.is_dir() {
-        return 0;
-    }
-
-    walkdir::WalkDir::new(path)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-        .filter_map(|entry| entry.metadata().ok())
-        .map(|meta| meta.len())
-        .sum()
-}
-
-/// 拷一个文件或一棵目录树。
-fn copy_entry(source: &Path, target: &Path) -> Result<()> {
-    if source.is_dir() {
-        std::fs::create_dir_all(target)?;
-        for entry in walkdir::WalkDir::new(source)
-            .into_iter()
-            .filter_map(std::result::Result::ok)
-        {
-            let relative = entry
-                .path()
-                .strip_prefix(source)
-                .map_err(|_| Error::PackageRejected("路径越界".to_string()))?;
-            let dest = target.join(relative);
-
-            if entry.file_type().is_dir() {
-                std::fs::create_dir_all(&dest)?;
-            } else {
-                if let Some(parent) = dest.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::copy(entry.path(), &dest)?;
-            }
-        }
-        return Ok(());
-    }
-
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::copy(source, target)?;
-    Ok(())
 }

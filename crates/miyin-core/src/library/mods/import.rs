@@ -33,7 +33,7 @@ fn unique_dir_name(root: &Path, wanted: &str) -> Result<String> {
         candidate = format!("{base}-{index}");
         index += 1;
         if index > 999 {
-            return Err(Error::PackageRejected("同名模组太多了".to_string()));
+            return Err(Error::PackageRejected("同名模组过多".to_string()));
         }
     }
     Ok(candidate)
@@ -146,7 +146,7 @@ fn locate_mods(root: &Path, fallback: &str) -> Vec<(PathBuf, String, ModKind)> {
 fn stage(data: &Path, source: &Path, password: Option<&str>) -> Result<Staged> {
     if !source.exists() {
         return Err(Error::PackageRejected(format!(
-            "找不到要导入的模组：{}",
+            "未找到要导入的模组：{}",
             source.display()
         )));
     }
@@ -232,7 +232,7 @@ fn stage(data: &Path, source: &Path, password: Option<&str>) -> Result<Staged> {
     if mods.is_empty() {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(Error::PackageRejected(
-            "这个包里没有找到模组（既没有 .SC2Mod 也没有 Modules 目录）".to_string(),
+            "未在包中找到模组（既无 .SC2Mod 文件，也无 Modules 目录）".to_string(),
         ));
     }
 
@@ -272,7 +272,7 @@ pub fn preview_with_password(
     let first = staged
         .mods
         .first()
-        .ok_or_else(|| Error::PackageRejected("这个包里没有找到模组".to_string()))?;
+        .ok_or_else(|| Error::PackageRejected("未在包中找到模组".to_string()))?;
 
     let fingerprint = fingerprint_of(&first.content)?;
     let display = first.name.clone();

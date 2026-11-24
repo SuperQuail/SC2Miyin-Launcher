@@ -339,6 +339,8 @@ export interface GameLaunch {
 export interface UpdateResult {
   variant: Variant;
   addedMods: string[];
+  /** 本次操作里没能完成、需要用户留意的提示。 */
+  warnings: string[];
 }
 
 export interface EditorLaunch {

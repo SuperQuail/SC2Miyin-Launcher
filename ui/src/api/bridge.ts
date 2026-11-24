@@ -95,7 +95,7 @@ const desktop: LauncherApi = {
   activateVariant: (slot, variantId) =>
     invoke<string[]>("activate_variant", { slot, variantId }),
   deactivateAll: () => invoke<string[]>("deactivate_all_campaigns"),
-  deleteVariant: (slot, variantId) => invoke<void>("delete_variant", { slot, variantId }),
+  deleteVariant: (slot, variantId) => invoke<string[]>("delete_variant", { slot, variantId }),
   launchGame: () => invoke<void>("launch_game"),
   revealPath: (path) => invoke<void>("reveal_path", { path }),
   pickPackage: () => invoke<string | null>("pick_package"),
@@ -196,11 +196,11 @@ const desktop: LauncherApi = {
   updateMod: (id, changes) => invoke<StandaloneMod>("update_mod", { id, changes }),
   editMod: (recordId, identity, changes) =>
     invoke<StandaloneMod>("edit_mod", { recordId, identity, changes }),
-  removeMod: (id) => invoke<void>("remove_mod", { id }),
+  removeMod: (id) => invoke<string[]>("remove_mod", { id }),
   exportMod: (id) => invoke<string>("export_mod", { id }),
   exportMods: (ids) => invoke<string>("export_mods", { ids }),
   compareMods: (before, after) => invoke<ModComparison>("compare_mods", { before, after }),
-  setModEnabled: (id, enabled) => invoke<StandaloneMod>("set_mod_enabled", { id, enabled }),
+  setModEnabled: (id, enabled) => invoke<string[]>("set_mod_enabled", { id, enabled }),
   readDoc: (slot, variantId) =>
     invoke<ArrayBuffer>("read_doc", { slot, variantId }),
 

@@ -62,7 +62,7 @@ pub fn resolve_main_map(maps: &[MapEntry], declared: Option<&str>) -> MainMapCho
                 path: None,
                 automatic: false,
                 warning: Some(format!(
-                    "找不到「{wanted}」这张地图，请自己挑一张作为启动入口"
+                    "未找到地图「{wanted}」，请选择一张地图作为启动入口"
                 )),
             },
         };

@@ -85,7 +85,7 @@ pub(crate) fn ensure() -> Result<SevenZip, String> {
 fn prepare() -> Result<SevenZip, String> {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
-        .ok_or_else(|| "找不到 %LOCALAPPDATA%".to_string())?;
+        .ok_or_else(|| "未找到 %LOCALAPPDATA%".to_string())?;
     let dir = base
         .join("net.miyin.launcher")
         .join("tools")
@@ -150,7 +150,7 @@ pub(crate) fn open_sevenzip(app: tauri::AppHandle) -> Result<(), String> {
     })?;
 
     let Some(main) = app.get_webview_window("main") else {
-        return Err("主窗口还没准备好".to_string());
+        return Err("主窗口尚未就绪".to_string());
     };
     let host = main
         .hwnd()

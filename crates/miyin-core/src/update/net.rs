@@ -241,7 +241,7 @@ pub fn race_download(
     }
 
     Err(Error::PackageRejected(format!(
-        "所有下载地址都失败了：{}",
+        "所有下载地址均失败：{}",
         failures.join("；")
     )))
 }

@@ -170,7 +170,7 @@ pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolE
     };
 
     let Some(picked) = list.iter().find(|release| release.has_asset) else {
-        let reason = format!("{} 还没有可下载的版本", spec.name);
+        let reason = format!("{} 暂无可下载版本", spec.name);
         let _ = mark_failed(data, spec, &reason);
         return base(
             ToolEnsureAction::Failed,
@@ -324,7 +324,7 @@ pub fn install(
 ) -> Result<ToolStatus> {
     if !release.has_asset {
         return Err(Error::PackageRejected(format!(
-            "这个版本（{}）里没有 {}，换一个版本试试",
+            "此版本（{}）中没有 {}，请更换版本后重试",
             release.tag, spec.asset
         )));
     }

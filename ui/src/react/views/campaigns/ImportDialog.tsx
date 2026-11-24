@@ -276,6 +276,9 @@ export function ImportDialog({
         if (result && result.addedMods.length > 0) {
           notify("info", "新包包含 " + result.addedMods.length + " 个新模组，启动器会自动管理");
         }
+        if (result && result.warnings.length > 0) {
+          notify("info", result.warnings[0]);
+        }
         onImported(target);
         return;
       }
@@ -389,7 +392,7 @@ export function ImportDialog({
               {overrideWarning && (
                 <div className="warn">
                   此包<strong>明确</strong>属于「{identifiedName}」，当前选择为「{chosenName}」。
-                  选择错误可能导致战役内找不到关卡。
+                  选择错误可能导致战役内无法找到关卡。
                 </div>
               )}
 
@@ -486,7 +489,7 @@ export function ImportDialog({
             <br />
             <br />
             导入到其他战役会使地图落在游戏无法读取的位置，
-            <strong>进入游戏后可能找不到地图</strong>。
+            <strong>进入游戏后可能无法找到地图</strong>。
           </p>
           <div className="sheet__actions">
             <Button

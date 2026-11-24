@@ -85,7 +85,7 @@ fn inspect_missing_path_exits_two() {
         String::from_utf8_lossy(&output.stdout)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("找不到这个文件"),
+        String::from_utf8_lossy(&output.stderr).contains("未找到此文件"),
         "人话应当走 stderr"
     );
 }

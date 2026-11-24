@@ -151,7 +151,7 @@ pub fn resolve_data_root(installation_root: &Path, executable: &Path) -> DataRoo
         return DataRootPlan {
             note: if legacy.is_some() {
                 format!(
-                    "数据目录用 {}（程序旁边还有一份旧的 data/，没动它）",
+                    "当前使用数据目录 {}（程序旁仍有旧 data/，未改动）",
                     root.display()
                 )
             } else {

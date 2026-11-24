@@ -7,6 +7,7 @@ mod data_root;
 mod export;
 mod fixture;
 mod import;
+mod locked;
 mod main_map;
 mod merge;
 mod mod_import;

@@ -140,7 +140,7 @@ export interface LauncherApi {
   activateVariant(slot: string, variantId: string | null): Promise<string[]>;
   /** 停用全部战役：撤掉启动器写进游戏目录的全部战役文件（索引与存档组回原版）。 */
   deactivateAll(): Promise<string[]>;
-  deleteVariant(slot: string, variantId: string): Promise<void>;
+  deleteVariant(slot: string, variantId: string): Promise<string[]>;
   launchGame(): Promise<void>;
   revealPath(path: string): Promise<void>;
   pickPackage(): Promise<string | null>;
@@ -338,7 +338,7 @@ export interface LauncherApi {
   ): Promise<StandaloneMod>;
 
   /** 删掉模组。 */
-  removeMod(id: string): Promise<void>;
+  removeMod(id: string): Promise<string[]>;
   /** 比两个模组版本差在哪。 */
   compareMods(before: string, after: string): Promise<ModComparison>;
   /** 把选中的若干模组版本打包成一个 zip，返回结果说明。 */
@@ -346,7 +346,7 @@ export interface LauncherApi {
   /** 导出模组包，返回写到哪了。 */
   exportMod(id: string): Promise<string>;
   /** 启用 / 停用独立模组（启用会立刻铺进游戏目录）。 */
-  setModEnabled(id: string, enabled: boolean): Promise<StandaloneMod>;
+  setModEnabled(id: string, enabled: boolean): Promise<string[]>;
 
   /** 订阅更新过程的日志（界面渲染成内嵌终端），返回取消订阅的函数。 */
   onUpdateLog(handler: (line: string) => void): Promise<() => void>;

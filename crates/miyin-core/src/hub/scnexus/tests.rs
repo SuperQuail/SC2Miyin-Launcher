@@ -252,7 +252,10 @@ fn convert_removes_source_only_when_asked_and_not_active() {
     let skipped = convert(&library, &active, true).expect("转换");
     assert!(source.is_dir(), "启用中的源目录不能删");
     assert!(
-        skipped.warnings.iter().any(|line| line.contains("正启用")),
+        skipped
+            .warnings
+            .iter()
+            .any(|line| line.contains("启用状态")),
         "{:?}",
         skipped.warnings
     );

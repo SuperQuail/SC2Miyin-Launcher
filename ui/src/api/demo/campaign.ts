@@ -495,7 +495,7 @@ export const campaignDemo = {
             target.active_name = null;
           }
         }
-        return undefined;
+        return [] as string[];
       })(),
     ),
 
@@ -606,7 +606,11 @@ export const campaignDemo = {
         else target.variants.unshift(created);
         void path;
         // 演示里假装新包带了两个新模组，好让"要不要一起启用"那块也看得见
-        return { variant: created, addedMods: ["SCMR_Alarak.SC2Mod", "SCMR_Tychus.SC2Mod"] };
+        return {
+          variant: created,
+          addedMods: ["SCMR_Alarak.SC2Mod", "SCMR_Tychus.SC2Mod"],
+          warnings: [],
+        };
       })(),
     ),
   launchGameWithMap: async (_slot, _variantId, map) => ({

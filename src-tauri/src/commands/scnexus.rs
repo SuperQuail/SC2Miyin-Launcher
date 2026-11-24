@@ -79,13 +79,13 @@ pub(crate) fn convert_scnexus_campaign(
     state: State<'_, AppState>,
 ) -> Result<Converted, String> {
     let roots = discover_roots(&state)
-        .ok_or_else(|| "没找到星际枢纽的战役目录 —— 这台机器上可能没装星际枢纽".to_string())?;
+        .ok_or_else(|| "未找到星际枢纽的战役目录，可能尚未安装星际枢纽。".to_string())?;
 
     // 按 id 现扫一次：不信任界面手里的旧快照（那边可能已经卸载 / 改名了）
     let campaign = scan(&roots)
         .into_iter()
         .find(|item| item.id == id)
-        .ok_or_else(|| "星际枢纽里已经没有这一版了，刷新一下再试".to_string())?;
+        .ok_or_else(|| "星际枢纽中已不存在此版本，请刷新后重试。".to_string())?;
 
     scnexus::convert(&state.library, &campaign, remove_source).map_err(|error| error.to_string())
 }

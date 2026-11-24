@@ -49,7 +49,7 @@ pub fn locate(data: &Path) -> Option<PathBuf> {
 /// 没装时的统一说法。
 pub fn missing() -> Error {
     Error::PackageRejected(
-        "还没装 SC2Diff —— 到「设置 → 可选工具」里装一下就能用这个功能".to_string(),
+        "尚未安装 SC2Diff。请到「设置 → 可选工具」安装后使用此功能。".to_string(),
     )
 }
 

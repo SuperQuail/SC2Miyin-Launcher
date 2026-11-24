@@ -510,7 +510,7 @@ fn anything_inside_the_game_folder_can_be_written() {
         .apply(data, &fixture.installation, &escape)
         .expect_err("出游戏目录必须拒绝");
     assert!(
-        format!("{error}").contains("只能写星际争霸安装目录里面的文件"),
+        format!("{error}").contains("只能写入星际争霸 II 安装目录内的文件"),
         "{error}"
     );
 }

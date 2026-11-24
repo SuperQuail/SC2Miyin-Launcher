@@ -11,7 +11,7 @@ use crate::safety;
 use crate::sc2::Installation;
 use walkdir::WalkDir;
 
-use super::install::{Manifest, Owner};
+use super::install::{AbortOnBusy, BusyDecision, Manifest, Owner};
 use super::{ImportMode, Library, Variant, binding_key, now_seconds, require_slot, unique_suffix};
 
 /// 导入时补依赖：**作者没声明任何模组**时，默认把包里带的模组全算依赖。
@@ -140,12 +140,12 @@ pub fn import_named_with_password(
 
     if stats.files == 0 {
         let _ = std::fs::remove_dir_all(&staging);
-        return Err(Error::PackageRejected("压缩包内容为空".to_string()));
+        return Err(Error::PackageRejected("压缩包为空".to_string()));
     }
     if stats.files > MAX_ENTRIES || stats.bytes > MAX_UNPACKED_BYTES {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(Error::PackageRejected(
-            "解压后超出体积或条目上限".to_string(),
+            "解压后超出体积或文件数量上限".to_string(),
         ));
     }
 
@@ -238,7 +238,24 @@ pub fn remove_variant(
     installation: &Installation,
     slot_slug: &str,
     variant_id: &str,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    remove_variant_with(
+        library,
+        installation,
+        slot_slug,
+        variant_id,
+        &mut AbortOnBusy,
+    )
+}
+
+/// 同 [`remove_variant`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn remove_variant_with(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    variant_id: &str,
+    decision: &mut dyn BusyDecision,
+) -> Result<Vec<String>> {
     require_slot(slot_slug)?;
 
     let mut index = library.index();
@@ -257,10 +274,16 @@ pub fn remove_variant(
         slot: slot_slug.to_string(),
         variant: variant_id.to_string(),
     };
+    let mut warnings = Vec::new();
     if !manifest.of(&owner).is_empty() {
         // 只撤**这一份**，不碰同槽位别的版本（`activate(None)` 会整槽撤掉）。
         // remove_owner 会自己保存索引，所以这里要把本地那份重新读一遍。
-        super::activation::remove_owner(library, installation, &owner)?;
+        warnings.extend(super::activation::remove_owner_with(
+            library,
+            installation,
+            &owner,
+            decision,
+        )?);
         index = library.index();
     }
 
@@ -276,7 +299,7 @@ pub fn remove_variant(
     index.bindings.remove(&binding_key(slot_slug, variant_id));
     library.save_index(&index)?;
 
-    Ok(())
+    Ok(warnings)
 }
 
 /// 允许用户修改的元数据字段；`None` 表示这一项不动。
@@ -428,7 +451,7 @@ fn unique_variant_id(root: &Path, existing: &[Variant], name: &str) -> Result<St
     }
 
     Err(Error::PackageRejected(
-        "同名版本过多，请先清理一些版本".to_string(),
+        "同名版本过多，请先删除部分版本".to_string(),
     ))
 }
 
@@ -582,6 +605,27 @@ pub fn replace_variant_with_password(
     package: &Path,
     password: Option<&str>,
 ) -> Result<Replaced> {
+    replace_variant_with(
+        library,
+        installation,
+        slot_slug,
+        old_id,
+        package,
+        password,
+        &mut AbortOnBusy,
+    )
+}
+
+/// 同 [`replace_variant_with_password`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn replace_variant_with(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    old_id: &str,
+    package: &Path,
+    password: Option<&str>,
+    decision: &mut dyn BusyDecision,
+) -> Result<Replaced> {
     require_slot(slot_slug)?;
 
     let index = library.index();
@@ -604,7 +648,7 @@ pub fn replace_variant_with_password(
     let keep_main = old.main_map.clone();
 
     // 旧的先走：会先切回原版（把游戏目录擦干净）、删目录、摘索引
-    remove_variant(library, installation, slot_slug, old_id)?;
+    let mut warnings = remove_variant_with(library, installation, slot_slug, old_id, decision)?;
 
     // 新的进来 —— 用 Rename，id 由内容重新生成
     let mut variant =
@@ -655,13 +699,20 @@ pub fn replace_variant_with_password(
 
     // 原来是装着的，装完再把新版本铺回去
     if was_installed {
-        super::activate(library, installation, slot_slug, Some(&variant.id))?;
+        warnings.extend(super::activation::activate_with(
+            library,
+            installation,
+            slot_slug,
+            Some(&variant.id),
+            decision,
+        )?);
     }
 
     variant.mounted_mods = Some(merged);
     Ok(Replaced {
         variant,
         added_mods,
+        warnings,
     })
 }
 
@@ -699,4 +750,6 @@ pub struct Replaced {
     pub variant: Variant,
     /// 新包里**多出来**的模组（挂载键）。已经按默认挂上了，界面拿它问一句要不要留。
     pub added_mods: Vec<String>,
+    /// 本次操作里没能完成、需要用户留意的提示（例如文件被占用而跳过）。
+    pub warnings: Vec<String>,
 }

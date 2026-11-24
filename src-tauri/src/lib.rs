@@ -103,31 +103,27 @@ impl AppState {
         // **启动时自动挂载模组**：用户不该为了「重装过 / Mods 被删过 / 上次没铺完」
         // 再去点一次启用。失败不拦启动 —— 但也不能只写 eprintln：release 没有控制台，
         // 用户会以为挂上了。提示攒进 [`AppState`]，前端启动完用 [`take_mount_warnings`] 取一次。
+        // 游戏开着也照铺：被占用的文件会变成一条提示，这里不预判进程。
         let mut mount_warnings: Vec<String> = Vec::new();
         {
             let installation = &installation;
-            if let Some(running) = miyin_core::platform::game_running() {
-                // 这条不算失败（游戏跑着本来就该跳过），不进用户提示
-                eprintln!("[miyin] 游戏正在运行（{running}），跳过启动时的模组自动挂载");
-            } else {
-                match miyin_core::library::activation::sync_mods(&library, installation) {
-                    Ok(warnings) => mount_warnings.extend(warnings),
-                    Err(error) => mount_warnings.push(format!("模组自动挂载失败：{error}")),
-                }
-                if let Err(error) = miyin_core::library::mods::sync(library.root(), installation) {
-                    mount_warnings.push(format!("独立模组同步失败：{error}"));
-                }
-                // 安装清单坏了要让人知道：否则它会以「空清单」的样子出现，
-                // 用户看到的是界面说「没装」、游戏目录里却躺着一堆我们放的文件。
-                if let Some(message) = miyin_core::library::Manifest::health(library.root()) {
-                    mount_warnings.push(message);
-                }
-                // 已启用的版本文件不全（重装过游戏 / 用户手清过目录）：只提示，不自动铺地图
-                mount_warnings.extend(miyin_core::library::activation::incomplete_installation(
-                    &library,
-                    installation,
-                ));
+            match miyin_core::library::activation::sync_mods(&library, installation) {
+                Ok(warnings) => mount_warnings.extend(warnings),
+                Err(error) => mount_warnings.push(format!("模组自动挂载失败：{error}")),
             }
+            if let Err(error) = miyin_core::library::mods::sync(library.root(), installation) {
+                mount_warnings.push(format!("独立模组同步失败：{error}"));
+            }
+            // 安装清单坏了要让人知道：否则它会以「空清单」的样子出现，
+            // 用户看到的是界面说「没装」、游戏目录里却躺着一堆我们放的文件。
+            if let Some(message) = miyin_core::library::Manifest::health(library.root()) {
+                mount_warnings.push(message);
+            }
+            // 已启用的版本文件不全（重装过游戏 / 用户手清过目录）：只提示，不自动铺地图
+            mount_warnings.extend(miyin_core::library::activation::incomplete_installation(
+                &library,
+                installation,
+            ));
         }
 
         Self {
@@ -177,16 +173,14 @@ pub(crate) fn lock_error<T>(_: PoisonError<T>) -> String {
     "内部状态异常，请重启启动器".to_string()
 }
 
-/// 写游戏目录前的拦截：游戏跑着的时候一律不碰游戏目录。
+/// 把写盘错误翻成给界面看的文本。
 ///
-/// 运行中的游戏占着 `Maps/` / `Mods/` 里的文件 —— 删不掉、也覆盖不了，半途失败会留下
-/// 「清单说撤了、文件还在」的账实分叉。宁可请用户先退游戏。
-pub(crate) fn ensure_game_not_running() -> Result<(), String> {
-    match miyin_core::platform::game_running() {
-        Some(running) => Err(format!(
-            "游戏正在运行（{running}）：先把游戏关掉再改战役 —— 它正占着游戏目录里的文件，这时候改会留下删不掉的旧文件"
-        )),
-        None => Ok(()),
+/// 「文件被占用」走到这里，说明用户在对话框里选了「取消」：错误本身仍带着
+/// 文件路径与（启用时）回滚结果，前面补一句说明即可。
+pub(crate) fn decision_error(error: miyin_core::Error) -> String {
+    match error {
+        miyin_core::Error::FileBusy { .. } => format!("已取消本次操作。{error}"),
+        other => other.to_string(),
     }
 }
 
@@ -225,7 +219,7 @@ pub(crate) fn require_installation(state: &State<'_, AppState>) -> Result<Instal
         .lock()
         .map_err(lock_error)?
         .clone()
-        .ok_or_else(|| "尚未设置星际争霸 II 安装目录，请到「设置」中选择".to_string())
+        .ok_or_else(|| "尚未设置星际争霸 II 安装目录。请到「设置」中选择游戏目录。".to_string())
 }
 
 /// 等后端把数据准备好（启动时的数据目录迁移跑在后台线程上，见 [`run`]）。
@@ -299,9 +293,9 @@ fn resolve_installation() -> Option<Installation> {
                 .set_level(rfd::MessageLevel::Warning)
                 .set_title("弥音启动器")
                 .set_description(concat!(
-                    "没有指定《星际争霸 II》的安装目录。\n\n",
-                    "启动器把战役库放在游戏安装目录旁边，",
-                    "不知道游戏在哪就没法继续，这次先退出。",
+                    "未指定《星际争霸 II》的安装目录。\n\n",
+                    "启动器将战役库放在游戏安装目录的同级目录中；",
+                    "未确定游戏位置时无法继续，本次将退出。",
                 ))
                 .set_buttons(rfd::MessageButtons::Ok)
                 .show();
@@ -312,12 +306,12 @@ fn resolve_installation() -> Option<Installation> {
             Err(_) => {
                 rfd::MessageDialog::new()
                     .set_level(rfd::MessageLevel::Warning)
-                    .set_title("这个目录里没有游戏")
+                    .set_title("所选目录不是游戏目录")
                     .set_description(format!(
                         concat!(
-                            "{} 里没有 StarCraft II.exe。\n\n",
-                            "请选择《星际争霸 II》的安装根目录 —— ",
-                            "打开它就能直接看到 StarCraft II.exe 的那个文件夹。"
+                            "{} 中未找到 StarCraft II.exe。\n\n",
+                            "请选择《星际争霸 II》的安装根目录：",
+                            "打开该目录即可直接看到 StarCraft II.exe 文件。"
                         ),
                         folder.display()
                     ))
@@ -522,7 +516,6 @@ pub fn run() {
             saves::backup_saves,
             saves::restore_saves,
             saves::list_save_backups,
-            campaign::sc2_running,
             campaign::preview_activation,
             campaign::activation_conflicts,
             campaign::deactivate_all_campaigns,

@@ -182,7 +182,7 @@ pub(crate) fn export_patch(
         .patches
         .get(&patch_id)
         .cloned()
-        .ok_or_else(|| "找不到这个补丁".to_string())?;
+        .ok_or_else(|| "未找到此补丁".to_string())?;
 
     library::export::export_patch(&state.library, &patch, std::path::Path::new(&destination))
         .map_err(|error| error.to_string())
@@ -206,7 +206,7 @@ pub(crate) fn preview_composition(
         .slots
         .get(&slot)
         .and_then(|entry| entry.variants.iter().find(|v| v.id == variant_id).cloned())
-        .ok_or_else(|| "找不到这个版本".to_string())?;
+        .ok_or_else(|| "未找到此版本".to_string())?;
 
     let kind = library::require_slot(&slot).map_err(|error| error.to_string())?;
     let sub = variant
