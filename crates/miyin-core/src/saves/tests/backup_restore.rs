@@ -235,7 +235,7 @@ fn move_save_to_key_refuses_same_name_and_unknown_keys() {
 
     // 不认识的键：不能凭空造一个名字都说不清的组
     let err = move_save_to_key(&data, "甲", "a.SC2Bank", "lotv/不存在的版本").expect_err("要拒绝");
-    assert!(format!("{err}").contains("未知的归属"), "{err}");
+    assert!(format!("{err}").contains("未知的存档归属"), "{err}");
     assert_eq!(backups(&data).expect("列").len(), 2, "只该有甲和乙两个组");
 }
 

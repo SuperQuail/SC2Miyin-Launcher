@@ -217,7 +217,7 @@ pub fn convert(
     let source_dir = PathBuf::from(&campaign.path);
     if !source_dir.is_absolute() || !source_dir.is_dir() {
         return Err(Error::PackageRejected(format!(
-            "星际枢纽里这一版的目录已经找不到了：{}",
+            "星际枢纽中此版本的目录已不存在：{}",
             campaign.path
         )));
     }
@@ -255,7 +255,7 @@ pub fn convert(
     if remove_source {
         if campaign.active {
             warnings.push(
-                "这一版在星际枢纽里正启用着，源目录没有删 —— 先去那边停用它，再自己清理"
+                "此版本在星际枢纽中处于启用状态，源目录未删除。请先在星际枢纽中停用它，再删除源目录。"
                     .to_string(),
             );
         } else if let Some(reason) = not_removable(&source_dir, campaign.source) {
@@ -326,7 +326,7 @@ fn build_staging(
         .as_deref()
         .and_then(|name| locate_map(staging, name));
     if declared.is_some() && main_map.is_none() {
-        warnings.push("没找到它声明的那张启动地图，转换后要自己挑一张作为入口".to_string());
+        warnings.push("未找到其声明的启动地图；转换后需手动选择一张地图作为入口。".to_string());
     }
 
     write_metadata(staging, campaign, metadata, main_map.as_deref())

@@ -1,15 +1,21 @@
-# 数据落盘与按需提权（2026-10-30 修订版，以此为准）
+# 数据落盘与按需提权（2026-11 修订版，以此为准）
 
 > 修订原因：白屏真因已确认是“发布包 exe 名带空格导致 WebView2 崩溃”，与权限无关。
 > 因此撤销“数据目录整体迁移 + 启动时提权 + 只读模式”的方案，保留真正需要的两件事：
 > **单实例锁** 和 **按需 UAC（写游戏目录/库根被拒时才提权，UI 不重启、启动时不提权）**。
+>
+> 2026-11 追加：临时文件统一到数据根 `temp/`，工具与日志放 `tools/`、`logs/`；
+> 只有启动器配置留在 `%APPDATA%`（见 §1）。
 
-## 1. 落盘位置（保持现状，不做迁移）
+## 1. 落盘位置（2026-11 起）
 
 - WebView2 profile：Tauri 默认 `%LOCALAPPDATA%\<identifier>\EBWebView`，**不迁移**；
   这样 UI 永远能以普通权限启动，C 盘用户也不会因为“看界面”被要求提权。
 - `config.json` / `network.json`：`%APPDATA%\net.miyin.launcher\`（`app_config_dir()`），**不迁移**。
-- 临时文件：`%TEMP%`，**不重定向**。
+- 临时文件：数据根 `miyin_launcher_data/temp/`，**唯一临时目录**；启动时清空。
+  启动流程把它设进 `MIYIN_TEMP`，战役包解压等 core 操作都走它；CLI / 测试没有该变量时才用 `%TEMP%`。
+- 下载物：更新包、工具安装包、WebView2 安装器都在 `temp/` 下对应子目录；工具与日志放
+  `tools/`、`logs/`。启动器配置仍只放 `%APPDATA%`。
 - 战役库 / 数据根：**保持** `<游戏安装目录的父目录>/miyin_launcher_data/`（既有设计，见 AGENTS §14.1）。
   **不再**在 exe 同级创建 `data/`。
 - 首次没有游戏目录时：原生 rfd 选择 `StarCraft II.exe` 所在目录（仅首次配置，不是权限提权）；
@@ -23,7 +29,8 @@
    已被占用 → 尝试聚焦已有窗口；失败则原生提示“启动器已在运行”后退出。**与数据根是否可写无关。**
 4. 解析星际争霸安装：`%APPDATA%` 旧 config → 注册表 → rfd 选目录。
 5. 数据根 = `miyin_core::library::data_root(&installation.root)`；库数据迁移沿用 `resolve_data_root`。
-   **不创建/不迁移 config、network、webview2、temp 到数据根**；不设置 `WEBVIEW2_USER_DATA_FOLDER`/`TEMP`。
+   建立 `DataPaths`（root/temp/updates/tool_downloads/webview2_download/tools/logs）并清空 `temp/`；
+   config/network 仍从 `app_config_dir()` 取，WebView2 profile 不迁；设置 `MIYIN_TEMP`。
 6. 数据根不可写**不拦启动、不提权**：bootstrap 照常跑，写操作失败时按 §4 现场提权。
 7. 窗口按 `tauri.conf.json` 的普通配置创建（**不要** `create:false`、不要手动 `.data_directory`）。
 8. setup 里起 bootstrap 线程（`installation`、`data_root`、`config_path` 从 `app_config_dir()` 取），
@@ -59,7 +66,6 @@
 - 启动时写探针 + `relaunch_elevated` 启动提权；
 - `storage_status` / 全局只读横幅 / 写按钮全局禁用；
 - 管理员模式下用 explorer 中转启动游戏；
-- `prepare_app_paths` 的产品路径（core 保留 API/测试可以，启动流程不得使用）；
 - 首次启动复杂的数据根迁移/半份目录处理（库迁移沿用既有 `resolve_data_root`）。
 
 ## 7. 文件归属（本轮并行）

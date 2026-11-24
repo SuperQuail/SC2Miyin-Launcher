@@ -461,7 +461,7 @@ fn check_duplicate_targets(payloads: &[Payload], issues: &mut Vec<HealthIssue>) 
                         first, payload.source
                     ),
                 )
-                .with_hint("请让包作者确认这两个文件是否重名；或者手动去掉其中一个再导入"),
+                .with_hint("请让包作者确认这两个文件是否重名；或手动删除其中一个后重新导入"),
             ),
             None => {
                 seen.insert(key, payload.source.as_str());

@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use miyin_core::library::Library;
+use miyin_core::library::{DataPaths, Library};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use miyin_core::update::apply::Staged;
 use miyin_core::update::net::NetworkSettings;
@@ -49,6 +49,8 @@ pub(crate) struct AppState {
     config_path: Mutex<Option<PathBuf>>,
     /// 战役库：存放玩家导入的各个版本（与游戏目录解耦）。
     library: Library,
+    /// 数据根下的固定布局：临时目录 / 工具 / 日志。
+    paths: DataPaths,
     /// 网络设置（代理 / 镜像 / 更新通道），落盘在 `network.json`。
     network: Mutex<NetworkSettings>,
     /// 网络设置文件的位置。
@@ -87,7 +89,8 @@ impl AppState {
     ///
     /// 安装位置和数据根在 [`run`] 里就已经定好了（要先把旧配置 / 注册表 / 用户手选跑完，
     /// 还要把旧 `data/` 搬过来）—— 这里不再自己 resolve，免得两条路各说各话。
-    fn bootstrap(installation: Installation, data_root: PathBuf, config_path: PathBuf) -> Self {
+    fn bootstrap(installation: Installation, paths: DataPaths, config_path: PathBuf) -> Self {
+        let data_root = paths.root.clone();
         // 网络设置与既有配置放同一目录
         let network_path = config_path
             .parent()
@@ -103,37 +106,34 @@ impl AppState {
         // **启动时自动挂载模组**：用户不该为了「重装过 / Mods 被删过 / 上次没铺完」
         // 再去点一次启用。失败不拦启动 —— 但也不能只写 eprintln：release 没有控制台，
         // 用户会以为挂上了。提示攒进 [`AppState`]，前端启动完用 [`take_mount_warnings`] 取一次。
+        // 游戏开着也照铺：被占用的文件会变成一条提示，这里不预判进程。
         let mut mount_warnings: Vec<String> = Vec::new();
         {
             let installation = &installation;
-            if let Some(running) = miyin_core::platform::game_running() {
-                // 这条不算失败（游戏跑着本来就该跳过），不进用户提示
-                eprintln!("[miyin] 游戏正在运行（{running}），跳过启动时的模组自动挂载");
-            } else {
-                match miyin_core::library::activation::sync_mods(&library, installation) {
-                    Ok(warnings) => mount_warnings.extend(warnings),
-                    Err(error) => mount_warnings.push(format!("模组自动挂载失败：{error}")),
-                }
-                if let Err(error) = miyin_core::library::mods::sync(library.root(), installation) {
-                    mount_warnings.push(format!("独立模组同步失败：{error}"));
-                }
-                // 安装清单坏了要让人知道：否则它会以「空清单」的样子出现，
-                // 用户看到的是界面说「没装」、游戏目录里却躺着一堆我们放的文件。
-                if let Some(message) = miyin_core::library::Manifest::health(library.root()) {
-                    mount_warnings.push(message);
-                }
-                // 已启用的版本文件不全（重装过游戏 / 用户手清过目录）：只提示，不自动铺地图
-                mount_warnings.extend(miyin_core::library::activation::incomplete_installation(
-                    &library,
-                    installation,
-                ));
+            match miyin_core::library::activation::sync_mods(&library, installation) {
+                Ok(warnings) => mount_warnings.extend(warnings),
+                Err(error) => mount_warnings.push(format!("模组自动挂载失败：{error}")),
             }
+            if let Err(error) = miyin_core::library::mods::sync(library.root(), installation) {
+                mount_warnings.push(format!("独立模组同步失败：{error}"));
+            }
+            // 安装清单坏了要让人知道：否则它会以「空清单」的样子出现，
+            // 用户看到的是界面说「没装」、游戏目录里却躺着一堆我们放的文件。
+            if let Some(message) = miyin_core::library::Manifest::health(library.root()) {
+                mount_warnings.push(message);
+            }
+            // 已启用的版本文件不全（重装过游戏 / 用户手清过目录）：只提示，不自动铺地图
+            mount_warnings.extend(miyin_core::library::activation::incomplete_installation(
+                &library,
+                installation,
+            ));
         }
 
         Self {
             installation: Mutex::new(Some(installation)),
             config_path: Mutex::new(Some(config_path)),
             library,
+            paths,
             // 旧 `data/` 由 core 的 resolve_data_root 整个搬过来，不再走「合并案」那条路
             merge_plan: Mutex::new(None),
             network: Mutex::new(network),
@@ -177,16 +177,14 @@ pub(crate) fn lock_error<T>(_: PoisonError<T>) -> String {
     "内部状态异常，请重启启动器".to_string()
 }
 
-/// 写游戏目录前的拦截：游戏跑着的时候一律不碰游戏目录。
+/// 把写盘错误翻成给界面看的文本。
 ///
-/// 运行中的游戏占着 `Maps/` / `Mods/` 里的文件 —— 删不掉、也覆盖不了，半途失败会留下
-/// 「清单说撤了、文件还在」的账实分叉。宁可请用户先退游戏。
-pub(crate) fn ensure_game_not_running() -> Result<(), String> {
-    match miyin_core::platform::game_running() {
-        Some(running) => Err(format!(
-            "游戏正在运行（{running}）：先把游戏关掉再改战役 —— 它正占着游戏目录里的文件，这时候改会留下删不掉的旧文件"
-        )),
-        None => Ok(()),
+/// 「文件被占用」走到这里，说明用户在对话框里选了「取消」：错误本身仍带着
+/// 文件路径与（启用时）回滚结果，前面补一句说明即可。
+pub(crate) fn decision_error(error: miyin_core::Error) -> String {
+    match error {
+        miyin_core::Error::FileBusy { .. } => format!("已取消本次操作。{error}"),
+        other => other.to_string(),
     }
 }
 
@@ -225,7 +223,7 @@ pub(crate) fn require_installation(state: &State<'_, AppState>) -> Result<Instal
         .lock()
         .map_err(lock_error)?
         .clone()
-        .ok_or_else(|| "尚未设置星际争霸 II 安装目录，请到「设置」中选择".to_string())
+        .ok_or_else(|| "尚未设置星际争霸 II 安装目录。请到「设置」中选择游戏目录。".to_string())
 }
 
 /// 等后端把数据准备好（启动时的数据目录迁移跑在后台线程上，见 [`run`]）。
@@ -299,9 +297,9 @@ fn resolve_installation() -> Option<Installation> {
                 .set_level(rfd::MessageLevel::Warning)
                 .set_title("弥音启动器")
                 .set_description(concat!(
-                    "没有指定《星际争霸 II》的安装目录。\n\n",
-                    "启动器把战役库放在游戏安装目录旁边，",
-                    "不知道游戏在哪就没法继续，这次先退出。",
+                    "未指定《星际争霸 II》的安装目录。\n\n",
+                    "启动器将战役库放在游戏安装目录的同级目录中；",
+                    "未确定游戏位置时无法继续，本次将退出。",
                 ))
                 .set_buttons(rfd::MessageButtons::Ok)
                 .show();
@@ -312,12 +310,12 @@ fn resolve_installation() -> Option<Installation> {
             Err(_) => {
                 rfd::MessageDialog::new()
                     .set_level(rfd::MessageLevel::Warning)
-                    .set_title("这个目录里没有游戏")
+                    .set_title("所选目录不是游戏目录")
                     .set_description(format!(
                         concat!(
-                            "{} 里没有 StarCraft II.exe。\n\n",
-                            "请选择《星际争霸 II》的安装根目录 —— ",
-                            "打开它就能直接看到 StarCraft II.exe 的那个文件夹。"
+                            "{} 中未找到 StarCraft II.exe。\n\n",
+                            "请选择《星际争霸 II》的安装根目录：",
+                            "打开该目录即可直接看到 StarCraft II.exe 文件。"
                         ),
                         folder.display()
                     ))
@@ -362,9 +360,6 @@ pub fn run() {
         return;
     }
 
-    // 内嵌 7-Zip：解到用户目录并设置 MIYIN_7Z，导入 7z/rar 不再依赖系统装没装。
-    sevenzip::prepare_for_startup();
-
     // 低完整性目录（安全软件保护区、某些沙箱工作区）里的 exe 会被 Windows 以 Low 完整性
     // 启动：写不了 WebView2 profile，窗口必然建不出来。这里先给明确原因，别让用户猜。
     #[cfg(windows)]
@@ -395,6 +390,29 @@ pub fn run() {
         return;
     };
 
+    // 数据根固定布局：临时只进 temp，工具与日志在根下。
+    let paths = DataPaths::new(data_root);
+    if let Err(error) = paths.ensure() {
+        eprintln!("[miyin] 建数据目录没成功（{error}）：临时文件写入可能失败");
+    }
+    match paths.sweep_temp() {
+        Ok(0) => {}
+        Ok(removed) => eprintln!("[miyin] 清理临时目录：{removed} 项"),
+        Err(error) => eprintln!("[miyin] 清理临时目录失败：{error}"),
+    }
+    match paths.remove_legacy_dirs() {
+        0 => {}
+        removed => eprintln!("[miyin] 清理旧目录：{removed} 项"),
+    }
+    // SAFETY: 启动早期、尚未启动其它线程；worker 进程从本进程继承环境。
+    unsafe {
+        std::env::set_var("MIYIN_TEMP", &paths.temp);
+    }
+    platform::set_log_dir(paths.logs.clone());
+
+    // 内嵌 7-Zip：解到数据根 tools/，导入 7z/rar 不再依赖系统装没装。
+    sevenzip::prepare_for_startup(&paths);
+
     // 绿色版没有安装器 —— 机器上可能压根没装 WebView2 运行时，缺它时窗口根本建不出来。
     // 这里先自己补环境：边下边显示进度，成功就继续正常启动，取消 / 失败才退出
     // （原生进度窗与失败指引都在 webview2_install 里，见 AGENTS.md 第 14.9 节）。
@@ -404,7 +422,7 @@ pub fn run() {
         match platform::webview2_version() {
             Some(version) => eprintln!("[miyin] WebView2 {version}"),
             None => {
-                if let Err(reason) = webview2_install::ensure_runtime() {
+                if let Err(reason) = webview2_install::ensure_runtime(&paths.temp) {
                     eprintln!("[miyin] WebView2 自动补全没完成：{reason}");
                     return;
                 }
@@ -412,7 +430,7 @@ pub fn run() {
         }
         // 调试开关：这台机器已经装了运行时，用 MIYIN_WEBVIEW2_DEMO=1 强制再走一遍安装界面
         if webview2_install::demo_mode() {
-            if let Err(reason) = webview2_install::ensure_runtime() {
+            if let Err(reason) = webview2_install::ensure_runtime(&paths.temp) {
                 eprintln!("[miyin] WebView2 演示流程没走完：{reason}");
                 return;
             }
@@ -478,7 +496,7 @@ pub fn run() {
                 PANIC_QUIET.with(|quiet| quiet.set(true));
 
                 match std::panic::catch_unwind(move || {
-                    AppState::bootstrap(installation, data_root, config_path)
+                    AppState::bootstrap(installation, paths, config_path)
                 }) {
                     Ok(state) => {
                         handle.manage(state);
@@ -522,7 +540,6 @@ pub fn run() {
             saves::backup_saves,
             saves::restore_saves,
             saves::list_save_backups,
-            campaign::sc2_running,
             campaign::preview_activation,
             campaign::activation_conflicts,
             campaign::deactivate_all_campaigns,

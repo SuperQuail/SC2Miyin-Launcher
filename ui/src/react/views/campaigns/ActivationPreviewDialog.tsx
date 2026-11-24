@@ -51,7 +51,7 @@ export function ActivationPreviewDialog({
         )}
         {preview.takeover.length > 0 && (
           <li className="pitem">
-            <span className="pitem__name">接管别人的文件</span>
+            <span className="pitem__name">接管其他战役的文件</span>
             <span className="tag">{preview.takeover.length} 项</span>
           </li>
         )}

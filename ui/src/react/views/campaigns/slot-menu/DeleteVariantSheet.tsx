@@ -25,8 +25,8 @@ export function DeleteVariantSheet({
       }
     >
       <p className="sheet__text">
-        会把这一版从库里删掉，连带它已经装进游戏目录的地图和模组一起撤回。
-        <strong>删了就得重新导入。</strong>
+        将从战役库中删除此改版，并连同它已写入游戏目录的地图与模组一并移除。
+        <strong>删除后需重新导入。</strong>
       </p>
     </Sheet>
   );

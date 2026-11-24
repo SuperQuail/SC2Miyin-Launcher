@@ -46,9 +46,13 @@ pub struct ContentEntry {
 struct TempDir(PathBuf);
 
 impl TempDir {
-    /// 在系统临时目录下开一个唯一目录。
+    /// 在 `MIYIN_TEMP`（启动器设为 `<数据根>/temp`）下开一个唯一目录；
+    /// 没有这个变量（CLI / 测试）才退回系统临时目录。
     fn new() -> Result<Self> {
-        let base = std::env::temp_dir().join(format!(
+        let base_dir = std::env::var_os("MIYIN_TEMP")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let base = base_dir.join(format!(
             "miyin-unpack-{}-{}",
             std::process::id(),
             crate::library::unique_suffix()
@@ -128,7 +132,7 @@ impl Contents {
 
         if !path.is_file() {
             return Err(Error::PackageRejected(format!(
-                "找不到文件：{}",
+                "未找到文件：{}",
                 path.display()
             )));
         }
@@ -202,7 +206,7 @@ impl Contents {
     pub fn open_dir(dir: &Path) -> Result<Self> {
         if !dir.is_dir() {
             return Err(Error::PackageRejected(format!(
-                "找不到文件夹：{}",
+                "未找到文件夹：{}",
                 dir.display()
             )));
         }
@@ -615,7 +619,7 @@ fn unpack_with_system_tool(package: &Path, target: &Path, password: Option<&str>
                 let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 tried.push(format!("{}（{message}）", unpacker.program));
             }
-            Err(_) => tried.push(format!("{}（没装）", unpacker.program)),
+            Err(_) => tried.push(format!("{}（未安装）", unpacker.program)),
         }
     }
 
@@ -635,7 +639,7 @@ fn unpack_with_system_tool(package: &Path, target: &Path, password: Option<&str>
     }
 
     Err(Error::PackageRejected(format!(
-        "无法解开这个压缩包（内置 7-Zip 也没解开）。请确认包没坏、密码正确；已尝试：{}",
+        "无法解压此压缩包（内置 7-Zip 也未能解压）。请确认包未损坏、密码正确；已尝试：{}",
         tried.join("、")
     )))
 }

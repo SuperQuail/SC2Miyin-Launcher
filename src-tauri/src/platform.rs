@@ -2,9 +2,40 @@
 //!
 //! 这里只放和具体操作系统打交道的东西，业务规则都在 `miyin-core` / `commands` 里。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{CRASH_LOG, PANIC_QUIET};
+
+/// 交互式处置：文件无法删除时弹原生对话框，询问用户「继续」还是「取消」。
+///
+/// 一次操作只问一次：选「继续」后，后续同样被占用的文件一并跳过，
+/// 并在操作结果的提示里逐条列出。
+pub(crate) struct AskOnBusy;
+
+impl miyin_core::library::BusyDecision for AskOnBusy {
+    fn on_busy(&mut self, path: &Path, reason: &str) -> bool {
+        confirm_continue_after_delete(path, reason)
+    }
+}
+
+/// 询问用户：是跳过无法删除的文件并继续，还是取消本次操作。
+fn confirm_continue_after_delete(path: &Path, reason: &str) -> bool {
+    matches!(
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("文件被占用")
+            .set_description(format!(
+                "无法删除或替换文件「{}」。\n原因：{}\n\n选择「是」：跳过该文件，继续处理其余文件。\
+                 跳过的文件仍保留在安装记录中；关闭占用该文件的程序后，可再次执行本操作。\n\
+                 选择「否」：取消本次操作。",
+                path.display(),
+                reason
+            ))
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show(),
+        rfd::MessageDialogResult::Yes
+    )
+}
 
 /// 当前进程的完整性级别（Windows RID）：0x1000 = Low、0x2000 = Medium、0x3000 = High。
 ///
@@ -147,7 +178,7 @@ pub(crate) fn notify_already_running() {
     rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Info)
         .set_title("弥音启动器")
-        .set_description("启动器已经在运行了。\n\n如果没看到它的窗口，去任务栏里找一下。")
+        .set_description("启动器已在运行。\n\n若未看到其窗口，请在任务栏中查找。")
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
 }
@@ -220,18 +251,18 @@ pub(crate) fn reveal_in_file_manager(target: &Path) -> Result<(), String> {
     unsafe {
         let pidl = ILCreateFromPathW(PCWSTR(buffer.as_ptr()));
         if pidl.is_null() {
-            return Err(format!("无法定位这个文件：{}", target.display()));
+            return Err(format!("无法定位文件：{}", target.display()));
         }
         let outcome = SHOpenFolderAndSelectItems(pidl, None, 0);
         windows::Win32::System::Com::CoTaskMemFree(Some(pidl as *const _));
-        outcome.map_err(|error| format!("无法在资源管理器里选中它：{error}"))
+        outcome.map_err(|error| format!("无法在资源管理器中选中该文件：{error}"))
     }
 }
 
 /// 其它平台暂不支持。
 #[cfg(not(windows))]
 pub(crate) fn reveal_in_file_manager(_target: &Path) -> Result<(), String> {
-    Err("当前平台暂不支持打开资源管理器".to_string())
+    Err("当前平台不支持打开资源管理器".to_string())
 }
 
 /// 让 webview 不像浏览器：关掉 WebView2 自带的**浏览器加速键**（Ctrl+F/P/U/R、F5、缩放…）。
@@ -270,28 +301,51 @@ pub(crate) fn tame_webview(webview: &tauri::webview::PlatformWebview) {
     }
 }
 
-/// 往 exe 同级的 `miyin-crash.log` 追加一段现场。写不进去就算了 —— 这里**绝不能**再出事。
-fn append_crash_log(text: &str) {
-    let Some(path) = std::env::current_exe()
-        .ok()
-        .and_then(|executable| executable.parent().map(|dir| dir.join(CRASH_LOG)))
-    else {
-        return;
-    };
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    else {
-        return;
-    };
-    use std::io::Write;
+/// 崩溃日志落点：数据根的 `logs/`；启动早期还没定下来时用 exe 同级。
+static LOG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
+/// 启动时告诉崩溃钩子日志目录（`<数据根>/logs`）。
+pub(crate) fn set_log_dir(dir: PathBuf) {
+    let _ = LOG_DIR.set(dir);
+}
+
+fn crash_log_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(dir) = LOG_DIR.get() {
+        paths.push(dir.join(CRASH_LOG));
+    }
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(Path::to_path_buf))
+    {
+        paths.push(dir.join(CRASH_LOG));
+    }
+    paths
+}
+
+/// 往数据根 `logs/`（不可写时退到 exe 同级）的 `miyin-crash.log` 追加一段现场。
+/// 写不进去就算了 —— 这里**绝不能**再出事。
+fn append_crash_log(text: &str) {
     let at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_secs())
         .unwrap_or(0);
-    let _ = writeln!(file, "==== {at}\n{text}");
+
+    for path in crash_log_paths() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        else {
+            continue;
+        };
+        use std::io::Write;
+        let _ = writeln!(file, "==== {at}\n{text}");
+        return;
+    }
 }
 
 /// 启动失败时弹的原生框。
@@ -322,7 +376,7 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-/// 装 panic 现场记录：写进 exe 同级的 `miyin-crash.log`，再弹一个原生框。
+/// 装 panic 现场记录：写进数据根 `logs/`（不可写时 exe 同级），再弹一个原生框。
 ///
 /// 为什么要它：release 版是 `windows_subsystem = "windows"`（main.rs:2），没有控制台，
 /// stderr 是黑洞。用户报「白屏 / 双击没反应」时，这个文件是唯一能拿到现场的东西。
@@ -350,10 +404,11 @@ pub(crate) fn install_crash_hook() {
         }
         rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title("弥音启动器出错了")
+            .set_title("弥音启动器发生错误")
             .set_description(format!(
-                "启动器遇到了一个没处理的问题。原因已经写进程序目录的 {CRASH_LOG}，\n\
-                 反馈时可以把它一起发给我们。\n\n{text}"
+                "启动器遇到未处理的错误。详细信息已写入数据目录 logs 下的 {CRASH_LOG}\
+                 （数据目录不可写时写入程序目录）；\n\
+                 反馈问题时请附上该文件。\n\n{text}"
             ))
             .set_buttons(rfd::MessageButtons::Ok)
             .show();

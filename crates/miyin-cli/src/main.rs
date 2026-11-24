@@ -74,7 +74,7 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(error) => {
             eprintln!("miyin-cli: {error}");
-            eprintln!("试试 miyin-cli --help");
+            eprintln!("请使用 miyin-cli --help 查看用法");
             EXIT_USAGE
         }
     };
@@ -111,7 +111,7 @@ fn run(args: &[String]) -> CliResult<u8> {
                 slot = Some(value.clone());
             }
             other if other.starts_with('-') => {
-                return Err(CliError(format!("不认识的选项：{other}")));
+                return Err(CliError(format!("未知选项：{other}")));
             }
             other if command.is_none() => command = Some(other.to_string()),
             other => paths.push(PathBuf::from(other)),
@@ -129,7 +129,7 @@ fn run(args: &[String]) -> CliResult<u8> {
         "identify" => identify_command(&paths, pretty),
         "placements" => placements_command(&paths, slot.as_deref(), pretty),
         "compat" => compat_command(&paths, pretty),
-        other => Err(CliError(format!("不认识命令：{other}"))),
+        other => Err(CliError(format!("未知命令：{other}"))),
     }
 }
 
@@ -158,7 +158,7 @@ fn require_file(path: &Path) -> CliResult<()> {
             path.display()
         )));
     }
-    Err(CliError(format!("找不到这个文件：{}", path.display())))
+    Err(CliError(format!("未找到此文件：{}", path.display())))
 }
 
 fn inspect_command(paths: &[PathBuf], pretty: bool) -> CliResult<u8> {
@@ -263,7 +263,7 @@ fn placements_command(paths: &[PathBuf], slot: Option<&str>, pretty: bool) -> Cl
     };
     let Some(campaign_type) = CampaignType::from_slug(&raw_slot) else {
         return Err(CliError(format!(
-            "不认识的 slug：{raw_slot}（可用：wol / hots / hotsevolution / lotv / lotvprologue / nova / custom）"
+            "未知的战役：{raw_slot}（可用：wol / hots / hotsevolution / lotv / lotvprologue / nova / custom）"
         )));
     };
 

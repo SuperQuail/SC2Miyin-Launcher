@@ -148,7 +148,7 @@ pub fn import_patch_with_password(
 
     if inspection.kind != PackageKind::Patch {
         return Err(Error::PackageRejected(
-            "这不是补丁包（包内既有地图又有模组，或声明了 campaign）".to_string(),
+            "这不是补丁包：包内同时包含地图与模组，或声明了 campaign 字段".to_string(),
         ));
     }
     if inspection.payloads.is_empty() {
@@ -323,7 +323,7 @@ pub fn update_patch(library: &Library, patch_id: &str, changes: PatchChanges) ->
     if let Some(name) = changes.name {
         let trimmed = name.trim();
         if trimmed.is_empty() {
-            return Err(Error::PackageRejected("补丁名不能为空".to_string()));
+            return Err(Error::PackageRejected("补丁名称不能为空".to_string()));
         }
         patch.name = trimmed.to_string();
     }

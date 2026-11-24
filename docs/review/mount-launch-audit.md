@@ -4,6 +4,11 @@
 > （`git status`：activation.rs / install.rs / mod.rs / tests.rs / lib.rs / ModsView.tsx / mods.css）。
 > 结论分两类：**事实**（逐行读过代码，给 文件:行号）与**推断**（未实测，会标注）。行号以写入时的工作区为准，
 > core 与 tauri 两侧仍在改动，之后可能漂移几十行 —— 按函数名检索更稳。
+>
+> **2026-11 追记**：下文 R5 建议的「所有写盘入口统一前置 `game_running()`」**已被否决** ——
+> 游戏运行时不再拦截（启用 / 停用 / 铺盘照做）。文件被占用时由 `BusyDecision` 询问用户
+> 「继续（跳过）／取消」，没做完的账放回清单（`install.rs` 的 `remove_scoped` / `release`）。
+> 见 AGENTS §12.2、§14.11。
 
 ---
 

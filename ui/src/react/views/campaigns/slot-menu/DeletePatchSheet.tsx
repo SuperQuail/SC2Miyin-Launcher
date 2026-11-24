@@ -25,10 +25,10 @@ export function DeletePatchSheet({
       }
     >
       <p className="sheet__text">
-        会把补丁从库里彻底删掉，并从所有战役上解绑。<strong>删了要重新导入。</strong>
+        将从战役库中永久删除该补丁，并从所有战役上解除绑定。<strong>删除后需重新导入。</strong>
       </p>
       <p className="sheet__note">
-        已经装进游戏目录的文件不会立刻消失；重新启用一次对应战役后会按新配置重铺。
+        已写入游戏目录的文件不会立即移除；重新启用对应战役后，将按新配置重新写入。
       </p>
     </Sheet>
   );

@@ -82,7 +82,7 @@ fn find_tool(id: &str) -> Result<tools::ToolSpec, String> {
         .iter()
         .copied()
         .find(|spec| spec.id == id)
-        .ok_or_else(|| format!("不认识这个工具：{id}"))
+        .ok_or_else(|| format!("未知工具：{id}"))
 }
 
 /// 启动时调：**没装就静默装上**。
@@ -101,7 +101,7 @@ pub(crate) fn ensure_tool(
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
 
-    Ok(tools::ensure(state.library.root(), &spec, &settings))
+    Ok(tools::ensure(&state.paths, &spec, &settings))
 }
 
 /// 某个工具有哪些版本可装。
@@ -143,14 +143,14 @@ pub(crate) fn install_tool(
         Some(wanted) => list
             .iter()
             .find(|release| &release.version == wanted || &release.tag == wanted)
-            .ok_or_else(|| format!("没找到 {wanted} 这个版本"))?,
+            .ok_or_else(|| format!("未找到版本 {wanted}"))?,
         None => list
             .iter()
             .find(|release| release.has_asset)
-            .ok_or_else(|| format!("{} 还没有可下载的版本", spec.name))?,
+            .ok_or_else(|| format!("{} 暂无可下载版本", spec.name))?,
     };
 
-    tools::install(state.library.root(), &spec, picked, &settings, reporter)
+    tools::install(&state.paths, &spec, picked, &settings, reporter)
         .map_err(|error| error.to_string())
 }
 
@@ -166,7 +166,7 @@ pub(crate) fn uninstall_tool(id: String, state: State<'_, AppState>) -> Result<(
 pub(crate) fn open_tool_repo(id: String) -> Result<(), String> {
     let spec = find_tool(&id)?;
     let url = format!("https://github.com/{}", spec.repo);
-    open_in_browser(&url).map_err(|error| format!("打不开浏览器：{error}"))
+    open_in_browser(&url).map_err(|error| format!("无法打开浏览器：{error}"))
 }
 
 /// 当前程序版本。
@@ -261,7 +261,7 @@ pub(crate) async fn download_update(
         .lock()
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
-    let data_dir = state.library.root().to_path_buf();
+    let data_dir = state.paths.root.clone();
 
     let staged = tauri::async_runtime::spawn_blocking(move || -> Result<Staged, String> {
         // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
@@ -274,7 +274,7 @@ pub(crate) async fn download_update(
         let release = found
             .latest
             .filter(|release| release.version == version)
-            .ok_or_else(|| format!("没找到 {version} 这个版本，请重新检查更新"))?;
+            .ok_or_else(|| format!("未找到版本 {version}，请重新检查更新。"))?;
         let asset = release
             .platform_asset()
             .ok_or_else(|| "这个发行版没有适合 Windows 的包".to_string())?
@@ -330,10 +330,10 @@ pub(crate) fn apply_update(
         .lock()
         .ok()
         .and_then(|guard| guard.clone())
-        .ok_or_else(|| "还没有下载好的更新".to_string())?;
+        .ok_or_else(|| "尚未下载更新".to_string())?;
 
     let current = std::env::current_exe().map_err(|error| error.to_string())?;
-    let data_dir = state.library.root().to_path_buf();
+    let data_dir = state.paths.root.clone();
 
     let emit = |message: &str| {
         let _ = app.emit("update://log", message.to_string());

@@ -48,8 +48,8 @@ export function ConvertScnexusSheet({
       }
     >
       <p className="sheet__text">
-        会把「{campaign.name}」复制进启动器战役库，转换后就能像普通战役一样启用、导出。
-        星际枢纽里的安装不会被改动。
+        将把「{campaign.name}」复制到启动器战役库。转换后可像普通战役一样启用、导出。
+        星际枢纽中的安装不会被改动。
       </p>
       <p className="sheet__text">
         来源：<code>{campaign.path}</code>

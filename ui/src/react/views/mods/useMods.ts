@@ -88,9 +88,10 @@ export function useMods(host: ModsHost) {
     (mod: LibraryMod) =>
       guard(mod.path, async () => {
         try {
+          let warnings: string[] | undefined;
           if (mod.standalone_id) {
             const id = mod.standalone_id;
-            await permission.run(() => api.setModEnabled(id, !mod.mounted), {
+            warnings = await permission.run(() => api.setModEnabled(id, !mod.mounted), {
               op: "mods_set_enabled",
               args: { id, enabled: !mod.mounted },
             });
@@ -106,7 +107,11 @@ export function useMods(host: ModsHost) {
             await api.setMountedMods(mod.slot, mod.variant_id, next);
           }
           await load.run();
-          host.notify("success", (mod.mounted ? "已取消勾选 " : "已勾选 ") + mod.name);
+          if (warnings?.length) {
+            host.notify("info", warnings[0]);
+          } else {
+            host.notify("success", (mod.mounted ? "已取消勾选 " : "已勾选 ") + mod.name);
+          }
         } catch (error) {
           host.notify("error", String(error));
         }
@@ -399,9 +404,16 @@ export function useModRemove(host: ModsHost, reload: () => void | Promise<void>)
     setRemoving(null);
     setBusy(true);
     try {
-      await permission.run(() => api.removeMod(id), { op: "mods_remove", args: { id } });
+      const warnings = await permission.run(() => api.removeMod(id), {
+        op: "mods_remove",
+        args: { id },
+      });
       await reload();
-      host.notify("success", "已删除");
+      if (warnings?.length) {
+        host.notify("info", warnings[0]);
+      } else {
+        host.notify("success", "已删除");
+      }
     } catch (error) {
       host.notify("error", String(error));
     } finally {

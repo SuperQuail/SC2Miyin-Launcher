@@ -45,7 +45,7 @@ pub use import::{Staged, StagedMod, import, import_with_password, preview, previ
 pub use index::{
     effective_id, find_campaign, get, list, remember_campaign, remove, repoint_campaign, update,
 };
-pub use sync::{placed_name, set_enabled, sync};
+pub use sync::{placed_name, set_enabled, sync, sync_with};
 
 /// 一次铺盘的结果。
 #[derive(Debug, Clone, Default, Serialize)]

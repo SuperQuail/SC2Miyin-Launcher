@@ -14,7 +14,7 @@ pub fn export(data: &Path, id: &str, target: &Path) -> Result<()> {
     let root = mods_root(data);
     let dir = safety::ensure_within(&root, &root.join(&record.id))?;
     if !dir.is_dir() {
-        return Err(Error::PackageRejected("模组文件已经不在了".to_string()));
+        return Err(Error::PackageRejected("模组文件已不存在".to_string()));
     }
 
     let file = std::fs::File::create(target)?;
@@ -49,7 +49,7 @@ pub fn export(data: &Path, id: &str, target: &Path) -> Result<()> {
     zip.finish()?;
     if wrote == 0 {
         let _ = std::fs::remove_file(target);
-        return Err(Error::PackageRejected("这个模组目录是空的".to_string()));
+        return Err(Error::PackageRejected("模组目录为空".to_string()));
     }
     Ok(())
 }
@@ -69,7 +69,7 @@ pub fn export(data: &Path, id: &str, target: &Path) -> Result<()> {
 /// `@
 pub fn export_many(data: &Path, ids: &[String], target: &Path) -> Result<usize> {
     if ids.is_empty() {
-        return Err(Error::PackageRejected("没有选中任何版本".to_string()));
+        return Err(Error::PackageRejected("未选择任何版本".to_string()));
     }
 
     let root = mods_root(data);

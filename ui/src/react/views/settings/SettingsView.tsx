@@ -192,7 +192,8 @@ export function SettingsView(props: SettingsViewProps) {
         </header>
         <p className="hint">
           一键撤掉启动器写进游戏目录的全部战役文件（历史上多装 / 半装的也一起清），
-          索引与存档组回到原版。游戏正在运行时会被拒绝；被挪走过的原始文件会按清单还原。
+          索引与存档组回到原版；被移走的原始文件将按安装清单还原。若文件被游戏或编辑器占用，
+          操作将暂停并指出具体文件；关闭占用该文件的程序后可重试。
           <strong>不会删除战役库里的内容。</strong>
         </p>
         <Button variant="outline" disabled={busy} onClick={() => setConfirmDeactivate(true)}>

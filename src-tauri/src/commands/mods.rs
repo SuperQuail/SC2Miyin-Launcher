@@ -9,7 +9,7 @@ use miyin_core::library::{LibraryMod, ModChanges, StandaloneMod, mods};
 use miyin_core::sc2::GameModEntry;
 use tauri::State;
 
-use crate::{AppState, ensure_game_not_running, require_installation};
+use crate::{AppState, decision_error, platform::AskOnBusy, require_installation};
 
 /// 独立模组库：列表。
 #[tauri::command(async)]
@@ -178,22 +178,30 @@ pub(crate) fn edit_mod(
 
 /// 删掉一个独立模组。
 #[tauri::command(async)]
-pub(crate) fn remove_mod(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    mods::remove(state.library.root(), &id).map_err(|error| error.to_string())
+pub(crate) fn remove_mod(id: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    mods::remove(state.library.root(), &id).map_err(|error| error.to_string())?;
+
+    // 记录删掉之后把它铺进游戏目录的文件一并撤下（否则要等下次同步）
+    if let Ok(installation) = require_installation(&state) {
+        let report = mods::sync_with(state.library.root(), &installation, &mut AskOnBusy)
+            .map_err(decision_error)?;
+        return Ok(report.warnings);
+    }
+    Ok(Vec::new())
 }
 
 /// 把独立模组打包导出成一个 zip，返回写到了哪。
 #[tauri::command(async)]
 pub(crate) fn export_mod(id: String, state: State<'_, AppState>) -> Result<String, String> {
     let record =
-        mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())?;
+        mods::get(state.library.root(), &id).ok_or_else(|| "此模组不在模组库中".to_string())?;
 
     let target = rfd::FileDialog::new()
         .set_title("导出模组包")
         .set_file_name(format!("{}.zip", record.name))
         .add_filter("压缩包", &["zip"])
         .save_file()
-        .ok_or_else(|| "已取消".to_string())?;
+        .ok_or_else(|| "操作已取消".to_string())?;
 
     mods::export(state.library.root(), &id, &target).map_err(|error| error.to_string())?;
     Ok(target.to_string_lossy().into_owned())
@@ -223,17 +231,21 @@ pub(crate) fn export_mods(ids: Vec<String>, state: State<'_, AppState>) -> Resul
     let first = ids
         .first()
         .and_then(|id| mods::get(data, id))
-        .ok_or_else(|| "没有选中任何版本".to_string())?;
+        .ok_or_else(|| "未选择任何版本".to_string())?;
 
     let target = rfd::FileDialog::new()
         .set_title("导出模组版本")
         .set_file_name(format!("{}-版本包.zip", first.name))
         .add_filter("压缩包", &["zip"])
         .save_file()
-        .ok_or_else(|| "已取消".to_string())?;
+        .ok_or_else(|| "操作已取消".to_string())?;
 
     let count = mods::export_many(data, &ids, &target).map_err(|error| error.to_string())?;
-    Ok(format!("{} 个文件 -> {}", count, target.to_string_lossy()))
+    Ok(format!(
+        "已导出 {} 个文件到 {}",
+        count,
+        target.to_string_lossy()
+    ))
 }
 
 /// 启用 / 停用独立模组。启用会立刻把它铺进 `<游戏>/Mods/`。
@@ -242,18 +254,18 @@ pub(crate) fn set_mod_enabled(
     id: String,
     enabled: bool,
     state: State<'_, AppState>,
-) -> Result<StandaloneMod, String> {
-    ensure_game_not_running()?;
-
+) -> Result<Vec<String>, String> {
     // 先落状态，再同步 —— 顺序不能反，sync 读的就是这份记录
     mods::set_enabled(state.library.root(), &id, enabled).map_err(|error| error.to_string())?;
 
     // 有游戏目录就顺手铺进去；没设游戏目录的话只记状态，等设置好再说
     if let Ok(installation) = require_installation(&state) {
-        mods::sync(state.library.root(), &installation).map_err(|error| error.to_string())?;
+        let report = mods::sync_with(state.library.root(), &installation, &mut AskOnBusy)
+            .map_err(decision_error)?;
+        return Ok(report.warnings);
     }
 
-    mods::get(state.library.root(), &id).ok_or_else(|| "这个模组不在库里".to_string())
+    Ok(Vec::new())
 }
 
 /// **全库模组汇总**：模组管理菜单用。

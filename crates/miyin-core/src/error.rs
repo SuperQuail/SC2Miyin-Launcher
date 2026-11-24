@@ -8,11 +8,11 @@ use std::path::PathBuf;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// 指定的目录存在，但不是有效的星际争霸 II 安装目录。
-    #[error("不是一个有效的星际争霸 II 安装目录：{path}（缺少 {marker}）")]
+    #[error("不是有效的星际争霸 II 安装目录：{path}（缺少 {marker}）")]
     InvalidInstallation { path: PathBuf, marker: &'static str },
 
     /// 注册表与常见位置都没有找到游戏。
-    #[error("没有找到星际争霸 II 安装，请手动指定游戏目录")]
+    #[error("未找到星际争霸 II 安装，请手动选择游戏目录")]
     InstallationNotFound,
 
     /// 读取注册表失败。
@@ -20,7 +20,7 @@ pub enum Error {
     Registry(String),
 
     /// 写操作目标越出了允许的根目录。
-    #[error("路径越界：{target} 不在允许的根目录 {root} 内")]
+    #[error("路径越界：{target} 不在允许的目录 {root} 内")]
     PathEscapesRoot { root: PathBuf, target: PathBuf },
 
     /// 路径无法被安全解析（例如全部祖先都不存在）。
@@ -32,7 +32,7 @@ pub enum Error {
     Parse(String),
 
     /// 战役包未通过预检，拒绝安装。
-    #[error("战役包被拒绝：{0}")]
+    #[error("战役包不可用：{0}")]
     PackageRejected(String),
 
     /// 压缩包加了密，需要密码才能读。
@@ -46,11 +46,11 @@ pub enum Error {
     ///
     /// 也可能意味着包已经损坏 —— 少数加密方式（ZipCrypto）允许错误的密码
     /// "打开"条目，到解压 / 校验那一步才炸；两种都该让用户换个密码或重新下载。
-    #[error("压缩包密码不对（也可能是这个包已经损坏），请重新输入")]
+    #[error("压缩包密码不正确（也可能是此包已经损坏），请重新输入")]
     WrongPassword,
 
     /// 找不到指定的战役。
-    #[error("找不到战役：{0}")]
+    #[error("未找到战役：{0}")]
     CampaignNotFound(String),
 
     /// 目标已存在且调用方要求不覆盖。
@@ -67,6 +67,13 @@ pub enum Error {
     #[error("清单和磁盘对不上：{0}")]
     ManifestMismatch(String),
 
+    /// 文件正被其他程序占用，删除或替换无法完成。
+    ///
+    /// 单独一类而不是并进 IO 错误：界面据此询问用户「继续处理其余文件」还是
+    /// 「取消本次操作」，不能靠解析错误文本判断。
+    #[error("无法处理文件「{}」：{reason}", path.display())]
+    FileBusy { path: PathBuf, reason: String },
+
     /// 该写的东西被系统拒绝了 —— 需要管理员权限。
     ///
     /// Display 固定以 `[PERMISSION] ` 开头：界面据此直接走提权 / 只读横幅，
@@ -82,7 +89,7 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     /// JSON 序列化 / 反序列化失败（索引、配置这些自家文件）。
-    #[error("JSON 处理失败：{0}")]
+    #[error("数据文件解析失败：{0}")]
     Json(#[from] serde_json::Error),
 
     /// 压缩包读写失败。
@@ -107,7 +114,22 @@ impl Error {
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Windows「拒绝访问」时追加在原错误后面的排查提示。
-const ACCESS_DENIED_HINT: &str = "。请确认是否将星际争霸游戏目录安装在了 C 盘，如果是，请尝试使用管理员权限运行启动器；如果不是，并且使用管理员权限运行依旧失败，请尝试关闭杀毒软件或设置白名单";
+const ACCESS_DENIED_HINT: &str = "。请确认星际争霸 II 游戏目录是否位于 C 盘：若位于 C 盘，请尝试以管理员权限运行启动器；若以管理员权限运行仍然失败，请检查杀毒软件并将其加入白名单";
+
+/// 这个 IO 错误是不是「文件被其他程序占用」（Windows 的共享冲突 / 锁冲突）。
+///
+/// 只用来决定要不要询问用户；磁盘已满、权限不足等其它失败不走这条。
+pub(crate) fn is_busy_io(error: &std::io::Error) -> bool {
+    #[cfg(windows)]
+    {
+        // ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION / ERROR_USER_MAPPED_FILE
+        matches!(error.raw_os_error(), Some(32 | 33 | 1224))
+    }
+    #[cfg(not(windows))]
+    {
+        error.kind() == std::io::ErrorKind::ResourceBusy
+    }
+}
 
 /// 是不是「拒绝访问」：标准库的 kind，或 Windows 上裸的 os error 5。
 fn is_denied(error: &std::io::Error) -> bool {
@@ -125,7 +147,7 @@ fn io_message(error: &std::io::Error) -> String {
     if is_denied(error) {
         format!("[PERMISSION] {error}{ACCESS_DENIED_HINT}")
     } else {
-        format!("IO 错误：{error}")
+        format!("读取或写入失败：{error}")
     }
 }
 
@@ -158,7 +180,7 @@ mod tests {
         let text = error.to_string();
         assert!(!text.starts_with("[PERMISSION] "), "别乱加前缀：{text}");
         assert!(!text.contains("C 盘"), "别的 IO 错误不许套排查提示：{text}");
-        assert!(text.contains("IO 错误："), "{text}");
+        assert!(text.contains("读取或写入失败："), "{text}");
     }
 
     /// 别的错误类型同样不是权限问题。

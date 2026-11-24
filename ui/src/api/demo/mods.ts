@@ -34,7 +34,7 @@ export const modDemo = {
     { id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", source: { kind: "library" }, author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod,
   ),
   updateMod: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", author: null, version: null, description: null, enabled: false, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
-  removeMod: () => delay(undefined),
+  removeMod: () => delay([] as string[]),
   exportMod: () => delay("D:\\demo.zip"),
   exportMods: () => delay("3 个文件 -> D:\\demo.zip"),
   compareMods: () =>
@@ -46,5 +46,5 @@ export const modDemo = {
       semantic: [],
       semantic_note: "演示模式不做对比",
     } as ModComparison),
-  setModEnabled: () => delay({ id: "demo", name: "演示模组", modid: null, fingerprint: "", folder: "演示模组", kind: "folder", author: null, version: null, description: null, enabled: true, imported_at: 0, size_bytes: 0, parts: 1 } as StandaloneMod),
+  setModEnabled: () => delay([] as string[]),
 } satisfies Partial<LauncherApi>;

@@ -413,7 +413,7 @@ pub fn download(
             let _ = std::fs::remove_file(destination);
             reporter.say("校验失败，文件已删除");
             return Err(Error::PackageRejected(format!(
-                "校验失败：期望 {expected}，实际 {actual}。文件已删除，请重试"
+                "校验失败：期望 {expected}，实际 {actual}。文件已删除，请重新下载"
             )));
         }
         reporter.say("校验通过 ✓");

@@ -221,12 +221,16 @@ export function useLibrary(options: LibraryOptions): LibraryApi {
     (slot: string, variantId: string) =>
       busy(async () => {
         try {
-          await permission.run(() => api.deleteVariant(slot, variantId), {
+          const warnings = await permission.run(() => api.deleteVariant(slot, variantId), {
             op: "delete_variant",
             args: { slot, variantId },
           });
           await refresh();
-          notify("success", "已删除「" + variantId + "」");
+          if (warnings?.length) {
+            notify("info", warnings[0]);
+          } else {
+            notify("success", "已删除「" + variantId + "」");
+          }
           return true;
         } catch (error) {
           notify("error", errorText(error));

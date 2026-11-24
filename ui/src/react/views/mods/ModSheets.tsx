@@ -87,7 +87,7 @@ export function RemoveSheet({
     >
       <p className="sheet__text">
         文件将从战役库移除。若该模组已写入游戏 <code>Mods/</code> 目录，
-        <strong>也会一并移除</strong>；你手动放入的模组不受影响。
+        <strong>也会一并移除</strong>；手动放入的模组不受影响。
       </p>
     </Sheet>
   );

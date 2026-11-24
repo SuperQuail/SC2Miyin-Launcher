@@ -27,55 +27,106 @@ fn legacy_root(executable: &Path) -> PathBuf {
     executable.parent().unwrap_or(Path::new(".")).join("data")
 }
 
-/// 应用用到的全部落盘位置。
+/// 数据根之下的固定布局。
+///
+/// 约定：**临时文件只进 [`DataPaths::temp`]**（更新包、工具安装包、WebView2 安装器、
+/// 解包中转都在它下面）；工具与日志是长期内容，放数据根；启动器配置放 `%APPDATA%`。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppPaths {
+pub struct DataPaths {
     /// 数据根：`<游戏安装目录的父目录>/miyin_launcher_data`。
     pub root: PathBuf,
-    /// 启动器配置（`<root>/config.json`）。
-    pub config: PathBuf,
-    /// 网络设置（`<root>/network.json`）。
-    pub network: PathBuf,
-    /// WebView2 profile 目录（`<root>/webview2`）。
-    pub webview2: PathBuf,
-    /// 解压 / 下载的临时目录（`<root>/temp`）。
+    /// 唯一临时目录：`<root>/temp`。
     pub temp: PathBuf,
+    /// 更新包与解包：`<root>/temp/updates`。
+    pub updates: PathBuf,
+    /// 工具安装包中转：`<root>/temp/tools`。
+    pub tool_downloads: PathBuf,
+    /// WebView2 安装包：`<root>/temp/webview2`。
+    pub webview2_download: PathBuf,
+    /// 已安装的工具：`<root>/tools`。
+    pub tools: PathBuf,
+    /// 日志：`<root>/logs`。
+    pub logs: PathBuf,
 }
 
-impl AppPaths {
-    /// 数据根之下的固定布局。
-    fn under(root: PathBuf) -> Self {
+impl DataPaths {
+    /// 只算路径，不碰磁盘。
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        let temp = root.join("temp");
         Self {
-            config: root.join("config.json"),
-            network: root.join("network.json"),
-            webview2: root.join("webview2"),
-            temp: root.join("temp"),
+            updates: temp.join("updates"),
+            tool_downloads: temp.join("tools"),
+            webview2_download: temp.join("webview2"),
+            tools: root.join("tools"),
+            logs: root.join("logs"),
+            temp,
             root,
         }
     }
-}
 
-/// 应用落盘位置：**只算路径**，不建目录、不迁移。
-pub fn app_paths(installation_root: &Path) -> AppPaths {
-    AppPaths::under(data_root(installation_root))
-}
-
-/// 准备好数据根：建目录、把 exe 旁的旧 `data/` 整体搬进来，然后给出落盘位置。
-///
-/// 搬完旧路径就不存在了。数据根已经有完整的库时不碰旧数据。
-/// **不做"写不进去就换个目录"的回退** —— 写不了是权限问题，由调用方提权处理。
-///
-/// 搬迁失败不拦启动：旧数据原样留在原处（一个字节不丢），原因写进
-/// [`DataRootPlan::note`]，下一次启动再试。提权后重跑通常就能搬成。
-pub fn prepare_app_paths(installation_root: &Path, executable: &Path) -> std::io::Result<AppPaths> {
-    let plan = resolve_data_root(installation_root, executable);
-    let paths = AppPaths::under(plan.root);
-
-    // config / network 是文件，它们的父目录就是 root，跟着一起建出来。
-    for dir in [&paths.root, &paths.webview2, &paths.temp] {
-        std::fs::create_dir_all(dir)?;
+    /// 建好整套目录。
+    pub fn ensure(&self) -> std::io::Result<()> {
+        for dir in [
+            &self.root,
+            &self.temp,
+            &self.updates,
+            &self.tool_downloads,
+            &self.webview2_download,
+            &self.tools,
+            &self.logs,
+        ] {
+            std::fs::create_dir_all(dir)?;
+        }
+        Ok(())
     }
-    Ok(paths)
+
+    /// 清空临时目录（启动时调用）；返回删掉的条目数。
+    ///
+    /// 三个固定子目录保留、只清内容，解包用的 `unpack-*` 整项删掉。
+    /// 这些内容要么已经装完，要么只在本次进程内有效，重启后都不再需要。
+    pub fn sweep_temp(&self) -> std::io::Result<usize> {
+        let mut removed = 0;
+        for dir in [&self.updates, &self.tool_downloads, &self.webview2_download] {
+            removed += clear_contents(dir)?;
+        }
+
+        let Ok(entries) = std::fs::read_dir(&self.temp) else {
+            return Ok(removed);
+        };
+        let reserved = [&self.updates, &self.tool_downloads, &self.webview2_download];
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if reserved.contains(&&path) {
+                continue;
+            }
+            let result = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+            if result.is_ok() {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    /// 清掉旧版本留在数据根里的目录（`updates/`、`webview2/`）；返回删掉的个数。
+    pub fn remove_legacy_dirs(&self) -> usize {
+        ["updates", "webview2"]
+            .iter()
+            .filter(|name| {
+                let path = self.root.join(name);
+                path.is_dir() && std::fs::remove_dir_all(&path).is_ok()
+            })
+            .count()
+    }
+}
+
+/// 数据根下的布局（只算路径）。
+pub fn data_paths(installation_root: &Path) -> DataPaths {
+    DataPaths::new(data_root(installation_root))
 }
 
 /// 数据根的结论：最后用哪个、有没有搬过东西、给人看的一句话。
@@ -125,6 +176,26 @@ fn parked_root(root: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// 清掉一个目录里的所有条目，目录本身保留；目录不存在就当作已经干净。
+fn clear_contents(dir: &Path) -> std::io::Result<usize> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(0);
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let result = if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        if result.is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 /// 目录里有没有东西（空目录不算"半份数据"）。
 fn dir_has_entries(root: &Path) -> bool {
     std::fs::read_dir(root)
@@ -151,7 +222,7 @@ pub fn resolve_data_root(installation_root: &Path, executable: &Path) -> DataRoo
         return DataRootPlan {
             note: if legacy.is_some() {
                 format!(
-                    "数据目录用 {}（程序旁边还有一份旧的 data/，没动它）",
+                    "当前使用数据目录 {}（程序旁仍有旧 data/，未改动）",
                     root.display()
                 )
             } else {

@@ -392,7 +392,10 @@ fn process_image(pid: u32) -> Result<PathBuf, String> {
     // SAFETY: 只申请查询权限；句柄用完即关。
     let process = unsafe { open_process(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
-        return Err(format!("打不开进程 {pid}：{}", io::Error::last_os_error()));
+        return Err(format!(
+            "无法打开进程 {pid}：{}",
+            io::Error::last_os_error()
+        ));
     }
     let mut buffer = vec![0u16; 32768];
     let mut size = buffer.len() as u32;
@@ -402,7 +405,7 @@ fn process_image(pid: u32) -> Result<PathBuf, String> {
     unsafe { close_handle(process) };
     if ok == 0 {
         return Err(format!(
-            "拿不到进程 {pid} 的路径：{}",
+            "无法获取进程 {pid} 的路径：{}",
             io::Error::last_os_error()
         ));
     }
@@ -417,14 +420,17 @@ fn process_user_sid(pid: u32) -> Result<Vec<u8>, String> {
     unsafe {
         let process = open_process(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if process.is_null() {
-            return Err(format!("打不开进程 {pid}：{}", io::Error::last_os_error()));
+            return Err(format!(
+                "无法打开进程 {pid}：{}",
+                io::Error::last_os_error()
+            ));
         }
         let mut token: Handle = null_mut();
         let ok = open_process_token(process, TOKEN_QUERY, &mut token);
         close_handle(process);
         if ok == 0 {
             return Err(format!(
-                "打不开进程 {pid} 的令牌：{}",
+                "无法打开进程 {pid} 的令牌：{}",
                 io::Error::last_os_error()
             ));
         }
@@ -480,12 +486,12 @@ pub(crate) fn run_as_admin(exe: &Path, arguments: &str) -> Result<(), String> {
     }
 
     Err(match code {
-        ERROR_CANCELLED => "你取消了管理员授权（UAC），这次写入没有执行。需要时再点一次提权，或者从右键菜单「以管理员身份运行」打开启动器。".to_string(),
+        ERROR_CANCELLED => "管理员授权（UAC）已取消，本次写入未执行。如需重试，请再次发起提权，或通过右键菜单「以管理员身份运行」启动启动器。".to_string(),
         SE_ERR_ACCESSDENIED => {
-            "系统拒绝了管理员授权（UAC）。可以再试一次，或用「以管理员身份运行」启动启动器。"
+            "系统拒绝了管理员授权（UAC）。可重试，或通过「以管理员身份运行」启动启动器。"
                 .to_string()
         }
-        2 | 3 => format!("找不到启动器程序：{}", exe.display()),
+        2 | 3 => format!("未找到启动器程序：{}", exe.display()),
         other => format!(
             "提权启动失败（ShellExecuteW 返回 {other}）：{}",
             exe.display()

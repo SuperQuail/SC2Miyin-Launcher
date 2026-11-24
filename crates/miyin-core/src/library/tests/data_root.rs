@@ -38,94 +38,72 @@ fn data_root_is_the_installation_sibling() {
     );
 }
 
-/// `app_paths` 只算路径 —— 不建目录、不迁移。
+/// 数据根下的布局：临时只进 temp，工具与日志在根下。
 #[test]
-fn app_paths_only_computes_paths() {
+fn data_paths_only_computes_paths() {
     let base = tempfile::tempdir().expect("临时目录");
     let installation = installation(base.path());
 
-    let paths = crate::library::app_paths(&installation);
+    let paths = crate::library::data_paths(&installation);
     let root = new_root(base.path());
 
     assert_eq!(paths.root, root);
-    assert_eq!(paths.config, root.join("config.json"));
-    assert_eq!(paths.network, root.join("network.json"));
-    assert_eq!(paths.webview2, root.join("webview2"));
     assert_eq!(paths.temp, root.join("temp"));
+    assert_eq!(paths.updates, root.join("temp").join("updates"));
+    assert_eq!(paths.tool_downloads, root.join("temp").join("tools"));
+    assert_eq!(paths.webview2_download, root.join("temp").join("webview2"));
+    assert_eq!(paths.tools, root.join("tools"));
+    assert_eq!(paths.logs, root.join("logs"));
     assert!(!paths.root.exists(), "只算路径，不该碰磁盘");
 }
 
-/// `prepare_app_paths`：建好整套目录，并把 exe 旁的旧 data/ 整体搬进来。
+/// ensure 建好整套目录；sweep_temp 只清 temp，不碰库与工具。
 #[test]
-fn prepare_creates_the_layout_and_moves_the_legacy_data() {
+fn ensure_builds_the_layout_and_sweep_clears_only_temp() {
     let base = tempfile::tempdir().expect("临时目录");
-    let installation = installation(base.path());
-    let legacy = legacy_dir(base.path());
-    std::fs::create_dir_all(legacy.join("campaigns").join("wol")).expect("旧数据");
-    std::fs::write(legacy.join("library.json"), b"{}").expect("索引");
-    std::fs::write(legacy.join("campaigns").join("wol").join("a.txt"), b"hello").expect("版本内容");
+    let paths = crate::library::DataPaths::new(new_root(base.path()));
+    paths.ensure().expect("建目录");
 
-    let paths =
-        crate::library::prepare_app_paths(&installation, &exe(base.path())).expect("准备数据根");
+    for dir in [
+        &paths.temp,
+        &paths.updates,
+        &paths.tool_downloads,
+        &paths.webview2_download,
+        &paths.tools,
+        &paths.logs,
+    ] {
+        assert!(dir.is_dir(), "{} 要建好", dir.display());
+    }
 
-    let root = new_root(base.path());
-    assert_eq!(paths.root, root);
-    assert!(!legacy.exists(), "搬完旧路径必须消失");
-    assert_eq!(
-        std::fs::read_to_string(root.join("library.json")).expect("索引"),
-        "{}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(root.join("campaigns").join("wol").join("a.txt")).expect("内容"),
-        "hello"
-    );
+    std::fs::create_dir_all(paths.updates.join("staging")).expect("暂存");
+    std::fs::write(paths.updates.join("staging").join("package.zip"), b"zip").expect("写");
+    std::fs::write(paths.root.join("library.json"), b"{}").expect("库");
+    std::fs::write(paths.tools.join("keep.bin"), b"tool").expect("工具");
+
+    let removed = paths.sweep_temp().expect("清临时目录");
+    assert_eq!(removed, 1, "只该删暂存里的一个条目");
     assert!(
-        root.join("webview2").is_dir(),
-        "WebView2 profile 目录要建好"
+        !paths.updates.join("staging").exists(),
+        "更新暂存内容要删掉"
     );
-    assert!(root.join("temp").is_dir(), "临时目录要建好");
-    assert_eq!(
-        paths.config.parent(),
-        Some(root.as_path()),
-        "config / network 的父目录就是数据根"
-    );
-
-    // 第二次启动：什么都不再搬，库原样。
-    let again =
-        crate::library::prepare_app_paths(&installation, &exe(base.path())).expect("再准备一次");
-    assert_eq!(again, paths);
-    assert_eq!(
-        std::fs::read_to_string(root.join("library.json")).expect("索引"),
-        "{}"
-    );
+    assert!(paths.updates.is_dir(), "temp 下的固定子目录保留");
+    assert!(paths.root.join("library.json").is_file(), "库不能碰");
+    assert!(paths.tools.join("keep.bin").is_file(), "工具不能碰");
 }
 
-/// 新根已经有库时，旧 data/ 一个字节都不动（数据是用户的，宁可让他自己看一眼）。
+/// 旧的 hosting 目录（updates/、webview2/）要能被一次清掉。
 #[test]
-fn prepare_does_not_move_legacy_when_the_new_root_has_a_library() {
+fn remove_legacy_dirs_clears_old_hosting_folders() {
     let base = tempfile::tempdir().expect("临时目录");
-    let installation = installation(base.path());
-    let legacy = legacy_dir(base.path());
-    std::fs::create_dir_all(&legacy).expect("旧数据");
-    std::fs::write(legacy.join("library.json"), b"OLD").expect("旧索引");
+    let paths = crate::library::DataPaths::new(new_root(base.path()));
+    std::fs::create_dir_all(paths.root.join("updates").join("0.1.0a20")).expect("旧更新");
+    std::fs::create_dir_all(paths.root.join("webview2")).expect("旧 profile 占位");
+    std::fs::create_dir_all(&paths.tools).expect("工具");
 
-    let root = new_root(base.path());
-    std::fs::create_dir_all(&root).expect("新数据目录");
-    std::fs::write(root.join("library.json"), b"NEW").expect("新索引");
-
-    let paths =
-        crate::library::prepare_app_paths(&installation, &exe(base.path())).expect("准备数据根");
-
-    assert_eq!(paths.root, root);
-    assert_eq!(
-        std::fs::read_to_string(root.join("library.json")).expect("新索引"),
-        "NEW"
-    );
-    assert_eq!(
-        std::fs::read_to_string(legacy.join("library.json")).expect("旧索引还在"),
-        "OLD",
-        "旧数据既不该被覆盖也不该被删"
-    );
+    assert_eq!(paths.remove_legacy_dirs(), 2);
+    assert!(!paths.root.join("updates").exists());
+    assert!(!paths.root.join("webview2").exists());
+    assert!(paths.tools.is_dir(), "工具目录不是旧的 hosting 目录");
 }
 
 /// 全新机器：没有旧 data/，直接用新根。

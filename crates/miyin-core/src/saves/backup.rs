@@ -162,7 +162,7 @@ pub fn backup_paths(roots: &SavesRoots, library_root: &Path, label: &str) -> Res
     let (missing, files) = roots.files()?;
     if missing || files.is_empty() {
         // 没有存档就别建空目录 —— 还原一个空备份只会让人以为"存档回来了"
-        return Err(Error::PackageRejected("还没有存档可以备份".to_string()));
+        return Err(Error::PackageRejected("尚无可备份的存档".to_string()));
     }
 
     let name = dir_name(label);
@@ -223,7 +223,7 @@ pub fn restore(banks: &Path, library_root: &Path, name: &str) -> Result<String> 
 pub fn restore_paths(roots: &SavesRoots, library_root: &Path, name: &str) -> Result<String> {
     let source = root(library_root).join(name);
     if !source.is_dir() {
-        return Err(Error::PackageRejected(format!("找不到存档备份：{name}")));
+        return Err(Error::PackageRejected(format!("未找到存档备份：{name}")));
     }
 
     // 先给现在这份留个后路。没有存档（第一次玩）就跳过。
@@ -265,7 +265,7 @@ fn checked_name(root: &Path, group: &str, file: &str) -> Result<PathBuf> {
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..");
     if bad {
-        return Err(Error::PackageRejected(format!("存档文件名不合法：{file}")));
+        return Err(Error::PackageRejected(format!("存档文件名无效：{file}")));
     }
     let saves = self::root(root);
     let path = group_dir(root, group)?.join(file.replace('/', std::path::MAIN_SEPARATOR_STR));
@@ -278,7 +278,7 @@ fn checked_name(root: &Path, group: &str, file: &str) -> Result<PathBuf> {
 pub fn group_files(root: &Path, name: &str) -> Result<Vec<SaveFile>> {
     let dir = group_dir(root, name)?;
     if !dir.is_dir() {
-        return Err(Error::PackageRejected(format!("没有这个存档组：{name}")));
+        return Err(Error::PackageRejected(format!("此存档组不存在：{name}")));
     }
     Ok(snapshot(&dir)?.files)
 }
@@ -292,18 +292,18 @@ pub fn group_files(root: &Path, name: &str) -> Result<Vec<SaveFile>> {
 ///   这个函数自始至终没有 banks 参数）；源组挪空了也不删组（用户可能还想切回来）。
 pub fn move_save_file(root: &Path, from: &str, file: &str, to: &str) -> Result<()> {
     if from == to {
-        return Err(Error::PackageRejected("源组和目标组是同一个".to_string()));
+        return Err(Error::PackageRejected("源组与目标组相同".to_string()));
     }
 
     let source = checked_name(root, from, file)?;
     if !source.is_file() {
-        return Err(Error::PackageRejected(format!("找不到这份存档：{file}")));
+        return Err(Error::PackageRejected(format!("未找到此存档：{file}")));
     }
 
     let target = checked_name(root, to, file)?;
     if target.exists() {
         return Err(Error::PackageRejected(format!(
-            "「{to}」里已经有同名存档 {file}，没有覆盖"
+            "「{to}」中已存在同名存档 {file}，未覆盖。请改名或删除后重试。"
         )));
     }
     if let Some(parent) = target.parent() {
@@ -335,10 +335,10 @@ pub fn move_save_to_key(root: &Path, from: &str, file: &str, key: &str) -> Resul
             // 新建之前先把两件事确认掉：这个键是不是真的目标、源文件在不在。
             // 不然失败时账上会多一条指向空组的绑定。
             if !targets(&library, &[]).iter().any(|item| item.key == key) {
-                return Err(Error::PackageRejected(format!("未知的归属：{key}")));
+                return Err(Error::PackageRejected(format!("未知的存档归属：{key}")));
             }
             if !checked_name(root, from, file)?.is_file() {
-                return Err(Error::PackageRejected(format!("找不到这份存档：{file}")));
+                return Err(Error::PackageRejected(format!("未找到此存档：{file}")));
             }
             let name = fresh_group(root, &group_label(&library, key))?;
             assign(root, &name, Some(key))?;

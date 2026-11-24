@@ -57,9 +57,9 @@ pub use conflict::{
     Conflict, ImportMode, VersionRelation, compare_versions, conflict_for, slot_for,
 };
 pub use data_root::{
-    AppPaths, DATA_DIR_NAME, DataRootPlan, app_paths, data_root, prepare_app_paths,
-    resolve_data_root,
+    DATA_DIR_NAME, DataPaths, DataRootPlan, data_paths, data_root, resolve_data_root,
 };
+pub use install::{AbortOnBusy, BusyDecision, SkipOnBusy};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};
 pub use main_map::resolve_main_map;
 pub use mod_keys::{
@@ -72,8 +72,8 @@ pub use model::{
 pub use slot::{CampaignSlot, SlotView};
 pub use store::{
     Replaced, VariantChanges, find_target_for_package, find_target_for_package_with_password,
-    import, import_named_with_password, import_with_password, remove_variant, replace_variant,
-    replace_variant_with_password, update_variant,
+    import, import_named_with_password, import_with_password, remove_variant, remove_variant_with,
+    replace_variant, replace_variant_with, replace_variant_with_password, update_variant,
 };
 
 /// 原子写：先写同目录的临时文件，再改名覆盖。
@@ -466,7 +466,7 @@ impl Library {
         let root = self.slot_dir(slot_slug).join(variant_id);
         let path = safety::ensure_within(&root, &root.join(map.replace('\\', "/")))?;
         if !path.is_file() {
-            return Err(Error::PackageRejected(format!("找不到地图文件：{map}")));
+            return Err(Error::PackageRejected(format!("未找到地图文件：{map}")));
         }
         Ok(path)
     }
@@ -546,7 +546,7 @@ impl Library {
 /// 自制战役进 `Maps/CustomCampaigns`），校验这一层不该再判断它属于哪部原版战役。
 pub fn require_slot(slug: &str) -> Result<CampaignType> {
     CampaignType::from_slug(slug)
-        .ok_or_else(|| Error::PackageRejected(format!("未知的战役槽位：{slug}")))
+        .ok_or_else(|| Error::PackageRejected(format!("未知的战役：{slug}")))
 }
 
 /// 槽位与当前游戏安装之间的提示。
@@ -560,7 +560,7 @@ fn notice_for(installation: &Installation, kind: &CampaignType) -> Option<String
         None
     } else {
         Some(format!(
-            "官方目录尚不存在，启用时会自动创建：{}",
+            "原版目录尚不存在，启用时将自动创建：{}",
             target.display()
         ))
     }

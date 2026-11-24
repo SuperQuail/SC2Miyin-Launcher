@@ -152,7 +152,7 @@ pub(crate) fn scan_saves(
     let documents = installation
         .as_ref()
         .and_then(|installation| installation.documents_root.clone())
-        .ok_or_else(|| "找不到星际争霸 II 的用户文档目录".to_string())?;
+        .ok_or_else(|| "未找到星际争霸 II 用户文档目录".to_string())?;
     Ok(miyin_core::saves::scan(&documents))
 }
 
@@ -197,9 +197,9 @@ pub(crate) fn restore_saves(name: String, state: State<'_, AppState>) -> Result<
 /// 存档根（`saves::SavesRoots::from_banks` 会就地展开）。游戏不读这个空目录本身。
 fn banks_root(state: &State<'_, AppState>) -> Result<std::path::PathBuf, String> {
     let guard = state.installation.lock().map_err(lock_error)?;
-    let installation = guard.as_ref().ok_or("还没找到星际争霸 II 的安装目录")?;
+    let installation = guard.as_ref().ok_or("尚未检测到星际争霸 II 安装目录")?;
     installation
         .banks_root
         .clone()
-        .ok_or_else(|| "找不到「我的文档 / StarCraft II」—— 游戏还没产生过存档？".to_string())
+        .ok_or_else(|| "未找到「我的文档 / StarCraft II」目录，可能尚未产生存档。".to_string())
 }

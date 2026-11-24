@@ -13,17 +13,23 @@ use crate::error::{Error, Result};
 use crate::sc2::Installation;
 
 use super::compose::{self};
-use super::install::{Manifest, Owner, Plan};
+use super::install::{AbortOnBusy, BusyDecision, Manifest, Owner, Plan};
 use super::{Library, require_slot};
 
 /// 撤下**所有战役**装的东西（独立模组不动），索引里的「启用」与存档组一并回原版。
 ///
-/// 按槽位切回原版请用 `activate(library, installation, slot, None)` ——
-/// 那个只撤这一个槽位的。
-///
 /// **按安装清单撤，不看 `index.slots[..].active`**：后者只记「最后选中的那个」，
 /// 崩溃 / 手改 / 历史上多装的那几部都不在里面，只按它撤会留下永远没人认领的幽灵文件。
 pub fn deactivate(library: &Library, installation: &Installation) -> Result<Vec<String>> {
+    deactivate_with(library, installation, &mut AbortOnBusy)
+}
+
+/// 同 [`deactivate`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn deactivate_with(
+    library: &Library,
+    installation: &Installation,
+    decision: &mut dyn BusyDecision,
+) -> Result<Vec<String>> {
     // 用迁移版：老清单（active.json）里的东西也要认得出来，
     // 否则那些文件会变成没人认领的孤儿
     let mut manifest = Manifest::load_migrating(library.root(), installation);
@@ -31,7 +37,13 @@ pub fn deactivate(library: &Library, installation: &Installation) -> Result<Vec<
 
     let slots = campaign_slots(&manifest);
     for slot in &slots {
-        clear_slot(&mut manifest, library, installation, slot)?;
+        warnings.extend(clear_slot(
+            &mut manifest,
+            library,
+            installation,
+            slot,
+            decision,
+        )?);
     }
 
     // 索引里的「启用」也跟着清 —— 不清的话界面还写着「已启用」，游戏目录已经空了。
@@ -71,7 +83,8 @@ fn clear_slot(
     library: &Library,
     installation: &Installation,
     slot_slug: &str,
-) -> Result<()> {
+    decision: &mut dyn BusyDecision,
+) -> Result<Vec<String>> {
     let mut owners: Vec<Owner> = Vec::new();
     for item in &manifest.files {
         if let Owner::Campaign { slot, .. } = &item.owner
@@ -81,10 +94,11 @@ fn clear_slot(
             owners.push(item.owner.clone());
         }
     }
+    let mut warnings = Vec::new();
     for owner in owners {
-        manifest.remove(library.root(), installation, &owner)?;
+        warnings.extend(manifest.remove_with(library.root(), installation, &owner, decision)?);
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// 让存档组跟着战役走：切到 `variant_id` 对应的那一组（`None` = 这个槽位的原版组）。
@@ -122,12 +136,28 @@ fn switch_saves(
 /// 2. 铺新版本；**失败就回滚**成原版，不留半装状态；
 /// 3. 存档组跟着切（隔离开着才有动作；切组失败只记警告，不回滚游戏文件）。
 ///
-/// 先算计划再撤旧版本：新包本身有问题（比如没有可用载荷）时，不该先把旧版本卸了才发现装不上。
 pub fn activate(
     library: &Library,
     installation: &Installation,
     slot_slug: &str,
     variant_id: Option<&str>,
+) -> Result<Vec<String>> {
+    activate_with(
+        library,
+        installation,
+        slot_slug,
+        variant_id,
+        &mut AbortOnBusy,
+    )
+}
+
+/// 同 [`activate`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn activate_with(
+    library: &Library,
+    installation: &Installation,
+    slot_slug: &str,
+    variant_id: Option<&str>,
+    decision: &mut dyn BusyDecision,
 ) -> Result<Vec<String>> {
     let kind = require_slot(slot_slug)?;
     let mut index = library.index();
@@ -138,7 +168,13 @@ pub fn activate(
 
     // **切回原版**：把这一槽位装着的东西按清单全撤掉，启用状态清掉，存档组回原版。
     let Some(variant_id) = variant_id else {
-        clear_slot(&mut manifest, library, installation, slot_slug)?;
+        warnings.extend(clear_slot(
+            &mut manifest,
+            library,
+            installation,
+            slot_slug,
+            decision,
+        )?);
         if let Some(slot) = index.slots.get_mut(slot_slug) {
             slot.active = None;
         }
@@ -164,7 +200,13 @@ pub fn activate(
     let plan = plan_for(library, slot_slug, &variant, &kind)?;
 
     // 换版本：把这个槽位之前装着的**全部**撤下（清单里可能不止一个 owner）
-    clear_slot(&mut manifest, library, installation, slot_slug)?;
+    warnings.extend(clear_slot(
+        &mut manifest,
+        library,
+        installation,
+        slot_slug,
+        decision,
+    )?);
 
     // 铺新版本；失败回滚。
     //
@@ -183,7 +225,7 @@ pub fn activate(
             // 启动器却还停在上次那部战役的组上，下一次切换会把两份进度搅在一起。
             switch_saves(library, installation, slot_slug, None, &mut warnings);
             let suffix = match rollback {
-                Ok(()) => String::new(),
+                Ok(_) => String::new(),
                 Err(again) => {
                     format!("（回滚时又出错：{again}；游戏目录里可能有个别文件没清干净）")
                 }
@@ -221,12 +263,22 @@ pub fn remove_owner(
     installation: &Installation,
     owner: &Owner,
 ) -> Result<Vec<String>> {
+    remove_owner_with(library, installation, owner, &mut AbortOnBusy)
+}
+
+/// 同 [`remove_owner`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn remove_owner_with(
+    library: &Library,
+    installation: &Installation,
+    owner: &Owner,
+    decision: &mut dyn BusyDecision,
+) -> Result<Vec<String>> {
     let mut manifest = Manifest::load_migrating(library.root(), installation);
-    manifest.remove(library.root(), installation, owner)?;
+    let mut warnings = manifest.remove_with(library.root(), installation, owner, decision)?;
 
     // 独立模组：存档组与槽位的「启用」都不归它管
     let Owner::Campaign { slot, variant } = owner else {
-        return Ok(Vec::new());
+        return Ok(warnings);
     };
 
     let slot_still_installed = manifest
@@ -236,7 +288,7 @@ pub fn remove_owner(
     let points_at_removed = index_active(library, slot).as_deref() == Some(variant.as_str());
     if !points_at_removed && slot_still_installed {
         // 槽位里还装着别的版本，而且「启用」也不是刚删的这个 —— 别动它
-        return Ok(Vec::new());
+        return Ok(warnings);
     }
 
     let mut index = library.index();
@@ -245,7 +297,6 @@ pub fn remove_owner(
     }
     library.save_index(&index)?;
 
-    let mut warnings = Vec::new();
     switch_saves(library, installation, slot, None, &mut warnings);
     Ok(warnings)
 }
@@ -354,6 +405,15 @@ pub fn incomplete_installation(library: &Library, installation: &Installation) -
 /// 幂等：清单已经一致且文件都在就跳过，不重拷。只动 `Mods/` ——
 /// 地图落点与补丁归 `activate` / 补丁那套管，这里一概不碰。
 pub fn sync_mods(library: &Library, installation: &Installation) -> Result<Vec<String>> {
+    sync_mods_with(library, installation, &mut AbortOnBusy)
+}
+
+/// 同 [`sync_mods`]，但把「删不掉的文件怎么办」交给 `decision`。
+pub fn sync_mods_with(
+    library: &Library,
+    installation: &Installation,
+    decision: &mut dyn BusyDecision,
+) -> Result<Vec<String>> {
     let index = library.index();
     let mut manifest = Manifest::load_migrating(library.root(), installation);
 
@@ -432,9 +492,9 @@ pub fn sync_mods(library: &Library, installation: &Installation) -> Result<Vec<S
         if manifest.settled(installation, &plan, "Mods/") {
             continue;
         }
-        match manifest.apply_scoped(library.root(), installation, &plan, "Mods/") {
+        match manifest.apply_scoped_with(library.root(), installation, &plan, "Mods/", decision) {
             Ok(found) => warnings.extend(found),
-            Err(error) => warnings.push(format!("「{}」的模组自动挂载失败：{error}", variant.name)),
+            Err(error) => warnings.push(format!("「{}」的模组自动启用失败：{error}", variant.name)),
         }
     }
 
@@ -638,6 +698,14 @@ pub fn conflicts(
 /// 前缀被“「x」安装失败…”盖住，结果启用战役卡在普通权限里报错，
 /// 而安装同一份包却能正常弹提权。
 fn activation_failure(variant_name: &str, error: &Error, suffix: &str) -> Error {
+    // 「文件被占用」要保留成可识别的类型：命令层据此询问用户继续还是取消
+    if let Error::FileBusy { path, reason } = error {
+        return Error::FileBusy {
+            path: path.clone(),
+            reason: format!("{reason}。本次安装已回滚到原版状态{suffix}"),
+        };
+    }
+
     let reason = error.to_string();
     let reason = reason.strip_prefix("[PERMISSION] ").unwrap_or(&reason);
     let message = format!("「{variant_name}」安装失败，已回滚到原版状态：{reason}{suffix}");

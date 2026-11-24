@@ -9,7 +9,7 @@
 //! - **用 Rust 版的 release 附件**（`sc2diff.exe`，单文件无运行时依赖），
 //!   不用源码包 —— 用户机器上不该被迫装工具链
 //!
-//! 安装位置：`<data>/tools/<id>/`，与战役库、模组库并列。
+//! 安装位置：`<data>/tools/<id>/`；安装包中转在 `<data>/temp/tools/`。
 
 use std::path::{Path, PathBuf};
 
@@ -18,6 +18,7 @@ use serde::Serialize;
 pub mod sc2diff;
 
 use crate::error::{Error, Result};
+use crate::library::DataPaths;
 use crate::safety;
 use crate::update::Reporter;
 use crate::update::check;
@@ -129,7 +130,7 @@ pub enum ToolEnsureAction {
 ///
 /// 这个函数**不会**因为网络问题让启动器起不来 —— 失败也是一种正常结果，
 /// 包成 `ToolEnsure` 返回给界面去提示。
-pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolEnsure {
+pub fn ensure(paths: &DataPaths, spec: &ToolSpec, settings: &NetworkSettings) -> ToolEnsure {
     let base =
         |action: ToolEnsureAction, ready: bool, error: Option<String>, message: Option<String>| {
             ToolEnsure {
@@ -143,12 +144,12 @@ pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolE
         };
 
     // 已经装好了
-    if executable(data, spec).is_some() {
+    if executable(&paths.root, spec).is_some() {
         return base(ToolEnsureAction::AlreadyInstalled, true, None, None);
     }
 
     // 之前自动装失败过 —— 别再试了，也别再弹提示烦人
-    if skip_file(data, spec).is_file() {
+    if skip_file(&paths.root, spec).is_file() {
         return base(ToolEnsureAction::Skipped, false, None, None);
     }
 
@@ -156,7 +157,7 @@ pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolE
     let list = match releases(spec, settings, reporter) {
         Ok(list) => list,
         Err(error) => {
-            let _ = mark_failed(data, spec, &error);
+            let _ = mark_failed(&paths.root, spec, &error);
             return base(
                 ToolEnsureAction::Failed,
                 false,
@@ -170,8 +171,8 @@ pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolE
     };
 
     let Some(picked) = list.iter().find(|release| release.has_asset) else {
-        let reason = format!("{} 还没有可下载的版本", spec.name);
-        let _ = mark_failed(data, spec, &reason);
+        let reason = format!("{} 暂无可下载版本", spec.name);
+        let _ = mark_failed(&paths.root, spec, &reason);
         return base(
             ToolEnsureAction::Failed,
             false,
@@ -180,11 +181,11 @@ pub fn ensure(data: &Path, spec: &ToolSpec, settings: &NetworkSettings) -> ToolE
         );
     };
 
-    match install(data, spec, picked, settings, reporter) {
+    match install(paths, spec, picked, settings, reporter) {
         Ok(_) => base(ToolEnsureAction::Installed, true, None, None),
         Err(error) => {
             let text = error.to_string();
-            let _ = mark_failed(data, spec, &text);
+            let _ = mark_failed(&paths.root, spec, &text);
             base(
                 ToolEnsureAction::Failed,
                 false,
@@ -316,7 +317,7 @@ pub fn releases(
 /// 先下到临时文件再整体改名 —— 中途失败不会留下半个 exe，
 /// 也不会把已经装好的那个覆盖坏。
 pub fn install(
-    data: &Path,
+    paths: &DataPaths,
     spec: &ToolSpec,
     release: &ToolRelease,
     settings: &NetworkSettings,
@@ -324,13 +325,14 @@ pub fn install(
 ) -> Result<ToolStatus> {
     if !release.has_asset {
         return Err(Error::PackageRejected(format!(
-            "这个版本（{}）里没有 {}，换一个版本试试",
+            "此版本（{}）中没有 {}，请更换版本后重试",
             release.tag, spec.asset
         )));
     }
 
-    let dir = tool_dir(data, spec);
+    let dir = tool_dir(&paths.root, spec);
     std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&paths.tool_downloads)?;
 
     let asset = check::ReleaseAsset {
         name: spec.asset.to_string(),
@@ -339,8 +341,17 @@ pub fn install(
         sha256: None,
     };
 
-    let staging = safety::ensure_within(&dir, &dir.join(format!(".{}.download", spec.binary)))?;
-    let outcome = check::download(&asset, settings, &staging, reporter)?;
+    let staging = safety::ensure_within(
+        &paths.tool_downloads,
+        &paths.tool_downloads.join(format!("{}.download", spec.id)),
+    )?;
+    let outcome = match check::download(&asset, settings, &staging, reporter) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let _ = std::fs::remove_file(&staging);
+            return Err(error);
+        }
+    };
 
     // 下下来的必须真是个 Windows 可执行文件 —— 有的镜像会把错误页当附件返回
     if !looks_like_pe(&staging) {
@@ -356,14 +367,17 @@ pub fn install(
     if target.exists() {
         let _ = std::fs::remove_file(&target);
     }
-    std::fs::rename(&staging, &target)?;
-    std::fs::write(version_file(data, spec), &release.version)?;
+    if let Err(error) = std::fs::rename(&staging, &target) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(error.into());
+    }
+    std::fs::write(version_file(&paths.root, spec), &release.version)?;
 
     // 装成功了，把「之前失败过」的标记清掉
-    let _ = clear_skip(data, spec);
+    let _ = clear_skip(&paths.root, spec);
 
     reporter.say(format!("{} {} 已装好", spec.name, release.version));
-    Ok(status(data, spec))
+    Ok(status(&paths.root, spec))
 }
 
 /// 是不是一个 PE 文件（`MZ` 开头）。

@@ -105,7 +105,7 @@ fn save_into_roots(roots: &SavesRoots, dir: &Path) -> Result<()> {
     let (missing, files) = roots.files()?;
     if missing {
         return Err(crate::error::Error::PackageRejected(
-            "找不到存档目录（Banks），这一组没有覆盖".to_string(),
+            "未找到存档目录（Banks），该组没有可覆盖的目录".to_string(),
         ));
     }
     std::fs::create_dir_all(dir)?;
@@ -148,7 +148,7 @@ pub fn save_into_paths(root: &Path, roots: &SavesRoots, name: &str) -> Result<Is
     let dir = saves_root(root).join(name);
     if !dir.is_dir() {
         return Err(crate::error::Error::PackageRejected(format!(
-            "没有这个存档组：{name}"
+            "此存档组不存在：{name}"
         )));
     }
 
@@ -173,7 +173,7 @@ pub fn switch_paths(root: &Path, roots: &SavesRoots, name: &str) -> Result<Isola
     let dir = saves_root(root).join(name);
     if !dir.is_dir() {
         return Err(crate::error::Error::PackageRejected(format!(
-            "没有这个存档组：{name}"
+            "此存档组不存在：{name}"
         )));
     }
 
