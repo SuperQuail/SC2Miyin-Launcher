@@ -340,6 +340,12 @@ impl Context {
             ));
         }
 
+        // 提权进程不一定继承 UI 的 MIYIN_TEMP；按已验过的数据根重设，临时解压落在 temp/。
+        // SAFETY: 助手在 serve 前单线程，这里只写一次，之后 core 只读。
+        unsafe {
+            std::env::set_var("MIYIN_TEMP", data_root.join("temp"));
+        }
+
         Ok(Self {
             library: Library::new(&data_root),
             installation,

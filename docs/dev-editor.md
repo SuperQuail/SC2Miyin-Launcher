@@ -180,7 +180,7 @@ foo.SC2Map（自制战役）           —                        （留在库�
 
 - 落点表的"逐文件覆盖"粒度：`overrides` 现在是 `from`（前缀）→ `to`（目录）。
   够不够，还是要"单个文件精确指定"？先按前缀做，不够再扩格式（要提 `miyin.format`）。
-- 压缩包工作区的临时目录放哪：`%TEMP%miyin-dev\<hash>` 还是 `data/dev/workspaces/`？
+- 压缩包工作区的临时目录放哪：`<数据根>/temp/miyin-dev/<hash>` 还是 `data/dev/workspaces/`？
   倾向后者（可复用、可清理），但要加"清缓存"入口。
 - 「另一个子界面」的形态：视图内页签，还是拆成两个 hash 路由（`#dev/place`）？
   倾向 hash 路由 —— 和现有 `#gallery` 一致，能直接分享/截图。

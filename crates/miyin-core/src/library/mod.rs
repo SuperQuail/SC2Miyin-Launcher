@@ -57,8 +57,7 @@ pub use conflict::{
     Conflict, ImportMode, VersionRelation, compare_versions, conflict_for, slot_for,
 };
 pub use data_root::{
-    AppPaths, DATA_DIR_NAME, DataRootPlan, app_paths, data_root, prepare_app_paths,
-    resolve_data_root,
+    DATA_DIR_NAME, DataPaths, DataRootPlan, data_paths, data_root, resolve_data_root,
 };
 pub use install::{AbortOnBusy, BusyDecision, SkipOnBusy};
 pub use install::{Installed, Item, Manifest, Owner, Plan, Preview, PreviewEntry};

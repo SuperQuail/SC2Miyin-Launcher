@@ -2,7 +2,7 @@
 //!
 //! 这里只放和具体操作系统打交道的东西，业务规则都在 `miyin-core` / `commands` 里。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{CRASH_LOG, PANIC_QUIET};
 
@@ -301,28 +301,51 @@ pub(crate) fn tame_webview(webview: &tauri::webview::PlatformWebview) {
     }
 }
 
-/// 往 exe 同级的 `miyin-crash.log` 追加一段现场。写不进去就算了 —— 这里**绝不能**再出事。
-fn append_crash_log(text: &str) {
-    let Some(path) = std::env::current_exe()
-        .ok()
-        .and_then(|executable| executable.parent().map(|dir| dir.join(CRASH_LOG)))
-    else {
-        return;
-    };
-    let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    else {
-        return;
-    };
-    use std::io::Write;
+/// 崩溃日志落点：数据根的 `logs/`；启动早期还没定下来时用 exe 同级。
+static LOG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
+/// 启动时告诉崩溃钩子日志目录（`<数据根>/logs`）。
+pub(crate) fn set_log_dir(dir: PathBuf) {
+    let _ = LOG_DIR.set(dir);
+}
+
+fn crash_log_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(dir) = LOG_DIR.get() {
+        paths.push(dir.join(CRASH_LOG));
+    }
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(Path::to_path_buf))
+    {
+        paths.push(dir.join(CRASH_LOG));
+    }
+    paths
+}
+
+/// 往数据根 `logs/`（不可写时退到 exe 同级）的 `miyin-crash.log` 追加一段现场。
+/// 写不进去就算了 —— 这里**绝不能**再出事。
+fn append_crash_log(text: &str) {
     let at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_secs())
         .unwrap_or(0);
-    let _ = writeln!(file, "==== {at}\n{text}");
+
+    for path in crash_log_paths() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        else {
+            continue;
+        };
+        use std::io::Write;
+        let _ = writeln!(file, "==== {at}\n{text}");
+        return;
+    }
 }
 
 /// 启动失败时弹的原生框。
@@ -353,7 +376,7 @@ pub(crate) fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-/// 装 panic 现场记录：写进 exe 同级的 `miyin-crash.log`，再弹一个原生框。
+/// 装 panic 现场记录：写进数据根 `logs/`（不可写时 exe 同级），再弹一个原生框。
 ///
 /// 为什么要它：release 版是 `windows_subsystem = "windows"`（main.rs:2），没有控制台，
 /// stderr 是黑洞。用户报「白屏 / 双击没反应」时，这个文件是唯一能拿到现场的东西。
@@ -383,7 +406,8 @@ pub(crate) fn install_crash_hook() {
             .set_level(rfd::MessageLevel::Error)
             .set_title("弥音启动器发生错误")
             .set_description(format!(
-                "启动器遇到未处理的错误。详细信息已写入程序目录的 {CRASH_LOG}；\n\
+                "启动器遇到未处理的错误。详细信息已写入数据目录 logs 下的 {CRASH_LOG}\
+                 （数据目录不可写时写入程序目录）；\n\
                  反馈问题时请附上该文件。\n\n{text}"
             ))
             .set_buttons(rfd::MessageButtons::Ok)

@@ -80,14 +80,14 @@ struct Progress {
 ///
 /// 窗口建不出来（极少数被安全软件拦了 User32 的机器）时退回消息框：至少说清正在做什么、
 /// 失败时给原因和手动下载地址。
-pub(crate) fn ensure_runtime() -> Result<(), String> {
+pub(crate) fn ensure_runtime(temp_root: &Path) -> Result<(), String> {
     let progress = Arc::new(Mutex::new(Progress::default()));
     let cancel = Arc::new(AtomicBool::new(false));
     let result = Arc::new(Mutex::new(None));
 
     let Ok(window) = create_window(progress.clone(), cancel.clone(), result.clone()) else {
         eprintln!("[miyin] 原生进度窗没能建出来，退回消息框");
-        return headless(progress, cancel);
+        return headless(progress, cancel, temp_root);
     };
 
     // 先自己刷一次：让「正在检测」那一行与跑马灯在消息循环一开跑就出现在屏幕上
@@ -100,11 +100,12 @@ pub(crate) fn ensure_runtime() -> Result<(), String> {
     let window_addr = window.0 as usize;
     {
         let (progress, cancel, result) = (progress.clone(), cancel.clone(), result.clone());
+        let temp = temp_root.to_path_buf();
         std::thread::spawn(move || {
             // SAFETY: 这个地址指向本进程里由 UI 线程创建的窗口，只拿来做 PostMessage。
             let window = HWND(window_addr as *mut c_void);
             let tick = || post(window, WM_APP_UPDATE);
-            let outcome = work(&progress, &cancel, &tick);
+            let outcome = work(&progress, &cancel, &tick, &temp);
             if let Ok(mut slot) = result.lock() {
                 *slot = Some(outcome);
             }
@@ -147,7 +148,12 @@ pub(crate) fn demo_mode() -> bool {
 }
 
 /// 整个「下载 + 安装」的流程，跑在后台线程上。返回失败原因（已经能直接念给用户听）。
-fn work(progress: &Mutex<Progress>, cancel: &AtomicBool, tick: &dyn Fn()) -> Result<(), String> {
+fn work(
+    progress: &Mutex<Progress>,
+    cancel: &AtomicBool,
+    tick: &dyn Fn(),
+    temp_root: &Path,
+) -> Result<(), String> {
     let publish = |stage: Stage, done: u64, total: Option<u64>| {
         if let Ok(mut slot) = progress.lock() {
             *slot = Progress { stage, done, total };
@@ -155,7 +161,7 @@ fn work(progress: &Mutex<Progress>, cancel: &AtomicBool, tick: &dyn Fn()) -> Res
         tick();
     };
 
-    let setup = download(cancel, &publish)?;
+    let setup = download(cancel, &publish, temp_root)?;
 
     publish(Stage::Installing, 0, None);
     if demo_mode() {
@@ -175,6 +181,7 @@ fn work(progress: &Mutex<Progress>, cancel: &AtomicBool, tick: &dyn Fn()) -> Res
 fn download(
     cancel: &AtomicBool,
     publish: &dyn Fn(Stage, u64, Option<u64>),
+    temp_root: &Path,
 ) -> Result<PathBuf, String> {
     // 代理走系统设置（环境变量 -> Windows 系统代理 -> 直连），和更新模块同一套判断，绝不写死。
     // shortcut: 这里读不到用户自己配的 network.json（那时 Tauri 还没起来），先按默认「自动」选。
@@ -200,7 +207,7 @@ fn download(
     eprintln!("[miyin] WebView2 安装包地址：{}", response.url());
 
     let total = response.content_length();
-    let (path, mut file) = setup_file()?;
+    let (path, mut file) = setup_file(temp_root)?;
     let mut buffer = vec![0u8; CHUNK];
     let mut written: u64 = 0;
     let mut last = Instant::now();
@@ -238,14 +245,17 @@ fn download(
     Ok(path)
 }
 
-/// 安装包落地位置：先临时目录；临时目录写不进去（受限环境 / 沙箱）就退到 exe 旁边。
-fn setup_file() -> Result<(PathBuf, std::fs::File), String> {
-    let in_temp = std::env::temp_dir().join(SETUP_NAME);
+/// 安装包落地位置：数据根的 `temp/webview2/`；写不进去再退到 exe 旁边。
+fn setup_file(temp_root: &Path) -> Result<(PathBuf, std::fs::File), String> {
+    let in_temp = temp_root.join("webview2").join(SETUP_NAME);
     let beside_exe = std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name(SETUP_NAME));
 
     for path in [Some(in_temp.clone()), beside_exe].into_iter().flatten() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         match std::fs::File::create(&path) {
             Ok(file) => return Ok((path, file)),
             Err(error) => eprintln!("[miyin] 安装包写不进去 {}：{error}", path.display()),
@@ -321,7 +331,11 @@ fn wait_ready(cancel: &AtomicBool) -> Result<(), String> {
 }
 
 /// 窗口建不出来时的兜底：消息框说清楚在做什么，然后同步跑完。
-fn headless(progress: Arc<Mutex<Progress>>, cancel: Arc<AtomicBool>) -> Result<(), String> {
+fn headless(
+    progress: Arc<Mutex<Progress>>,
+    cancel: Arc<AtomicBool>,
+    temp_root: &Path,
+) -> Result<(), String> {
     message_box(
         &format!(
             "当前系统未安装 WebView2 运行时，启动器正在自动下载并安装。\n\n\
@@ -331,7 +345,7 @@ fn headless(progress: Arc<Mutex<Progress>>, cancel: Arc<AtomicBool>) -> Result<(
         MB_ICONINFORMATION,
     );
     let tick = || {};
-    let outcome = work(&progress, &cancel, &tick);
+    let outcome = work(&progress, &cancel, &tick, temp_root);
     if let Err(reason) = &outcome {
         message_box(&failure_text(reason), MB_ICONERROR);
     }

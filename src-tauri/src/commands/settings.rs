@@ -101,7 +101,7 @@ pub(crate) fn ensure_tool(
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
 
-    Ok(tools::ensure(state.library.root(), &spec, &settings))
+    Ok(tools::ensure(&state.paths, &spec, &settings))
 }
 
 /// 某个工具有哪些版本可装。
@@ -150,7 +150,7 @@ pub(crate) fn install_tool(
             .ok_or_else(|| format!("{} 暂无可下载版本", spec.name))?,
     };
 
-    tools::install(state.library.root(), &spec, picked, &settings, reporter)
+    tools::install(&state.paths, &spec, picked, &settings, reporter)
         .map_err(|error| error.to_string())
 }
 
@@ -261,7 +261,7 @@ pub(crate) async fn download_update(
         .lock()
         .map(|guard| guard.clone())
         .map_err(lock_error)?;
-    let data_dir = state.library.root().to_path_buf();
+    let data_dir = state.paths.root.clone();
 
     let staged = tauri::async_runtime::spawn_blocking(move || -> Result<Staged, String> {
         // 用最新一次检查的结果拿资产；这里再查一次，避免界面把过期的 URL 传回来
@@ -333,7 +333,7 @@ pub(crate) fn apply_update(
         .ok_or_else(|| "尚未下载更新".to_string())?;
 
     let current = std::env::current_exe().map_err(|error| error.to_string())?;
-    let data_dir = state.library.root().to_path_buf();
+    let data_dir = state.paths.root.clone();
 
     let emit = |message: &str| {
         let _ = app.emit("update://log", message.to_string());

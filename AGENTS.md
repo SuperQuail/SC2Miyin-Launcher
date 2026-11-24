@@ -468,9 +468,12 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 ```text
 <游戏安装目录的同级>/miyin_launcher_data/
 ├── library.json               # 索引：每个槽位下有哪些版本、当前启用哪个
-├── active.json                # 激活清单：我们往游戏目录放了什么、挪走了什么
+├── installed.json             # 安装清单：我们往游戏目录放了什么、挪走了什么
 ├── campaigns/<槽位>/<版本>/    # 各版本的完整内容
-└── backup/<槽位>/              # 被挪走的官方文件，切回原版时原样还原
+├── backup/<槽位>/              # 被挪走的官方文件，切回原版时原样还原
+├── tools/                     # 非临时：内嵌 7-Zip、SC2Diff
+├── logs/                      # 非临时：崩溃日志、7-Zip 日志
+└── temp/                      # 唯一临时目录：更新包、工具安装包、WebView2 安装器、解包中转
 ```
 
 **为什么挂在安装目录旁边而不是 exe 同级**：绿色版可以拷好几份、也可以装在不同位置 ——
@@ -478,12 +481,22 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
 
 两条必须保留的兜底：
 
-1. **找不到安装目录**（全新机器第一次启动、注册表里也没有）→ 退回 **exe 同级的 `data/`**，
-   程序必须能起来。
+1. **找不到安装目录**（全新机器第一次启动、注册表里也没有）→ 原生选择框让用户指定；
+   **不再**退回 exe 同级的 `data/`（会让多个实例各持一份库）。
 2. **旧数据迁移**：新根不存在、而程序旁边还留着旧的 `data/` 时，启动时**搬过去**
    （同盘 rename，跨盘 copy + 删，见 `platform::move_path`）。新根**已经有内容就一律不动** ——
    不覆盖、不合并，只写一行日志（数据是用户的，宁可让他自己看一眼）。
-   搬迁失败时**退回旧根继续用** —— 不能因为搬不动就没了库。
+   搬迁失败时旧数据原样留在原处（一个字节不丢），下次启动再试；不会因为搬不动就丢了库。
+
+**落盘约定（2026-11）**：
+
+- **临时文件只进 `temp/`**：`temp/updates/`、`temp/tools/`、`temp/webview2/`、`temp/unpack-*`；
+  启动时清空 `temp/`（`DataPaths::sweep_temp`），下载 / 解包失败不会在别处留下残留。
+- **非临时文件放数据根**：工具进 `tools/`，日志进 `logs/`。
+- **只有启动器配置放 `%APPDATA%\net.miyin.launcher\`**（`config.json` / `network.json`）；
+  WebView2 profile 由 Tauri 放在 `%LOCALAPPDATA%`，不是下载物，不迁。
+- 临时目录通过 `MIYIN_TEMP` 传给 core（战役包解压走它）；数据根不可写时 7-Zip 退回
+  `%LOCALAPPDATA%\net.miyin.launcher\tools\`，其余写操作按 §14.9.2 提权。
 
 ### 14.2 五个菜单项：原版战役 + 自制战役
 
@@ -642,7 +655,8 @@ CI 红着也能进仓库，出了事只能靠回忆当时干了什么。
   不再调用系统自带的 `tar` / `unrar`。见 `campaign/contents.rs`。
 - **内嵌 7-Zip**：7-Zip 26.05 的 `7z.exe` / `7z.dll` / `7zFM.exe` / `7zG.exe` 放在
   `src-tauri/assets/7zip/`，构建时 `include_bytes!` 进 exe，运行时解到
-  `%LOCALAPPDATA%\net.miyin.launcher\tools\7zip-2605\`，并通过 `MIYIN_7Z` 让 core 优先用
+  `<数据根>/tools/7zip-2605/`（数据根不可写时退回 `%LOCALAPPDATA%\net.miyin.launcher\tools\7zip-2605\`），
+  并通过 `MIYIN_7Z` 让 core 优先用
   内嵌的 7z（用户不用装 7-Zip 也能解 7z/rar）。许可证与来源见 `docs/third-party.md`。
 - **解压工具**：战役页「工具 ▾」与设置页「可选工具」都有「7-Zip 解压工具」入口，点开是
   **内嵌的 7-Zip 文件管理器窗口**：`src-tauri/src/sevenzip.rs` 用 `SetParent` 把 `7zFM.exe`
@@ -695,6 +709,8 @@ Windows 10/11 一般自带 WebView2 运行时，但**重装过系统、精简版
 - **安装源**：微软官方 Evergreen 引导程序
   `https://go.microsoft.com/fwlink/p/?LinkId=2124703`（302 到 `MicrosoftEdgeWebview2Setup.exe`）。
   走系统代理设置（环境变量 → Windows 系统代理 → 直连，与 §15.2 同一套），**不写死任何代理地址**。
+- **安装包落盘**：`<数据根>/temp/webview2/`（写不进去才退到 exe 旁边），装完 / 取消即删；
+  启动时整个 `temp/` 会被清空。
 - **进度界面是原生 Win32**（因为这时还没有 WebView2，画不了 Tauri 窗口）：
   STATIC 说明 + 进度条 + 取消按钮，文案逐段走
   「正在检测 → 正在下载安装包（xx%，xx MB/xx MB）→ 正在安装（可能弹 UAC，请点「是」）→
@@ -710,9 +726,10 @@ Windows 10/11 一般自带 WebView2 运行时，但**重装过系统、精简版
 
 #### 14.9.2 单实例与按需提权
 
-**启动器永远以普通权限启动，启动时不弹 UAC。** WebView2 profile、`config.json`/`network.json`、
-临时文件都留在用户目录（`%LOCALAPPDATA%`/`%APPDATA%`/`%TEMP%`），不迁到数据根 ——
-否则 C 盘安装的用户连“看界面”都要提权。数据根仍然只放战役库（游戏安装目录同级）。
+**启动器永远以普通权限启动，启动时不弹 UAC。** WebView2 profile 留在
+`%LOCALAPPDATA%\net.miyin.launcher\EBWebView`（Tauri 默认），`config.json` / `network.json`
+留在 `%APPDATA%\net.miyin.launcher`；临时文件与工具、日志按 §14.1 的约定进数据根 ——
+`temp/` 启动时清空。
 
 - **单实例**：命名内核对象 `Local\net.miyin.launcher.single`（`CreateMutexW`/`CreateEventW`，
   不写文件、不依赖目录权限）。第二个实例会聚焦已有「弥音启动器」窗口；找不到才提示后退出。
@@ -889,7 +906,9 @@ Cargo **只接受 semver**（`0.1.0a2` 会直接报 `unexpected character 'a' af
 
 - **网络失败不算错误**：包成 `UpdateCheck::error` 返回，界面显示"检查失败"即可。
 - **不确定就不动**：版本号认不出、摘要对不上、包里没有 exe、zip 条目越界 —— 一律拒绝。
-- **更新只换程序本体**：`data/`（战役库、补丁、配置）一个字节都不碰。
+- **更新只换程序本体**：战役库、补丁、存档一个字节都不碰；下载与解包只动数据根 `temp/`。
+- 更新包固定暂存在 `<数据根>/temp/updates/staging/`（不按版本建目录），`apply-update.cmd`
+  也在 `temp/updates/`；启动时整个 `temp/` 清空。
 - Windows 上覆盖不了正在运行的 exe，所以走 `.cmd` 重试脚本。
 
 ---

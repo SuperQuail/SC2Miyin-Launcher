@@ -2,8 +2,8 @@
 //! 「工具」里的解压界面也直接用 7-Zip 自己的窗口（嵌入到启动器窗口里）。
 //!
 //! 资产放在 src-tauri/assets/7zip/，构建时 include_bytes! 进 exe；
-//! 运行时解到 %LOCALAPPDATA%\net.miyin.launcher\tools\7zip\<版本>\（用户目录可写，
-//! 不碰游戏数据根），并通过 MIYIN_7Z 告诉 core 用哪个 7z.exe。
+//! 运行时解到 `<数据根>/tools/7zip-<版本>/`，数据根不可写时才退到
+//! `%LOCALAPPDATA%\net.miyin.launcher\tools\`，并通过 MIYIN_7Z 告诉 core 用哪个 7z.exe。
 //!
 //! 许可：7-Zip 是 LGPL-2.1+，随包附带 License.txt。
 
@@ -11,16 +11,25 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+use miyin_core::library::DataPaths;
+
 const VERSION: &str = "2605";
+
+/// 启动时定下的数据路径（7-Zip 解到 `<数据根>/tools`）。
+static PATHS: OnceLock<DataPaths> = OnceLock::new();
+/// 解压工具日志：`<数据根>/logs/sevenzip.log`。
+static LOG: OnceLock<PathBuf> = OnceLock::new();
 
 /// 解压工具窗口的调试日志（release 没控制台，出问题只能靠它）。
 fn log_line(text: &str) {
-    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+    let fallback = std::env::var_os("LOCALAPPDATA").map(|base| {
+        PathBuf::from(base)
+            .join("net.miyin.launcher")
+            .join("sevenzip-tool.log")
+    });
+    let Some(path) = LOG.get().cloned().or(fallback) else {
         return;
     };
-    let path = PathBuf::from(base)
-        .join("net.miyin.launcher")
-        .join("sevenzip-tool.log");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -83,46 +92,69 @@ pub(crate) fn ensure() -> Result<SevenZip, String> {
 }
 
 fn prepare() -> Result<SevenZip, String> {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .ok_or_else(|| "未找到 %LOCALAPPDATA%".to_string())?;
-    let dir = base
-        .join("net.miyin.launcher")
-        .join("tools")
-        .join(format!("7zip-{VERSION}"));
+    let suffix = format!("7zip-{VERSION}");
+    let mut candidates = Vec::new();
+    if let Some(paths) = PATHS.get() {
+        candidates.push(paths.tools.join(&suffix));
+    }
+    if let Some(base) = std::env::var_os("LOCALAPPDATA") {
+        candidates.push(
+            PathBuf::from(base)
+                .join("net.miyin.launcher")
+                .join("tools")
+                .join(&suffix),
+        );
+    }
 
+    let mut errors = Vec::new();
+    for dir in candidates {
+        match extract_into(&dir) {
+            Ok(console) => {
+                // SAFETY: 这条在 run() 启动早期调用（起线程/Tauri 之前），没有并发读环境变量。
+                unsafe {
+                    std::env::set_var("MIYIN_7Z", &console);
+                }
+                return Ok(SevenZip {
+                    console,
+                    gui: dir.join("7zFM.exe"),
+                });
+            }
+            Err(error) => errors.push(format!("{}：{error}", dir.display())),
+        }
+    }
+    Err(if errors.is_empty() {
+        "没有可写的工具目录，无法解出内嵌 7-Zip".to_string()
+    } else {
+        errors.join("；")
+    })
+}
+
+/// 把内嵌的 7-Zip 解到 `dir`；写不进去（只读 / 权限不足）时返回原因，由调用方换下一个候选。
+fn extract_into(dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("建目录失败：{e}"))?;
     let marker = dir.join(".ready");
     let missing = !marker.is_file();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("建 7-Zip 目录失败：{e}"))?;
 
     for asset in ASSETS {
         let path = dir.join(asset.name);
         if path.is_file() && !missing {
             continue;
         }
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("建目录失败：{e}"))?;
-        }
         std::fs::write(&path, asset.bytes).map_err(|e| format!("写 {} 失败：{e}", asset.name))?;
     }
     let _ = std::fs::write(&marker, VERSION.as_bytes());
 
     let console = dir.join("7z.exe");
-    let gui = dir.join("7zFM.exe");
-    if !console.is_file() || !gui.is_file() {
+    if !console.is_file() || !dir.join("7zFM.exe").is_file() {
         return Err("内嵌 7-Zip 解压失败".to_string());
     }
-
-    // SAFETY: 这条在 run() 启动早期调用（起线程/Tauri 之前），没有并发读环境变量。
-    unsafe {
-        std::env::set_var("MIYIN_7Z", &console);
-    }
-
-    Ok(SevenZip { console, gui })
+    Ok(console)
 }
 
 /// 启动入口里调用：失败只记日志，不拦启动（导入时还有系统 7z 兜底）。
-pub(crate) fn prepare_for_startup() {
+pub(crate) fn prepare_for_startup(paths: &DataPaths) {
+    let _ = PATHS.set(paths.clone());
+    let _ = LOG.set(paths.logs.join("sevenzip.log"));
     match ensure() {
         Ok(paths) => eprintln!("[miyin] 内嵌 7-Zip：{}", paths.console.display()),
         Err(error) => eprintln!("[miyin] 内嵌 7-Zip 不可用：{error}"),

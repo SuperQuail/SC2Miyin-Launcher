@@ -21,7 +21,7 @@ use crate::update::net::NetworkSettings;
 pub struct Staged {
     /// 新版本号。
     pub version: String,
-    /// 更新包本体（留着，失败了还能手动解开）。
+    /// 更新包本体（留在数据根 `temp/` 下；启动时清空）。
     pub archive: PathBuf,
     /// 解开后的目录。
     pub root: PathBuf,
@@ -34,9 +34,9 @@ pub struct Staged {
     pub bytes: u64,
 }
 
-/// 更新目录：`<data>/updates`。
+/// 更新暂存目录：`<data>/temp/updates`。
 pub fn updates_dir(data_dir: &Path) -> PathBuf {
-    data_dir.join("updates")
+    data_dir.join("temp").join("updates")
 }
 
 /// 下载一个发行包并解开，返回待安装的东西。
@@ -51,11 +51,17 @@ pub fn stage(
     version: &str,
     reporter: Reporter<'_>,
 ) -> Result<Staged> {
-    let root = updates_dir(data_dir).join(sanitize_version(version));
+    let root = updates_dir(data_dir).join("staging");
     if root.exists() {
         std::fs::remove_dir_all(&root)?;
     }
     std::fs::create_dir_all(&root)?;
+
+    // 下载 / 解包任何一步失败都删掉半成品；成功才让它留到安装。
+    let mut guard = StagingGuard {
+        root: root.clone(),
+        keep: false,
+    };
 
     let archive = root.join("package.zip");
     let outcome = check::download(asset, settings, &archive, reporter)?;
@@ -69,6 +75,7 @@ pub fn stage(
     reporter.say(format!("准备就绪：{}", executable.display()));
     reporter.say(format!("包内还有 {} 个附带文件会一起更新", extras.len()));
 
+    guard.keep = true;
     Ok(Staged {
         version: version.to_string(),
         archive,
@@ -80,22 +87,17 @@ pub fn stage(
     })
 }
 
-/// 把版本号里的危险字符换掉，当目录名用。
-fn sanitize_version(version: &str) -> String {
-    let cleaned: String = version
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if cleaned.is_empty() {
-        "unknown".to_string()
-    } else {
-        cleaned
+/// 暂存目录的守卫：失败时删掉半成品。
+struct StagingGuard {
+    root: PathBuf,
+    keep: bool,
+}
+
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        if !self.keep {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
     }
 }
 
@@ -251,10 +253,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sanitizes_version_for_directory_names() {
-        assert_eq!(sanitize_version("0.2.0-alpha.1"), "0.2.0-alpha.1");
-        assert_eq!(sanitize_version("v0.2.0/../evil"), "v0.2.0_.._evil");
-        assert_eq!(sanitize_version(""), "unknown");
+    fn an_unfinished_staging_dir_is_removed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let keep = dir.path().join("keep");
+        let gone = dir.path().join("gone");
+        std::fs::create_dir_all(&keep).expect("mkdir");
+        std::fs::create_dir_all(&gone).expect("mkdir");
+        std::fs::write(gone.join("package.zip"), b"partial").expect("write");
+
+        let mut kept = StagingGuard {
+            root: keep.clone(),
+            keep: false,
+        };
+        kept.keep = true;
+        drop(kept);
+        assert!(keep.exists(), "成功时暂存要留着");
+
+        drop(StagingGuard {
+            root: gone.clone(),
+            keep: false,
+        });
+        assert!(!gone.exists(), "失败时半成品要删掉");
     }
 
     #[test]

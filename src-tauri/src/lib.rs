@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use miyin_core::library::Library;
+use miyin_core::library::{DataPaths, Library};
 use miyin_core::sc2::{DiscoverySource, Installation};
 use miyin_core::update::apply::Staged;
 use miyin_core::update::net::NetworkSettings;
@@ -49,6 +49,8 @@ pub(crate) struct AppState {
     config_path: Mutex<Option<PathBuf>>,
     /// 战役库：存放玩家导入的各个版本（与游戏目录解耦）。
     library: Library,
+    /// 数据根下的固定布局：临时目录 / 工具 / 日志。
+    paths: DataPaths,
     /// 网络设置（代理 / 镜像 / 更新通道），落盘在 `network.json`。
     network: Mutex<NetworkSettings>,
     /// 网络设置文件的位置。
@@ -87,7 +89,8 @@ impl AppState {
     ///
     /// 安装位置和数据根在 [`run`] 里就已经定好了（要先把旧配置 / 注册表 / 用户手选跑完，
     /// 还要把旧 `data/` 搬过来）—— 这里不再自己 resolve，免得两条路各说各话。
-    fn bootstrap(installation: Installation, data_root: PathBuf, config_path: PathBuf) -> Self {
+    fn bootstrap(installation: Installation, paths: DataPaths, config_path: PathBuf) -> Self {
+        let data_root = paths.root.clone();
         // 网络设置与既有配置放同一目录
         let network_path = config_path
             .parent()
@@ -130,6 +133,7 @@ impl AppState {
             installation: Mutex::new(Some(installation)),
             config_path: Mutex::new(Some(config_path)),
             library,
+            paths,
             // 旧 `data/` 由 core 的 resolve_data_root 整个搬过来，不再走「合并案」那条路
             merge_plan: Mutex::new(None),
             network: Mutex::new(network),
@@ -356,9 +360,6 @@ pub fn run() {
         return;
     }
 
-    // 内嵌 7-Zip：解到用户目录并设置 MIYIN_7Z，导入 7z/rar 不再依赖系统装没装。
-    sevenzip::prepare_for_startup();
-
     // 低完整性目录（安全软件保护区、某些沙箱工作区）里的 exe 会被 Windows 以 Low 完整性
     // 启动：写不了 WebView2 profile，窗口必然建不出来。这里先给明确原因，别让用户猜。
     #[cfg(windows)]
@@ -389,6 +390,29 @@ pub fn run() {
         return;
     };
 
+    // 数据根固定布局：临时只进 temp，工具与日志在根下。
+    let paths = DataPaths::new(data_root);
+    if let Err(error) = paths.ensure() {
+        eprintln!("[miyin] 建数据目录没成功（{error}）：临时文件写入可能失败");
+    }
+    match paths.sweep_temp() {
+        Ok(0) => {}
+        Ok(removed) => eprintln!("[miyin] 清理临时目录：{removed} 项"),
+        Err(error) => eprintln!("[miyin] 清理临时目录失败：{error}"),
+    }
+    match paths.remove_legacy_dirs() {
+        0 => {}
+        removed => eprintln!("[miyin] 清理旧目录：{removed} 项"),
+    }
+    // SAFETY: 启动早期、尚未启动其它线程；worker 进程从本进程继承环境。
+    unsafe {
+        std::env::set_var("MIYIN_TEMP", &paths.temp);
+    }
+    platform::set_log_dir(paths.logs.clone());
+
+    // 内嵌 7-Zip：解到数据根 tools/，导入 7z/rar 不再依赖系统装没装。
+    sevenzip::prepare_for_startup(&paths);
+
     // 绿色版没有安装器 —— 机器上可能压根没装 WebView2 运行时，缺它时窗口根本建不出来。
     // 这里先自己补环境：边下边显示进度，成功就继续正常启动，取消 / 失败才退出
     // （原生进度窗与失败指引都在 webview2_install 里，见 AGENTS.md 第 14.9 节）。
@@ -398,7 +422,7 @@ pub fn run() {
         match platform::webview2_version() {
             Some(version) => eprintln!("[miyin] WebView2 {version}"),
             None => {
-                if let Err(reason) = webview2_install::ensure_runtime() {
+                if let Err(reason) = webview2_install::ensure_runtime(&paths.temp) {
                     eprintln!("[miyin] WebView2 自动补全没完成：{reason}");
                     return;
                 }
@@ -406,7 +430,7 @@ pub fn run() {
         }
         // 调试开关：这台机器已经装了运行时，用 MIYIN_WEBVIEW2_DEMO=1 强制再走一遍安装界面
         if webview2_install::demo_mode() {
-            if let Err(reason) = webview2_install::ensure_runtime() {
+            if let Err(reason) = webview2_install::ensure_runtime(&paths.temp) {
                 eprintln!("[miyin] WebView2 演示流程没走完：{reason}");
                 return;
             }
@@ -472,7 +496,7 @@ pub fn run() {
                 PANIC_QUIET.with(|quiet| quiet.set(true));
 
                 match std::panic::catch_unwind(move || {
-                    AppState::bootstrap(installation, data_root, config_path)
+                    AppState::bootstrap(installation, paths, config_path)
                 }) {
                     Ok(state) => {
                         handle.manage(state);

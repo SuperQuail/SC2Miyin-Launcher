@@ -46,9 +46,13 @@ pub struct ContentEntry {
 struct TempDir(PathBuf);
 
 impl TempDir {
-    /// 在系统临时目录下开一个唯一目录。
+    /// 在 `MIYIN_TEMP`（启动器设为 `<数据根>/temp`）下开一个唯一目录；
+    /// 没有这个变量（CLI / 测试）才退回系统临时目录。
     fn new() -> Result<Self> {
-        let base = std::env::temp_dir().join(format!(
+        let base_dir = std::env::var_os("MIYIN_TEMP")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let base = base_dir.join(format!(
             "miyin-unpack-{}-{}",
             std::process::id(),
             crate::library::unique_suffix()
