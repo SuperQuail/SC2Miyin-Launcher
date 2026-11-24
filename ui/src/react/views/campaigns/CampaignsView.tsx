@@ -133,7 +133,7 @@ export function CampaignsView(host: CampaignsHost) {
 
                 <div className="mt-3">
                   <button
-                    className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--accent)] transition-opacity hover:opacity-80"
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--gold)] transition-opacity hover:opacity-80"
                     type="button"
                     title="在 GitHub 上给 NeoBot 点 Star"
                     onClick={() => {
@@ -142,7 +142,7 @@ export function CampaignsView(host: CampaignsHost) {
                       });
                     }}
                   >
-                    <StarIcon />
+                    <ThumbUpIcon />
                     点 Star 支持作者
                   </button>
                 </div>
@@ -239,15 +239,11 @@ export function CampaignsView(host: CampaignsHost) {
   );
 }
 
-/** 图标库里没有点赞 / 竖大拇指，只有星标；这里用星标的路径。 */
-function StarIcon() {
+/** 项目图标库没有点赞图标；这里用 Material 的 thumb_up 路径。 */
+function ThumbUpIcon() {
   return (
-    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M8.52 1.648a.564.564 0 0 0-1.04 0L5.821 5.634l-4.303.345a.564.564 0 0 0-.322.99l3.278 2.808-1.001 4.199a.564.564 0 0 0 .842.612L8 12.338l3.684 2.25a.564.564 0 0 0 .842-.612l-1.001-4.199 3.278-2.808a.564.564 0 0 0-.322-.99l-4.303-.345-1.657-3.986Z"
-      />
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z" />
     </svg>
   );
 }

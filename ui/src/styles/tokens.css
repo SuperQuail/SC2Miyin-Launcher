@@ -29,6 +29,9 @@
   --outline: #cdd5e5;
   --outline-strong: #aab5ca;
 
+  /* 支持作者入口的金色（浅色主题用深金保证对比度） */
+  --gold: #9a6a00;
+
   /* 语义色 */
   --success: #2e7d32;
   --success-soft: #d7f2d8;
@@ -80,6 +83,9 @@
   --accent-soft: #2e436e;
   --accent-softer: #25324d;
   --on-accent: #ffffff;
+
+  /* 深色主题的金色更亮 */
+  --gold: #f2c14e;
 
   --success: #6fbf73;
   --success-soft: #253b26;
