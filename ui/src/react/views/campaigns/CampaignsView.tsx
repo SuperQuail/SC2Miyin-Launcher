@@ -131,6 +131,22 @@ export function CampaignsView(host: CampaignsHost) {
                   {host.installation.root}
                 </p>
 
+                <div className="mt-3">
+                  <button
+                    className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--accent)] transition-opacity hover:opacity-80"
+                    type="button"
+                    title="在 GitHub 上给 NeoBot 点 Star"
+                    onClick={() => {
+                      void api.openUrl("https://github.com/SuperQuail/NeoBot/").catch((error) => {
+                        host.notify("error", errorText(error));
+                      });
+                    }}
+                  >
+                    <StarIcon />
+                    点 Star 支持作者
+                  </button>
+                </div>
+
                 <div className="hero__actions">
                   <button className="btn btn-primary btn-lg" type="button" onClick={host.launch}>
                     开始游戏
@@ -220,5 +236,18 @@ export function CampaignsView(host: CampaignsHost) {
         )}
       </div>
     </div>
+  );
+}
+
+/** 图标库里没有点赞 / 竖大拇指，只有星标；这里用星标的路径。 */
+function StarIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M8.52 1.648a.564.564 0 0 0-1.04 0L5.821 5.634l-4.303.345a.564.564 0 0 0-.322.99l3.278 2.808-1.001 4.199a.564.564 0 0 0 .842.612L8 12.338l3.684 2.25a.564.564 0 0 0 .842-.612l-1.001-4.199 3.278-2.808a.564.564 0 0 0-.322-.99l-4.303-.345-1.657-3.986Z"
+      />
+    </svg>
   );
 }
